@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fleet.activity-log-watchdog</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/christiandonovan/.claude/hooks/activity-log-watchdog.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ACTLOG_DIR</key>
+    <string>/Users/christiandonovan/Documents/Obsidian/_activity_logs</string>
+    <key>ACTLOG_STATE</key>
+    <string>/Users/christiandonovan/.claude/state/actlog</string>
+    <key>ACTLOG_CHECK_DAY</key>
+    <string>yesterday</string>
+    <key>ACTLOG_MIN_BYTES</key>
+    <string>200</string>
+    <!-- ACTLOG_ALERT_CMD intentionally UNSET until the Telegram/Hermes send is wired by
+         the XO (firstmate is harness-blocked from the prod Mini's Hermes creds). Until
+         then the watchdog falls back to a marker file + macOS notification — never silent. -->
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>8</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/christiandonovan/.claude/state/actlog/watchdog.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/christiandonovan/.claude/state/actlog/watchdog.log</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
