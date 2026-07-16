@@ -79,7 +79,7 @@ Keep instructions as the authority and discovery layer, but make repeated execut
 - Put one full sentence per line in tracked Markdown.
 - Never wrap multiple sentences onto one physical line.
 - Plain dash `-`, never an em dash.
-- Agents are first-class contributors: keep the `Co-Authored-By` trailer crediting the agent that did the work, and never strip it.
+- Keep the `Co-Authored-By` trailer naming the model that produced the work, and never strip it; the commit author stays the accountable human.
 - `bin/*.sh` and `bin/backends/*.sh` must pass `shellcheck`.
 - Run `bin/fm-lint.sh` before treating a script change as done; it is the single owner of the lint definition (file set, config, and pinned shellcheck version) that CI and the no-mistakes pre-push gate both invoke, and it refuses to run under any other shellcheck version.
 - Colocate tests with the existing pattern in `tests/`, name them `<subject>.test.sh`, and extend an existing script rather than inventing a new runner.
