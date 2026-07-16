@@ -3,7 +3,7 @@ name: firstmate-coding-guidelines
 description: >-
   Agent-only reference for changing firstmate's shared, tracked material per AGENTS.md section 1.
   Use before editing any of that material, whether working as firstmate directly or as a crewmate briefed on a firstmate-repo task.
-  Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, AGENTS.md size discipline, trigger hygiene for new skills, and repo style rules (one sentence per line, plain dash, no agent co-author, shellcheck-clean bin scripts, colocated tests, and backend-verification evidence).
+  Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, AGENTS.md size discipline, trigger hygiene for new skills, and repo style rules (one sentence per line, plain dash, agent co-author trailers kept, shellcheck-clean bin scripts, colocated tests, and backend-verification evidence).
 user-invocable: false
 metadata:
   internal: true
@@ -79,7 +79,7 @@ Keep instructions as the authority and discovery layer, but make repeated execut
 - Put one full sentence per line in tracked Markdown.
 - Never wrap multiple sentences onto one physical line.
 - Plain dash `-`, never an em dash.
-- Never add an agent name as a commit co-author.
+- Agents are first-class contributors: keep the `Co-Authored-By` trailer crediting the agent that did the work, and never strip it.
 - `bin/*.sh` and `bin/backends/*.sh` must pass `shellcheck`.
 - Run `bin/fm-lint.sh` before treating a script change as done; it is the single owner of the lint definition (file set, config, and pinned shellcheck version) that CI and the no-mistakes pre-push gate both invoke, and it refuses to run under any other shellcheck version.
 - Colocate tests with the existing pattern in `tests/`, name them `<subject>.test.sh`, and extend an existing script rather than inventing a new runner.
