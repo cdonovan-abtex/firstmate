@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# commit-msg - an agent's commit must name the model that produced it.
+#
+# Enforces the trailer rule stated in AGENTS.md section 1. That rule is the
+# owner; this hook is only its gate, and deliberately restates no part of it.
+#
+# Gates AGENT commits only. A human committing by hand owes no trailer, because
+# a human genuinely wrote the work. Harness detection is delegated whole to
+# bin/fm-harness.sh so a newly verified adapter is gated the day it is added
+# there, with nothing to remember here.
+#
+# Checks PRESENCE, not the model string. Model names change with every release;
+# a hook that pinned them would fail closed on the next one and teach everybody
+# to pass --no-verify, which is worse than no gate at all.
+#
+# Install: git config core.hooksPath .githooks
+set -u
+
+MSG_FILE=${1:-}
+[ -n "$MSG_FILE" ] && [ -f "$MSG_FILE" ] || exit 0
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HARNESS_BIN="$HOOK_DIR/../bin/fm-harness.sh"
+
+# Undetectable harness means no gate: a hook that cannot tell who is committing
+# must not block a human. Failing open here is the safe direction - the cost is
+# a missed trailer, while failing closed would wedge the captain's own commits.
+[ -x "$HARNESS_BIN" ] || exit 0
+harness=$("$HARNESS_BIN" 2>/dev/null) || exit 0
+[ -n "$harness" ] && [ "$harness" != "unknown" ] || exit 0
+
+# Strip comments the way git does before judging the message body, so a trailer
+# a human typed under the scissors line is not counted.
+if grep -v '^#' "$MSG_FILE" | grep -qiE '^Co-authored-by:[[:space:]]*[^[:space:]]'; then
+  exit 0
+fi
+
+cat >&2 <<EOF
+commit-msg: refusing an unattributed agent commit (harness: $harness).
+
+This commit has no Co-Authored-By trailer, so the record would credit the
+work entirely to the human author, who did not write it. Add the model that
+produced it as the last line of the message:
+
+    Co-Authored-By: <Model Name> <noreply@example.com>
+
+See AGENTS.md section 1 for what the trailer is for.
+EOF
+exit 1
