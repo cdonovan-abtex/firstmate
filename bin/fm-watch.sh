@@ -7,8 +7,8 @@
 # actively-running no-mistakes step, or a backend busy signal), and surfaced
 # otherwise, so a crew that finishes (or stops and waits) without a current
 # working signal is never silently swallowed. A declared external-wait pause is
-# the separate idle absorb case and re-surfaces only on its long bounded cadence,
-# although its initial no-verb status signal still surfaces in normal mode.
+# the separate idle absorb case for both signal and stale paths and re-surfaces
+# only on its long bounded cadence.
 # While state/.afk exists, the daemon owns triage and this watcher queues and exits
 # on every wake. Printed reason lines:
 #   signal: <file>...      status/turn-end signals, surfaced when a listed status
@@ -129,8 +129,9 @@ BUSY_REGEX=${FM_BUSY_REGEX:-'esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'}
 STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provably-working stale escalates as a possible wedge
 # A crew that declared a pause is idling on a known external wait, so its stale
 # pane is absorbed rather than wedge-escalated.
-# A captain-held or paused crew whose agent has confidently exited uses the same
-# bounded cadence, while a live or ambiguously read agent still surfaces once.
+# A current authoritative paused state uses the bounded cadence regardless of
+# endpoint liveness. A stale paused/captain-held log is recovered only when the
+# agent is confidently dead; ambiguous stale logs still surface once.
 # These cases re-surface once for a recheck every PAUSE_RESURFACE_SECS - far
 # longer than the wedge threshold, but finite so a forgotten hold cannot rot invisibly.
 PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
@@ -345,14 +346,6 @@ pause_state_class() {  # <window> <task>
     return
   fi
   if [ -e "$STATE/.paused-$key" ] && [ "$(age_of "$recheck_file")" -lt "$STALE_ESCALATE_SECS" ]; then
-    if [ "$(window_kind "$win")" != secondmate ]; then
-      agent_alive=$(fm_backend_agent_alive "$(window_backend "$win")" "$win" 2>/dev/null) || agent_alive=unknown
-      if [ "$agent_alive" != dead ]; then
-        rm -f "$recheck_file"
-        printf 'none'
-        return
-      fi
-    fi
     printf 'paused'
     return
   fi
@@ -360,6 +353,11 @@ pause_state_class() {  # <window> <task>
   if [ "$class" = working ]; then
     rm -f "$recheck_file"
     printf 'working'
+    return
+  fi
+  if [ "$class" = paused ]; then
+    date +%s > "$recheck_file"
+    printf 'paused'
     return
   fi
   if [ "$(window_kind "$win")" != secondmate ]; then
@@ -509,6 +507,26 @@ run_check_capture() {
 
 # Surfaced-marker bookkeeping for the heartbeat backstop is owned by
 # fm-push-transition-lib.sh because push and poll paths must write one format.
+# The watcher records the captain-relevant status line it SURFACED (woke
+# firstmate for) in .hb-surfaced-<task>, the watcher's analogue of the daemon's
+# .subsuper-seen-status. Unlike .seen-* (a size:mtime signature advanced on BOTH
+# surface and absorb), .hb-surfaced is advanced ONLY on surface, so the heartbeat
+# fleet-scan can tell apart a captain-relevant status that already woke firstmate
+# from one that has not - the latter being a per-wake-path miss it must surface.
+
+# 0 when <task>'s current captain-relevant status line is exactly the event a
+# prior signal/stale path already surfaced. This is the cross-path dedupe seam:
+# a successor watcher may observe the same idle pane immediately after the
+# status signal closed its predecessor, but that unchanged event is not a second
+# actionable notification.
+captain_status_already_surfaced() {  # <task>
+  local task=$1 last surfaced
+  last=$(last_status_line "$STATE/$task.status")
+  status_is_captain_relevant "$last" || return 1
+  surfaced=$(cat "$(_hb_surfaced_path "$task")" 2>/dev/null || true)
+  [ -n "$surfaced" ] && [ "$surfaced" = "$last" ]
+}
+
 # Mark every current captain-relevant status as surfaced. Called after the
 # heartbeat backstop enqueues its wake, so the same statuses are not re-surfaced
 # by the next heartbeat.
@@ -787,18 +805,17 @@ EOF
     # Triage: a signal is ACTIONABLE when any of these holds (cheapest first):
     #   - the away-mode daemon owns triage (afk) and wants every wake;
     #   - any status file carries a captain-relevant verb;
-    #   - or it is a no-verb wake (a bare turn-end, a working: note) whose crew is
-    #     NOT provably working - the crew stopped its turn with no actively-running
-    #     pipeline and no busy pane, so it may be done (even via an interactive menu
-    #     that wrote no done: status), waiting on a decision, or wedged. Absorbing
-    #     such a turn-end is exactly the swallowed-finish this change guards against.
+    #   - or it is a no-verb wake (a bare turn-end, a working: note) whose crew has
+    #     neither an actively-running pipeline/busy pane nor an authoritative
+    #     declared pause. Such a crew may be done (even via an interactive menu
+    #     that wrote no done: status), waiting on a decision, or wedged.
     # Actionable -> enqueue, advance .seen-* markers, exit. Benign (a no-verb wake
-    # whose crew IS provably working) in always-on mode -> advance the markers so it
-    # will not re-fire, log, and keep blocking without enqueuing. The provably-working
+    # whose crew IS working or paused) in always-on mode -> advance the markers so
+    # it will not re-fire, log, and keep blocking without enqueuing. The absorb-class
     # check is the only costly one (it may run a bounded no-mistakes call), so the ||
     # ordering evaluates it ONLY for a non-afk, no-captain-verb signal.
     # shellcheck disable=SC2086  # $files is a space-separated status-path list (ids carry no spaces)
-    if afk_present || signal_reason_is_actionable $files || ! signal_crew_provably_working $files; then
+    if afk_present || signal_reason_is_actionable $files || ! signal_crews_absorbable $files; then
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         fm_wake_append signal "$(basename "$f")" "$reason" || exit 1
@@ -889,7 +906,12 @@ EOF
           # authoritative source fm-crew-state.sh itself already prioritizes
           # over the log) a chance to override before trusting the log.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
-            if crew_is_provably_working "$(window_to_task "$w" "$STATE")"; then
+            task=$(window_to_task "$w" "$STATE")
+            if captain_status_already_surfaced "$task"; then
+              printf '%s' "$h" > "$sf"
+              rm -f "$ssf"
+              triage_log "absorbed stale duplicate of surfaced status: $w"
+            elif crew_is_provably_working "$task"; then
               printf '%s' "$h" > "$sf"
               date +%s > "$ssf"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"

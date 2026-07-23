@@ -35,6 +35,22 @@ No adapter starts a replacement with shell `&`.
 
 The turn-end guard remains the final backstop rather than the normal continuity mechanism and cooperates with the auto-arm in its `--claude` mode.
 
+## Notification boundary
+
+`bin/fm-watch.sh` is the single harness-neutral owner of whether a supervision observation is actionable enough to close a watcher cycle.
+Claude and Grok expose that close through native background-task completion, Codex exposes it through a foreground checkpoint, and the Pi and OpenCode adapters restore continuity before delivering it.
+Those adapters must not reclassify task state because a backend-neutral decision in the watcher keeps all five primary harnesses aligned.
+
+The signal and stale paths both reuse `bin/fm-classify-lib.sh`'s authoritative `working|paused|none` crew classification.
+An unchanged authoritative `paused` state advances the signal and stale suppressors without enqueuing or closing the cycle.
+A real `needs-decision`, `blocked`, `done`, or `failed` status still enqueues before suppression and closes exactly one cycle.
+The stale path reuses the existing surfaced-status marker to absorb the successor's observation of that same unchanged terminal event, which prevents a second adapter prompt after the first drain already consumed the durable rows.
+Authenticated checks remain independent actionable sources, so a quiet paused service stays silent while a healthy check prints nothing and wakes when that check reports a failure.
+
+This boundary is runtime-backend independent.
+Tmux, Zellij, Orca, and cmux feed the same polling classifier through capture and busy-state fallbacks, while Herdr's native push path retains its shared transition policy and declared-pause exemption before returning to the same poll backstop.
+No runtime adapter gains a notification policy, cross-home suppression, or process-wide kill path from this behavior.
+
 ## Arm-layer cycle contract
 
 `bin/fm-watch-arm.sh` never returns a clean empty success.
@@ -59,6 +75,31 @@ The same suite covers ordinary same-process session replacement for `/new`, `/re
 `tests/fm-claude-stop-autoarm.test.sh` covers the auto-arm's scope, stale and live session owners, unchanged AFK and need boundaries, single-flight, and exit-2 translation.
 `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` starts with the reproduced stale-lock state, runs session start first, completes two tokenless cycles, and checks the competing-live-owner negative control.
 `tests/fm-turnend-guard.test.sh` covers the cooperative `--claude` guard.
+`tests/fm-watch-triage.test.sh` deterministically holds the signal grace window open while a working event is superseded by `paused` plus turn-end, then proves the unchanged idle pane remains in the same quiet watcher cycle.
+The same suite proves `needs-decision`, `blocked`, `done`, and `failed` each close one cycle while the successor absorbs the unchanged terminal stale observation.
+`tests/fm-wake-queue.test.sh` proves a registered service-health check remains silent during a healthy pause and preserves the queued actionable wake when the service fails.
+
+## Deterministic notification-noise verification, 2026-07-23
+
+The end-user reproduction used the event order observed for `epicoracle-quoting-devserver-v1`: a working service-ready event entered signal grace, the same turn appended `paused` and turn-end, and the successor then observed the unchanged idle pane.
+Before the fix, the fixture printed `signal: ...task.status ...task.turn-ended` and completed the watcher.
+After the fix, the same process remained live with no reason output or queue row and entered the existing pause cadence.
+
+Command: `tests/fm-watch-triage.test.sh`.
+Observed results included `ok - a signal superseded by unchanged paused state stays in one quiet watcher cycle` and `ok - needs-decision, blocked, done, and failed each wake once without a stale successor duplicate`.
+
+Command: `tests/fm-wake-queue.test.sh`.
+Observed result included `ok - a paused service's health check stays silent while healthy and wakes on failure`.
+
+Commands: `tests/fm-supervision-events.test.sh`, `tests/fm-transition-lib.test.sh`, `tests/fm-supervision-instructions.test.sh`, `tests/fm-watch-checkpoint.test.sh`, and `tests/fm-pi-watch-extension.test.sh`.
+Observed result: every deterministic primary-harness and Herdr push assertion passed.
+
+Commands: `tests/fm-backend.test.sh`, `tests/fm-backend-herdr.test.sh`, `tests/fm-backend-zellij.test.sh`, `tests/fm-backend-orca.test.sh`, and `tests/fm-backend-cmux.test.sh`.
+Observed result: every runtime-backend unit assertion passed.
+No live Herdr lifecycle command was necessary because this change does not alter lifecycle mechanics, session targeting, or the backend event producer.
+
+Command: `bin/fm-lint.sh` with pinned ShellCheck 0.11.0.
+Observed result: exit 0 with no findings.
 
 ## Active limits and verification
 

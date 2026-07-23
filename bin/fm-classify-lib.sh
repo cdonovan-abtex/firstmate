@@ -363,6 +363,31 @@ crew_is_paused() {  # <id>
   [ "$(crew_absorb_class "$1")" = paused ]
 }
 
+# 0 (benign/absorb) if EVERY task referenced by a no-verb "signal:" wake has an
+# authoritative absorb class: actively working or deliberately paused.
+# A paused status/turn-end pair is the signal-path form of the same declared wait
+# the stale path already absorbs, so it must not complete the watcher first and
+# create a harness prompt before stale classification gets a chance to run.
+# Returns 1 if any task is stopped/unknown, or if no task can be resolved.
+signal_crews_absorbable() {  # <file> ...
+  local f base task seen="" class
+  for f in "$@"; do
+    base=${f##*/}
+    case "$base" in
+      *.status)     task=${base%.status} ;;
+      *.turn-ended) task=${base%.turn-ended} ;;
+      *)            continue ;;
+    esac
+    [ -n "$task" ] || continue
+    case " $seen " in *" $task "*) continue ;; esac
+    seen="$seen $task"
+    class=$(crew_absorb_class "$task")
+    case "$class" in working|paused) ;; *) return 1 ;; esac
+  done
+  [ -n "$seen" ] || return 1
+  return 0
+}
+
 # 0 (benign/absorb) if EVERY task referenced by a no-verb "signal:" wake is provably
 # working; 1 (actionable/surface) if any is not, or no task can be resolved. Pass the
 # same space-separated file list as signal_reason_is_actionable. Files are mapped to

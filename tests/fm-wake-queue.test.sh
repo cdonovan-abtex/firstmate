@@ -144,31 +144,44 @@ test_not_working_stale_enqueue_before_suppressor() {
   pass "a not-provably-working stale wake is queued before its suppressor is advanced"
 }
 
-test_check_output_is_queued() {
-  local dir state fakebin out drain_out check_file
+test_paused_health_check_stays_quiet_until_failure() {
+  local dir state fakebin out drain_out check_file pid
   dir=$(make_case check)
   state="$dir/state"
   fakebin="$dir/fakebin"
   out="$dir/watch.out"
   drain_out="$dir/drain.out"
   check_file="$state/task.check.sh"
+  printf 'paused: healthy loopback service awaiting review\n' > "$state/task.status"
   printf '%s\n' fm-pr-check-migration-scan-v1 > "$state/.pr-check-migration-scan-v1"
   printf '%s\n' fm-pr-check-migration-v1 > "$state/.pr-check-migration-v1"
   chmod 0600 "$state/.pr-check-migration-scan-v1" "$state/.pr-check-migration-v1"
   cat > "$check_file" <<'SH'
 #!/usr/bin/env bash
-printf 'merged: https://example.test/pr/1\n'
+[ -e "${FM_STATE_OVERRIDE:?}/health-failed" ] || exit 0
+printf 'health failure: loopback service unavailable\n'
 SH
   chmod 0700 "$check_file"
   FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" task >/dev/null \
     || fail "could not register queue custom check"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  wait_for_exit "$!" 40 || fail "watcher did not exit for check output"
-  grep -F "check: $check_file: merged: https://example.test/pr/1" "$out" >/dev/null || fail "watcher did not print check wake"
+  PATH="$fakebin:$PATH" FM_FAKE_CREW_STATE='state: paused · source: status-log · healthy loopback service awaiting review' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  sleep 3
+  is_live_non_zombie "$pid" || { wait "$pid" 2>/dev/null || true; fail "healthy paused-service check completed the watcher"; }
+  [ ! -s "$out" ] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fail "healthy paused-service check printed a wake: $(cat "$out")"; }
+  [ ! -s "$state/.wake-queue" ] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fail "healthy paused-service check enqueued a wake"; }
+
+  : > "$state/health-failed"
+  wait_for_exit "$pid" 40 || fail "watcher did not exit for paused-service health failure"
+  grep -F "check: $check_file: health failure: loopback service unavailable" "$out" >/dev/null \
+    || fail "watcher did not print paused-service health failure"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after check wake failed"
-  grep "$(printf '\tcheck\t')" "$drain_out" | grep -F "$check_file" | grep -F 'merged: https://example.test/pr/1' >/dev/null || fail "check wake was not queued"
+  grep "$(printf '\tcheck\t')" "$drain_out" | grep -F "$check_file" | grep -F 'health failure: loopback service unavailable' >/dev/null \
+    || fail "paused-service health failure was not queued"
   [ -e "$state/.last-check" ] || fail "check cadence marker was not written after queue append"
-  pass "registered custom check output is queued before cadence suppression"
+  pass "a paused service's health check stays silent while healthy and wakes on failure"
 }
 
 test_atomic_double_drain() {
@@ -433,7 +446,7 @@ test_concurrent_append_and_drain
 test_signal_catchup_without_running_watcher
 test_stale_enqueue_before_suppressor
 test_not_working_stale_enqueue_before_suppressor
-test_check_output_is_queued
+test_paused_health_check_stays_quiet_until_failure
 test_atomic_double_drain
 test_drain_dedupes_obvious_duplicates
 test_drain_asserts_watcher_liveness
