@@ -113,6 +113,90 @@ test_routine_no_action_response_is_event_scoped() {
   pass "routine no-action response is exact and scoped to its event"
 }
 
+test_section_9_owns_durable_verified_lavish_handoff() {
+  local contract block count start end
+  contract=$(section_9)
+  block=$(printf '%s\n' "$contract" | grep -nE \
+    '^(Before giving the captain any localhost or Lavish URL|Publish captain-facing Lavish HTML|Label each handoff)')
+  count=$(printf '%s\n' "$block" | grep -c .)
+  [ "$count" -eq 3 ] \
+    || fail "the durable Lavish handoff owner must be exactly three physical lines, found $count"
+  start=$(printf '%s\n' "$block" | head -1 | cut -d: -f1)
+  end=$(printf '%s\n' "$block" | tail -1 | cut -d: -f1)
+  [ $((end - start)) -eq 2 ] \
+    || fail "the three durable Lavish handoff lines must be contiguous in section 9"
+  if printf '%s\n' "$block" | grep -qE '\. [A-Z]'; then
+    fail "each durable Lavish handoff line must be a single sentence"
+  fi
+
+  # Verification standard: a rendered surface, not a status code or a shell.
+  assert_contains "$contract" "browser-open that exact URL and prove the intended content rendered" \
+    "section 9 does not require browser-opening the exact captain-facing URL"
+  assert_contains "$contract" "one safe reversible non-feedback interaction where applicable" \
+    "section 9 does not require a genuine interaction"
+  assert_contains "$contract" 'never treat an HTTP 200 response or editor-shell markup as proof' \
+    "section 9 lets a status code or an editor shell stand in for rendered content"
+  assert_contains "$contract" 'a unique `CHROME_DEVTOOLS_AXI_PORT`' \
+    "section 9 does not pin verification to a task-owned bridge port"
+  assert_contains "$contract" "never verify through the captain's active browser" \
+    "section 9 permits verifying through the captain's own browser"
+
+  # Durable publication roots, and the disposable ones that produce dead links.
+  assert_contains "$contract" '`90_AI_Exports/<topic>/`' \
+    "section 9 lost the operator-owned vault publication root"
+  assert_contains "$contract" 'a repository'"'"'s durable `.lavish/`' \
+    "section 9 lost the durable repository .lavish/ publication root"
+  assert_contains "$contract" '`$FM_HOME/data/handoffs/<artifact>/`' \
+    "section 9 lost the Firstmate private data publication root"
+  for forbidden in \
+    '/private/tmp/claude-501/.../scratchpad/' \
+    '/private/tmp/claude-*/.../scratchpad/' \
+    'generic `/tmp/`' \
+    'an unlanded or disposable task copy' \
+    'a disposable `.lavish/`'; do
+    assert_contains "$contract" "$forbidden" \
+      "section 9 does not prohibit publishing captain-facing Lavish HTML from $forbidden"
+  done
+  assert_contains "$contract" 'never by writing under `projects/`' \
+    "the handoff rule weakens the never-write-to-a-project boundary"
+
+  # One named owner per handoff, or an explicit dead-input-channel warning.
+  assert_contains "$contract" 'Label each handoff `LIVE` with a named owner actively running `lavish-axi poll`' \
+    "section 9 does not require a named live owner for a LIVE handoff"
+  assert_contains "$contract" 'completes the `decision-hold-lifecycle` gate before ending the review' \
+    "section 9 does not route handoff completion through the decision-hold gate"
+  assert_contains "$contract" 'or `STATIC` with an explicit warning that annotations reach nobody' \
+    "section 9 does not require a STATIC handoff to warn that annotations reach nobody"
+  assert_contains "$contract" 'pending prompt without a live owner as unread captain input requiring immediate escalation' \
+    "section 9 does not escalate captain input that nobody is reading"
+
+  pass "section 9 owns the durable verified Lavish handoff rule in three lines"
+}
+
+test_durable_handoff_owner_loads_through_the_claude_symlink() {
+  local claude
+  claude="$ROOT/CLAUDE.md"
+  [ -L "$claude" ] || fail "CLAUDE.md must stay a symlink so Claude loads the same owner as Firstmate and Pi"
+  [ "$(readlink "$claude")" = AGENTS.md ] \
+    || fail "CLAUDE.md must point at AGENTS.md, found $(readlink "$claude")"
+  assert_grep 'Before giving the captain any localhost or Lavish URL' "$claude" \
+    "the durable Lavish handoff owner is not visible through CLAUDE.md"
+  assert_grep 'Publish captain-facing Lavish HTML only under' "$claude" \
+    "the durable publication roots are not visible through CLAUDE.md"
+  assert_grep 'Label each handoff `LIVE` with a named owner' "$claude" \
+    "the live-owner labeling rule is not visible through CLAUDE.md"
+  pass "one durable handoff owner loads through both AGENTS.md and the CLAUDE.md symlink"
+}
+
+test_durable_handoff_owner_is_not_duplicated_into_skills() {
+  local duplicates
+  duplicates=$(grep -rlF 'Publish captain-facing Lavish HTML only under' \
+    "$ROOT/.agents/skills" "$ROOT/skills" "$ROOT/docs" "$ROOT/README.md" 2>/dev/null || true)
+  [ -z "$duplicates" ] \
+    || fail "the durable Lavish handoff rule must stay owned by AGENTS.md section 9, also found in: $duplicates"
+  pass "the durable Lavish handoff rule has exactly one owner"
+}
+
 test_outward_facing_skill_points_reference_section_9_owner() {
   assert_grep "using \`AGENTS.md\` section 9's captain-facing translation contract" "$BOOTSTRAP" \
     "bootstrap diagnostics do not reference section 9 at captain handoff"
@@ -284,6 +368,9 @@ test_compressed_safety_labels_have_plain_renderings
 test_mapping_list_covers_high_risk_internal_families
 test_verbatim_internal_evidence_is_rejected_from_chat
 test_routine_no_action_response_is_event_scoped
+test_section_9_owns_durable_verified_lavish_handoff
+test_durable_handoff_owner_loads_through_the_claude_symlink
+test_durable_handoff_owner_is_not_duplicated_into_skills
 test_outward_facing_skill_points_reference_section_9_owner
 test_section_9_owner_is_not_duplicated_into_skills
 test_ahoy_is_an_internal_user_invocable_skill
