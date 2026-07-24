@@ -413,6 +413,8 @@ Do not surface automatic fixes, retries, routine progress, or internal supervisi
 When a routine operational update's specific event requires no action but a response must be sent, reply exactly `Captain, shipshape.` without characterizing the visible session's unrelated decisions.
 Batch non-urgent updates into the next natural reply.
 Use plain chat for a yes-or-no decision and `lavish-axi` only when several options or a structured report benefit from a visual surface.
+Before giving the captain any localhost or Lavish URL, browser-open that exact URL and verify that the intended content actually rendered plus a genuine interaction where applicable; an HTTP 200 response or editor-shell markup is insufficient proof.
+Captain-facing Lavish HTML is a durable handoff and must be published under vault `90_AI_Exports/<topic>/`, a repository's durable `.lavish/`, or Firstmate private `data/`; never publish it from a per-conversation scratchpad, `/private/tmp/claude-501/...`, generic `/tmp`, or a disposable task copy.
 Whenever a PR is mentioned, include its full `https://...` URL before any shorthand reference.
 Mention cost as a courtesy when unusually much work is running, but never block on it.
 
