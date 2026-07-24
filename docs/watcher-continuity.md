@@ -44,7 +44,9 @@ Those adapters must not reclassify task state because a backend-neutral decision
 The signal and stale paths both reuse `bin/fm-classify-lib.sh`'s authoritative `working|paused|none` crew classification.
 An unchanged authoritative `paused` state advances the signal and stale suppressors without enqueuing or closing the cycle.
 A real `needs-decision`, `blocked`, `done`, or `failed` status still enqueues before suppression and closes exactly one cycle.
-The stale path reuses the existing surfaced-status marker to absorb the successor's observation of that same unchanged terminal event, which prevents a second adapter prompt after the first drain already consumed the durable rows.
+That guarantee survives a same-turn `paused:` line appended after the decision: the paused absorb consults `status_open_decisions`, the authoritative durable fold, rather than the last status line, so a masked open decision surfaces once instead of waiting out the pause cadence.
+The stale path absorbs the successor's observation of an unchanged terminal event through a one-shot token armed by the path that surfaced it, which prevents a second adapter prompt after the first drain already consumed the durable rows.
+That token is deliberately separate from the heartbeat backstop's surfaced-status marker and is consumed by the single observation it deduped, so the next distinct pane observation - a crash or resume prompt, an interactive menu that reports a finish with no new status line - still surfaces.
 An authoritative `working` state outranks that dedupe seam, because only the provably-working absorb arms the wedge timer that still escalates a genuinely frozen run on an unchanged pane.
 Authenticated checks remain independent actionable sources, so a quiet paused service stays silent while a healthy check prints nothing and wakes when that check reports a failure.
 
@@ -77,7 +79,7 @@ The same suite covers ordinary same-process session replacement for `/new`, `/re
 `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` starts with the reproduced stale-lock state, runs session start first, completes two tokenless cycles, and checks the competing-live-owner negative control.
 `tests/fm-turnend-guard.test.sh` covers the cooperative `--claude` guard.
 `tests/fm-watch-triage.test.sh` deterministically holds the signal grace window open while a working event is superseded by `paused` plus turn-end, then proves the unchanged idle pane remains in the same quiet watcher cycle.
-The same suite proves `needs-decision`, `blocked`, `done`, and `failed` each close one cycle while the successor absorbs the unchanged terminal stale observation.
+The same suite proves `needs-decision`, `blocked`, `done`, and `failed` each close one cycle while the successor absorbs the unchanged terminal stale observation, that a `needs-decision` or `blocked` masked by a later `paused:` line still closes exactly one cycle, and that the successor dedupe releases after one observation so a new pane event behind an unchanged terminal status still escalates.
 `tests/fm-wake-queue.test.sh` proves a registered service-health check remains silent during a healthy pause and preserves the queued actionable wake when the service fails.
 
 ## Deterministic notification-noise verification, 2026-07-23

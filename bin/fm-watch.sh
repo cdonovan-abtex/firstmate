@@ -112,14 +112,17 @@ BUSY_REGEX=${FM_BUSY_REGEX:-'esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'}
 # working: note or turn-end while a pipeline runs, a no-change heartbeat). Rather
 # than wake firstmate's LLM for each, this watcher classifies every wake in bash
 # and ABSORBS the benign majority - it advances the suppression marker, logs to a
-# debug log, and keeps blocking WITHOUT enqueuing or exiting. The no-verb signal
-# / stale path is absorb-only-when-provably-working: such a wake is absorbed ONLY
-# while the crew shows positive evidence it is still working (an actively-running
-# no-mistakes step, or a busy pane, via crew_is_provably_working over
-# fm-crew-state.sh); a crew that stopped its turn with no running pipeline and no
-# busy pane is SURFACED, so a finish reported only through interactive pane menus
-# (no done: status) is never swallowed. An ACTIONABLE wake (a captain-relevant
-# signal, a no-verb signal whose crew is not provably working, any check, a stale
+# debug log, and keeps blocking WITHOUT enqueuing or exiting. The no-verb signal /
+# stale path absorbs only the two authoritative absorb classes from
+# fm-crew-state.sh (crew_absorb_class): `working` - positive evidence the crew is
+# still working (an actively-running no-mistakes step, or a busy pane) - and
+# `paused` - a declared external wait, which is absorbed only while the crew's
+# durable decision fold (status_open_decisions) is empty, so a needs-decision the
+# same turn superseded with paused: still surfaces. A crew that stopped its turn
+# with no running pipeline, no busy pane and no declared pause is SURFACED, so a
+# finish reported only through interactive pane menus (no done: status) is never
+# swallowed. An ACTIONABLE wake (a captain-relevant signal, a no-verb signal whose
+# crew is not absorbable, any check, a stale
 # pane whose crew is not provably working, a provably-working stale past the
 # threshold, or anything unknown) is written to the durable queue and exits, which
 # is what wakes the LLM through the background-task completion. The same classifier
@@ -514,17 +517,47 @@ run_check_capture() {
 # fleet-scan can tell apart a captain-relevant status that already woke firstmate
 # from one that has not - the latter being a per-wake-path miss it must surface.
 
+# Cross-path dedupe seam, kept SEPARATE from .hb-surfaced-<task>: that marker is a
+# fleet-wide "already woke firstmate" record the heartbeat backstop owns and the
+# heartbeat sweep writes for every task, so reading it here would suppress panes
+# no per-task surface ever covered, and it never expires. This marker is a
+# ONE-SHOT token instead - armed by the exact path that surfaced a captain-relevant
+# status and exits, consumed by the single successor observation that re-reads the
+# same idle pane. After that one absorb the token is gone, so a genuinely NEW pane
+# event (a crash/resume prompt, an interactive "Continue? [y/n]" menu - the
+# finish-through-a-menu case that must never be swallowed) surfaces normally.
+_stale_dupe_path() {  # <task>
+  printf '%s/.stale-dupe-%s' "$STATE" "$(printf '%s' "$1" | tr ':/.' '___')"
+}
+
+# Arm the one-shot token for the captain-relevant status just surfaced from
+# <status-file>. A non-captain-relevant (or absent) last line clears any stale
+# token, so the seam can never outlive the event it describes.
+arm_stale_dupe() {  # <status-file>
+  local f=$1 task last
+  case "$f" in *.status) ;; *) return 0 ;; esac
+  task=$(basename "$f"); task="${task%.status}"
+  last=$(last_status_line "$f")
+  if [ -n "$last" ] && status_is_captain_relevant "$last"; then
+    printf '%s' "$last" > "$(_stale_dupe_path "$task")"
+  else
+    rm -f "$(_stale_dupe_path "$task")"
+  fi
+}
+
 # 0 when <task>'s current captain-relevant status line is exactly the event a
-# prior signal/stale path already surfaced. This is the cross-path dedupe seam:
-# a successor watcher may observe the same idle pane immediately after the
-# status signal closed its predecessor, but that unchanged event is not a second
-# actionable notification.
-captain_status_already_surfaced() {  # <task>
-  local task=$1 last surfaced
+# prior signal/stale path already surfaced AND that surface still has its unused
+# successor token. Consumes the token either way, so this returns 0 at most once
+# per surfaced status.
+consume_stale_dupe() {  # <task>
+  local task=$1 last token tf
+  tf=$(_stale_dupe_path "$task")
+  [ -f "$tf" ] || return 1
+  token=$(cat "$tf" 2>/dev/null || true)
+  rm -f "$tf"
   last=$(last_status_line "$STATE/$task.status")
   status_is_captain_relevant "$last" || return 1
-  surfaced=$(cat "$(_hb_surfaced_path "$task")" 2>/dev/null || true)
-  [ -n "$surfaced" ] && [ "$surfaced" = "$last" ]
+  [ -n "$token" ] && [ "$token" = "$last" ]
 }
 
 # Mark every current captain-relevant status as surfaced. Called after the
@@ -826,6 +859,7 @@ EOF
         [ -n "$sf" ] || continue
         printf '%s' "$sig" > "$sf"
         mark_surfaced "$f"
+        arm_stale_dupe "$f"
       done <<EOF
 $pending
 EOF
@@ -906,12 +940,11 @@ EOF
           # authoritative source fm-crew-state.sh itself already prioritizes
           # over the log) a chance to override before trusting the log.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
-            task=$(window_to_task "$w" "$STATE")
             if crew_is_provably_working "$task"; then
               printf '%s' "$h" > "$sf"
               date +%s > "$ssf"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
-            elif captain_status_already_surfaced "$task"; then
+            elif consume_stale_dupe "$task"; then
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
               triage_log "absorbed stale duplicate of surfaced status: $w"
@@ -919,7 +952,8 @@ EOF
               fm_wake_append stale "$w" "stale: $w" || exit 1
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
-              mark_surfaced "$STATE/$(window_to_task "$w" "$STATE").status"
+              mark_surfaced "$STATE/$task.status"
+              arm_stale_dupe "$STATE/$task.status"
               wake "stale: $w"
             fi
           elif [ -e "$ssf" ]; then

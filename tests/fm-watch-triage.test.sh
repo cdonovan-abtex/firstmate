@@ -297,8 +297,24 @@ test_signal_crews_absorbable_classifier() {
   export FM_FAKE_CREW_STATE_b='state: paused · source: status-log · awaiting review'
   signal_crews_absorbable "$state/a.status" "$state/b.turn-ended" \
     || fail "a coalesced working plus paused signal batch was not absorbable"
-  unset FM_FAKE_CREW_STATE_a FM_FAKE_CREW_STATE_b
-  pass "signal_crews_absorbable: absorbs only authoritative working/paused crews and surfaces stopped/terminal/unresolved crews"
+  # A paused crew is absorbable only while its durable decision fold is empty: a
+  # needs-decision the SAME turn superseded with paused: reads paused from both the
+  # last line and the authoritative state, so only status_open_decisions sees it.
+  export FM_FAKE_CREW_STATE_c='state: paused · source: status-log · waiting for captain'
+  printf 'paused: waiting for captain\n' > "$state/c.status"
+  signal_crews_absorbable "$state/c.status" "$state/c.turn-ended" \
+    || fail "a declared pause with no open decision was not absorbable"
+  printf 'needs-decision [key=api-shape]: which port?\npaused: waiting for captain\n' > "$state/c.status"
+  ! signal_crews_absorbable "$state/c.status" "$state/c.turn-ended" \
+    || fail "a paused crew masking a still-open needs-decision was absorbable"
+  printf 'blocked [key=creds]: no deploy token\npaused: waiting for captain\n' > "$state/c.status"
+  ! signal_crews_absorbable "$state/c.status" "$state/c.turn-ended" \
+    || fail "a paused crew masking a still-open blocked was absorbable"
+  printf 'needs-decision [key=api-shape]: which port?\nresolved [key=api-shape]: bind 4173\npaused: waiting for captain\n' > "$state/c.status"
+  signal_crews_absorbable "$state/c.status" "$state/c.turn-ended" \
+    || fail "a paused crew whose decision was resolved was not absorbable"
+  unset FM_FAKE_CREW_STATE_a FM_FAKE_CREW_STATE_b FM_FAKE_CREW_STATE_c
+  pass "signal_crews_absorbable: absorbs only authoritative working/paused crews and surfaces stopped/terminal/unresolved crews and masked open decisions"
 }
 
 # --- benign wakes are absorbed ONLY when the crew is provably working ---------
@@ -387,6 +403,56 @@ SH
   [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "unchanged paused pane did not enter quiet pause cadence"; }
   reap "$pid"
   pass "a signal superseded by unchanged paused state stays in one quiet watcher cycle"
+}
+
+# Counterexample to the pause absorb above: the SAME turn can append an actionable
+# needs-decision/blocked and then paused: (a crew that asks and then declares it is
+# waiting). The last status line and the authoritative crew state both read paused,
+# so only the durable status_open_decisions fold distinguishes this from a routine
+# external wait. It must still wake the captain exactly once.
+test_paused_signal_masking_open_decision_surfaces_once() {
+  local event dir state fakebin out drain_out capture_file window pid rows
+  for event in 'needs-decision [key=api-shape]' 'blocked [key=creds]'; do
+    dir=$(make_case "paused-masks-${event%% *}"); state="$dir/state"; fakebin="$dir/fakebin"
+    out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+    window="test:fm-masked"
+    printf 'idle awaiting captain\n' > "$capture_file"
+    printf 'window=%s\nkind=ship\n' "$window" > "$state/masked.meta"
+    printf '%s: which port should the dev server bind?\npaused: waiting for captain\n' \
+      "$event" > "$state/masked.status"
+    : > "$state/masked.turn-ended"
+
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+      FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting for captain' \
+      FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_PAUSE_RESURFACE_SECS=999999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+    pid=$!
+    wait_for_exit "$pid" 40 || { reap "$pid"; fail "a paused status masking an open ${event%% *} never surfaced"; }
+    grep -F "signal: $state/masked.status" "$out" >/dev/null \
+      || fail "masked open ${event%% *} did not surface through the signal path: $(cat "$out")"
+    FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null \
+      || fail "drain after a masked open ${event%% *} failed"
+    rows=$(grep -c "$(printf '\tsignal\t')" "$drain_out" || true)
+    [ "$rows" -ge 1 ] || fail "masked open ${event%% *} was not queued durably"
+
+    # Re-arm on the unchanged state: the suppressors advanced with the surface, so
+    # the same open decision must not re-fire a second signal wake.
+    : > "$out"
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+      FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting for captain' \
+      FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_PAUSE_RESURFACE_SECS=999999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+    pid=$!
+    if ! wait_live "$pid" 60; then
+      reap "$pid"
+      fail "the unchanged masked open ${event%% *} surfaced a second time: $(cat "$out")"
+    fi
+    [ ! -s "$out" ] || { reap "$pid"; fail "the unchanged masked open ${event%% *} printed a second reason: $(cat "$out")"; }
+    reap "$pid"
+  done
+  pass "a needs-decision or blocked masked by a later paused: line still wakes exactly once"
 }
 
 test_turn_ended_provably_working_absorbed() {
@@ -536,6 +602,63 @@ test_terminal_signal_suppresses_duplicate_stale() {
   pass "needs-decision, blocked, done, and failed each wake once without a stale successor duplicate"
 }
 
+# The successor dedupe above must be BOUNDED to the one observation it deduped.
+# The status line alone is not the key: a crew can report "done:" once and then
+# have its pane produce a genuinely new event with no new status line - a crash or
+# resume prompt, an interactive "Continue? [y/n]" menu. That is exactly the
+# finish-through-a-menu case the triage contract says must never be swallowed, so
+# the next distinct stale hash has to surface.
+test_stale_dedupe_releases_after_one_duplicate() {
+  local dir state fakebin out1 out2 out3 capture_file window key pane_hash pid
+  dir=$(make_case stale-dedupe-bounded); state="$dir/state"; fakebin="$dir/fakebin"
+  out1="$dir/watch-1.out"; out2="$dir/watch-2.out"; out3="$dir/watch-3.out"
+  capture_file="$dir/pane.txt"
+  window="test:fm-bounded"
+  printf 'idle after terminal report\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/bounded.meta"
+  printf 'done: PR ready\n' > "$state/bounded.status"
+  export FM_FAKE_CREW_STATE='state: stopped · source: none · agent idle'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out1" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "the done: status signal did not surface"
+  [ -s "$state/.stale-dupe-bounded" ] || fail "the surfaced done: status did not arm a successor-dedupe token"
+
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle after terminal report")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out2" &
+  pid=$!
+  if ! wait_live "$pid" 40; then
+    reap "$pid"; fail "the successor surfaced the deduped observation: $(cat "$out2")"
+  fi
+  reap "$pid"
+  [ ! -e "$state/.stale-dupe-bounded" ] \
+    || fail "the one-shot dedupe token survived the observation it absorbed"
+
+  # A genuinely new pane event with the SAME unchanged done: status line.
+  printf 'Session crashed. Continue? [y/n]\n' > "$capture_file"
+  pane_hash=$(hash_text "Session crashed. Continue? [y/n]")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out3" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "a new pane observation behind an already-surfaced done: was swallowed forever"; }
+  grep -Fx "stale: $window" "$out3" >/dev/null \
+    || fail "the new pane observation did not surface as a stale wake: $(cat "$out3")"
+  awk -F '\t' '$3 == "stale" { found=1 } END { exit !found }' "$state/.wake-queue" \
+    || fail "the new pane observation was not queued durably"
+  unset FM_FAKE_CREW_STATE
+  pass "the successor stale dedupe releases after one observation, so a new pane event still escalates"
+}
+
 # --- stale pane, STALE terminal status overridden by an active run: absorbed ---
 # Regression for the 2026-07 herdr false-surface incidents: a crew's own status
 # log gets no new entry once firstmate hands it to a no-mistakes validation
@@ -611,8 +734,9 @@ test_surfaced_terminal_stale_still_arms_wedge_timer() {
   last='done: implementation complete, ready to validate'
   printf '%s\n' "$last" > "$state/revalidating.status"
   sig=$(seen_sig "$state/revalidating.status"); printf '%s' "$sig" > "$state/.seen-revalidating_status"
-  # The captain already saw this exact done: line via the signal path.
-  printf '%s' "$last" > "$state/.hb-surfaced-revalidating"
+  # The captain already saw this exact done: line via the signal path, which
+  # armed the one-shot successor-dedupe token.
+  printf '%s' "$last" > "$state/.stale-dupe-revalidating"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "no-mistakes axi run: validating...")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
@@ -1457,12 +1581,14 @@ test_crew_absorb_class_classifier
 test_signal_crews_absorbable_classifier
 test_provably_working_signal_absorbed
 test_signal_superseded_by_unchanged_pause_stays_quiet
+test_paused_signal_masking_open_decision_surfaces_once
 test_turn_ended_provably_working_absorbed
 test_turn_ended_not_working_surfaced
 test_working_note_not_working_surfaced
 test_actionable_signal_surfaced
 test_terminal_stale_surfaced
 test_terminal_signal_suppresses_duplicate_stale
+test_stale_dedupe_releases_after_one_duplicate
 test_stale_terminal_status_overridden_by_active_run
 test_surfaced_terminal_stale_still_arms_wedge_timer
 test_nonterminal_stale_provably_working_absorbed_then_escalated

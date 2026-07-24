@@ -233,6 +233,15 @@ status_open_decisions() {  # <status-file>
   printf '%s' "$open"
 }
 
+# 0 if <status-file>'s durable fold still holds an unresolved needs-decision or
+# blocked. Every absorb path that reads only the LAST status line must consult
+# this before staying quiet: a later paused:/done:/working: line masks a still-open
+# decision in a last-line read, and status_open_decisions is the authoritative
+# statement of that fold.
+status_has_open_decision() {  # <status-file>
+  [ -n "$(status_open_decisions "$1")" ]
+}
+
 # Fold material routed-work phases in the same keyed event stream.
 # A working or declared-pause event opens or replaces one phase for its key.
 # A later done, failed, needs-decision, blocked, or resolved event carrying that
@@ -369,12 +378,17 @@ crew_is_paused() {  # <id>
 # A paused status/turn-end pair is the signal-path form of the same declared wait
 # the stale path already absorbs, so it must not complete the watcher first and
 # create a harness prompt before stale classification gets a chance to run.
+# A paused crew is absorbable ONLY while its durable decision fold is empty: the
+# authoritative state and the last status line both read paused when the same turn
+# appended "needs-decision ...:" and then "paused: ...", so absorbing on that read
+# alone would swallow the decision wake entirely until the hour-long pause cadence.
+# status_has_open_decision is the fold that sees through that masking.
 # Pass the same space-separated file list as signal_reason_is_actionable; files are
 # mapped to task ids by stripping the .status / .turn-ended suffix. Returns 1 if any
 # task is stopped/unknown, and 1 for an empty/unresolvable list, because a no-verb
 # wake with nothing authoritatively absorbable must surface.
 signal_crews_absorbable() {  # <file> ...
-  local f base task seen="" class
+  local f base task seen="" class dir
   for f in "$@"; do
     base=${f##*/}
     case "$base" in
@@ -385,8 +399,13 @@ signal_crews_absorbable() {  # <file> ...
     [ -n "$task" ] || continue
     case " $seen " in *" $task "*) continue ;; esac
     seen="$seen $task"
+    case "$f" in */*) dir=${f%/*} ;; *) dir=. ;; esac
     class=$(crew_absorb_class "$task")
-    case "$class" in working|paused) ;; *) return 1 ;; esac
+    case "$class" in
+      working) ;;
+      paused)  ! status_has_open_decision "$dir/$task.status" || return 1 ;;
+      *)       return 1 ;;
+    esac
   done
   [ -n "$seen" ] || return 1
   return 0
