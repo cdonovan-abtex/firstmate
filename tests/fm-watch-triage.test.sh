@@ -275,35 +275,30 @@ test_crew_absorb_class_classifier() {
   pass "crew_absorb_class: working/paused/none from one read; crew_is_paused and crew_is_provably_working agree"
 }
 
-# signal_crew_provably_working: a no-verb "signal:" wake is benign ONLY when EVERY
-# task it references is provably working; if any crew has stopped, or no task can be
-# resolved, it surfaces. Files map to ids by stripping .status / .turn-ended.
-test_signal_crew_provably_working_classifier() {
+# signal_crews_absorbable: a no-verb "signal:" wake is benign ONLY when EVERY task it
+# references is authoritatively working or paused; if any crew has stopped, or no task
+# can be resolved, it surfaces. Files map to ids by stripping .status / .turn-ended.
+test_signal_crews_absorbable_classifier() {
   local dir fakebin state
-  dir=$(make_case signal-provably-working); fakebin="$dir/fakebin"; state="$dir/state"
+  dir=$(make_case signal-absorbable); fakebin="$dir/fakebin"; state="$dir/state"
   export FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh"
   export FM_FAKE_CREW_STATE_a='state: working · source: run-step · running'
   export FM_FAKE_CREW_STATE_b='state: done · source: run-step · run passed'
-  signal_crew_provably_working "$state/a.status" "$state/a.turn-ended" \
-    || fail "a single provably-working crew (status+turn-end) was not benign"
-  ! signal_crew_provably_working "$state/a.status" "$state/b.turn-ended" \
-    || fail "a coalesced batch including a stopped crew was treated as benign"
-  ! signal_crew_provably_working "$state/b.turn-ended" \
-    || fail "a stopped crew's bare turn-end was treated as benign"
-  ! signal_crew_provably_working "$state/a.meta" \
-    || fail "a non-signal file resolved to a benign verdict"
-  ! signal_crew_provably_working \
-    || fail "an empty signal file list was treated as benign"
+  signal_crews_absorbable "$state/a.status" "$state/a.turn-ended" \
+    || fail "a single provably-working crew (status+turn-end) was not absorbable"
+  ! signal_crews_absorbable "$state/a.status" "$state/b.turn-ended" \
+    || fail "a coalesced signal batch including a terminal crew was absorbable"
+  ! signal_crews_absorbable "$state/b.turn-ended" \
+    || fail "a stopped crew's bare turn-end was absorbable"
+  ! signal_crews_absorbable "$state/a.meta" \
+    || fail "an unresolvable signal file was absorbable"
+  ! signal_crews_absorbable \
+    || fail "an empty signal file list was treated as absorbable"
   export FM_FAKE_CREW_STATE_b='state: paused · source: status-log · awaiting review'
   signal_crews_absorbable "$state/a.status" "$state/b.turn-ended" \
     || fail "a coalesced working plus paused signal batch was not absorbable"
-  export FM_FAKE_CREW_STATE_b='state: done · source: run-step · run passed'
-  ! signal_crews_absorbable "$state/a.status" "$state/b.turn-ended" \
-    || fail "a coalesced signal batch including a terminal crew was absorbable"
-  ! signal_crews_absorbable "$state/a.meta" \
-    || fail "an unresolvable signal file was absorbable"
   unset FM_FAKE_CREW_STATE_a FM_FAKE_CREW_STATE_b
-  pass "signal classifiers absorb only authoritative working/paused crews and surface stopped/terminal/unresolved crews"
+  pass "signal_crews_absorbable: absorbs only authoritative working/paused crews and surfaces stopped/terminal/unresolved crews"
 }
 
 # --- benign wakes are absorbed ONLY when the crew is provably working ---------
@@ -598,6 +593,57 @@ test_stale_terminal_status_overridden_by_active_run() {
   grep -F "possible wedge" "$out" >/dev/null || fail "escalation did not flag a possible wedge"
   unset FM_FAKE_CREW_STATE
   pass "a stale terminal-looking status is overridden and absorbed while a run is actively working, then wedge-escalated"
+}
+
+# --- stale pane, ALREADY-SURFACED terminal status, run still active -----------
+# The two absorb reasons overlap here: the leftover "done:" line was already
+# surfaced once (so the cross-path dedupe would swallow it), AND the crew is
+# provably working. The provably-working reason must win, because only it arms
+# the wedge timer - absorbing as a mere duplicate would leave a genuinely frozen
+# validation on an unchanged hash with nothing left to escalate it.
+test_surfaced_terminal_stale_still_arms_wedge_timer() {
+  local dir state fakebin out capture_file window key pane_hash sig last pid
+  dir=$(make_case surfaced-terminal-stale-wedge); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-revalidating"
+  printf 'no-mistakes axi run: validating...' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/revalidating.meta"
+  last='done: implementation complete, ready to validate'
+  printf '%s\n' "$last" > "$state/revalidating.status"
+  sig=$(seen_sig "$state/revalidating.status"); printf '%s' "$sig" > "$state/.seen-revalidating_status"
+  # The captain already saw this exact done: line via the signal path.
+  printf '%s' "$last" > "$state/.hb-surfaced-revalidating"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "no-mistakes axi run: validating...")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 30; then
+    reap "$pid"; fail "watcher exited for an already-surfaced terminal status a run overrides (should absorb): $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "the already-surfaced stale terminal status printed a wake reason: $(cat "$out")"; }
+  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "the already-surfaced stale terminal status enqueued a wake"; }
+  [ -s "$state/.stale-since-$key" ] || { reap "$pid"; fail "dedupe swallowed the wedge timer for a provably-working crew"; }
+  reap "$pid"
+
+  # The validation genuinely freezes on this unchanged hash: the armed timer
+  # must still escalate it.
+  echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "a frozen run behind an already-surfaced terminal status never escalated"
+  grep -F "stale: $window" "$out" >/dev/null || fail "escalation did not print a stale wake"
+  grep -F "possible wedge" "$out" >/dev/null || fail "escalation did not flag a possible wedge"
+  unset FM_FAKE_CREW_STATE
+  pass "an already-surfaced terminal status still arms the wedge timer while its run is active"
 }
 
 # --- non-terminal stale, crew provably working: absorbed, then wedge-escalated ---
@@ -1408,7 +1454,7 @@ test_classifier_primitives
 test_crew_is_provably_working_classifier
 test_status_is_paused_classifier
 test_crew_absorb_class_classifier
-test_signal_crew_provably_working_classifier
+test_signal_crews_absorbable_classifier
 test_provably_working_signal_absorbed
 test_signal_superseded_by_unchanged_pause_stays_quiet
 test_turn_ended_provably_working_absorbed
@@ -1418,6 +1464,7 @@ test_actionable_signal_surfaced
 test_terminal_stale_surfaced
 test_terminal_signal_suppresses_duplicate_stale
 test_stale_terminal_status_overridden_by_active_run
+test_surfaced_terminal_stale_still_arms_wedge_timer
 test_nonterminal_stale_provably_working_absorbed_then_escalated
 test_wedge_escalation_marks_demand_deep_inspection_after_threshold
 test_wedge_escalation_resets_when_pane_becomes_active

@@ -907,14 +907,14 @@ EOF
           # over the log) a chance to override before trusting the log.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
             task=$(window_to_task "$w" "$STATE")
-            if captain_status_already_surfaced "$task"; then
-              printf '%s' "$h" > "$sf"
-              rm -f "$ssf"
-              triage_log "absorbed stale duplicate of surfaced status: $w"
-            elif crew_is_provably_working "$task"; then
+            if crew_is_provably_working "$task"; then
               printf '%s' "$h" > "$sf"
               date +%s > "$ssf"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
+            elif captain_status_already_surfaced "$task"; then
+              printf '%s' "$h" > "$sf"
+              rm -f "$ssf"
+              triage_log "absorbed stale duplicate of surfaced status: $w"
             else
               fm_wake_append stale "$w" "stale: $w" || exit 1
               printf '%s' "$h" > "$sf"

@@ -301,8 +301,9 @@ window_to_task() {
 # captain-relevant last line; 1 otherwise. Pass the space-separated file list that
 # follows the "signal:" prefix. Non-.status arguments (e.g. .turn-ended markers,
 # which never carry a verb) are skipped. A 1 here is NOT "benign" on its own: a
-# no-verb signal (a bare turn-end, a working: note) is only benign when the crew is
-# also provably working (signal_crew_provably_working below); otherwise it surfaces.
+# no-verb signal (a bare turn-end, a working: note) is only benign when every crew it
+# references is also working or paused (signal_crews_absorbable below); otherwise it
+# surfaces.
 signal_reason_is_actionable() {  # <file> ...
   local f last
   for f in "$@"; do
@@ -368,7 +369,10 @@ crew_is_paused() {  # <id>
 # A paused status/turn-end pair is the signal-path form of the same declared wait
 # the stale path already absorbs, so it must not complete the watcher first and
 # create a harness prompt before stale classification gets a chance to run.
-# Returns 1 if any task is stopped/unknown, or if no task can be resolved.
+# Pass the same space-separated file list as signal_reason_is_actionable; files are
+# mapped to task ids by stripping the .status / .turn-ended suffix. Returns 1 if any
+# task is stopped/unknown, and 1 for an empty/unresolvable list, because a no-verb
+# wake with nothing authoritatively absorbable must surface.
 signal_crews_absorbable() {  # <file> ...
   local f base task seen="" class
   for f in "$@"; do
@@ -383,29 +387,6 @@ signal_crews_absorbable() {  # <file> ...
     seen="$seen $task"
     class=$(crew_absorb_class "$task")
     case "$class" in working|paused) ;; *) return 1 ;; esac
-  done
-  [ -n "$seen" ] || return 1
-  return 0
-}
-
-# 0 (benign/absorb) if EVERY task referenced by a no-verb "signal:" wake is provably
-# working; 1 (actionable/surface) if any is not, or no task can be resolved. Pass the
-# same space-separated file list as signal_reason_is_actionable. Files are mapped to
-# task ids by stripping the .status / .turn-ended suffix; a no-verb wake with nothing
-# provably working must surface, so an empty/unresolvable list returns 1.
-signal_crew_provably_working() {  # <file> ...
-  local f base task seen=""
-  for f in "$@"; do
-    base=${f##*/}
-    case "$base" in
-      *.status)     task=${base%.status} ;;
-      *.turn-ended) task=${base%.turn-ended} ;;
-      *)            continue ;;
-    esac
-    [ -n "$task" ] || continue
-    case " $seen " in *" $task "*) continue ;; esac
-    seen="$seen $task"
-    crew_is_provably_working "$task" || return 1
   done
   [ -n "$seen" ] || return 1
   return 0

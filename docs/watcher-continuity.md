@@ -45,6 +45,7 @@ The signal and stale paths both reuse `bin/fm-classify-lib.sh`'s authoritative `
 An unchanged authoritative `paused` state advances the signal and stale suppressors without enqueuing or closing the cycle.
 A real `needs-decision`, `blocked`, `done`, or `failed` status still enqueues before suppression and closes exactly one cycle.
 The stale path reuses the existing surfaced-status marker to absorb the successor's observation of that same unchanged terminal event, which prevents a second adapter prompt after the first drain already consumed the durable rows.
+An authoritative `working` state outranks that dedupe seam, because only the provably-working absorb arms the wedge timer that still escalates a genuinely frozen run on an unchanged pane.
 Authenticated checks remain independent actionable sources, so a quiet paused service stays silent while a healthy check prints nothing and wakes when that check reports a failure.
 
 This boundary is runtime-backend independent.
