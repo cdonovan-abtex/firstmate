@@ -188,6 +188,28 @@ test_durable_handoff_owner_loads_through_the_claude_symlink() {
   pass "one durable handoff owner loads through both AGENTS.md and the CLAUDE.md symlink"
 }
 
+test_browser_verification_rejects_system_chrome_and_ambiguous_cleanup() {
+  local contract
+  contract=$(section_9)
+  assert_contains "$contract" 'a fresh task-launched Chrome for Testing browser or installed Chromium with a distinct application-bundle identity' \
+    "browser verification does not require an automation browser with a distinct application identity"
+  assert_contains "$contract" 'an isolated profile or context' \
+    "browser verification does not require a task-isolated profile or context"
+  assert_contains "$contract" 'never launch `/Applications/Google Chrome.app` for automation even headless' \
+    "browser verification permits the Captain's system Chrome bundle"
+  assert_contains "$contract" "borrow the captain's browser, profile, tabs, or debugging endpoint" \
+    "browser verification does not prohibit borrowing the Captain's live browser surfaces"
+  assert_contains "$contract" 'record the exact owned browser, context, and process handles at launch' \
+    "browser verification does not record exact task-owned handles"
+  assert_contains "$contract" 'close only those exact handles and that bridge on its own port immediately afterward' \
+    "browser verification permits ambiguous cleanup"
+  assert_contains "$contract" 'never use a blanket Chrome quit, broad `pkill`, or AppleScript stop' \
+    "browser verification permits broad browser shutdown"
+  assert_contains "$contract" 'park verification without navigation or cleanup when isolation and ownership cannot be proven' \
+    "browser verification does not park when task ownership is unproven"
+  pass "browser verification rejects system Chrome and closes only exact task-owned handles"
+}
+
 test_durable_handoff_owner_is_not_duplicated_into_skills() {
   local duplicates
   duplicates=$(grep -rlF 'Publish captain-facing Lavish HTML only under' \
@@ -370,6 +392,7 @@ test_verbatim_internal_evidence_is_rejected_from_chat
 test_routine_no_action_response_is_event_scoped
 test_section_9_owns_durable_verified_lavish_handoff
 test_durable_handoff_owner_loads_through_the_claude_symlink
+test_browser_verification_rejects_system_chrome_and_ambiguous_cleanup
 test_durable_handoff_owner_is_not_duplicated_into_skills
 test_outward_facing_skill_points_reference_section_9_owner
 test_section_9_owner_is_not_duplicated_into_skills
