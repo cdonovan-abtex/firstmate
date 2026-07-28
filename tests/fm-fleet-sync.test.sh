@@ -11,6 +11,8 @@
 #     instead of a quiet skip.
 # The pre-existing fast-forward / already-current / local-only / no-origin paths
 # must be unchanged, and bootstrap must relay the new outcomes as FLEET_SYNC lines.
+# Exactly one untracked root CAPTAINS-LOG.md is the sole dirty-tree exception;
+# tracked edits, additional dirt, nested logs, and similar names remain blocking.
 #
 # It also pins the orphaned .git/packed-refs.lock recovery in the fetch step
 # (fetch_with_packed_refs_lock_guard, backed by bin/fm-lock-lib.sh's shared
@@ -274,6 +276,121 @@ test_dirty_is_stuck_untouched() {
   [ "$(head_sha "$clone")" = "$before" ] || fail "dirty clone HEAD was moved"
   grep -q "uncommitted edit" "$clone/file.txt" || fail "dirty working-tree change was discarded"
   pass "dirty working tree is reported STUCK and left untouched"
+}
+
+test_lone_untracked_root_captains_log_allows_sync() {
+  local home clone out content
+  home=$(new_home)
+  clone=$(build_pair "$home" captains-log-lone)
+  advance_origin "$home" captains-log-lone C1
+  content='Captain-owned local content'
+  printf '%s\n' "$content" > "$clone/CAPTAINS-LOG.md"
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_contains "$out" "captains-log-lone: synced" "lone root CAPTAINS-LOG allows fast-forward"
+  assert_not_contains "$out" "STUCK" "lone root CAPTAINS-LOG is not treated as general dirt"
+  [ "$(head_sha "$clone")" = "$(git -C "$clone" rev-parse origin/main)" ] \
+    || fail "lone root CAPTAINS-LOG: clone was not fast-forwarded"
+  [ "$(cat "$clone/CAPTAINS-LOG.md")" = "$content" ] \
+    || fail "lone root CAPTAINS-LOG: local content changed"
+  [ "$(git -C "$clone" status --porcelain)" = "?? CAPTAINS-LOG.md" ] \
+    || fail "lone root CAPTAINS-LOG: file was hidden, staged, or otherwise changed"
+  pass "exactly one untracked root CAPTAINS-LOG.md remains visible and allows sync"
+}
+
+test_untracked_captains_log_keeps_git_overwrite_protection() {
+  local home clone out before content
+  home=$(new_home)
+  clone=$(build_pair "$home" captains-log-conflict)
+  before=$(head_sha "$clone")
+  content='Local Captain content must survive'
+  printf '%s\n' "$content" > "$clone/CAPTAINS-LOG.md"
+  commit_file "$home/work-captains-log-conflict" CAPTAINS-LOG.md upstream "publish conflicting log"
+  git -C "$home/work-captains-log-conflict" push -q origin main
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_contains "$out" "captains-log-conflict: skipped: fast-forward failed" \
+    "untracked CAPTAINS-LOG retains Git overwrite refusal"
+  [ "$(head_sha "$clone")" = "$before" ] || fail "conflicting untracked CAPTAINS-LOG: clone was advanced"
+  [ "$(cat "$clone/CAPTAINS-LOG.md")" = "$content" ] \
+    || fail "conflicting untracked CAPTAINS-LOG: local content was overwritten"
+  [ "$(git -C "$clone" status --porcelain)" = "?? CAPTAINS-LOG.md" ] \
+    || fail "conflicting untracked CAPTAINS-LOG: file no longer remains visible and untracked"
+  pass "an untracked CAPTAINS-LOG.md retains Git's overwrite protection"
+}
+
+test_tracked_captains_log_modification_is_stuck() {
+  local home clone out before
+  home=$(new_home)
+  clone=$(build_pair "$home" captains-log-tracked)
+  commit_file "$home/work-captains-log-tracked" CAPTAINS-LOG.md upstream "track Captain log"
+  git -C "$home/work-captains-log-tracked" push -q origin main
+  git -C "$clone" pull --ff-only --quiet
+  advance_origin "$home" captains-log-tracked C2
+  before=$(head_sha "$clone")
+  printf 'local tracked edit\n' >> "$clone/CAPTAINS-LOG.md"
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_contains "$out" "captains-log-tracked: STUCK:" "tracked CAPTAINS-LOG edit reports STUCK"
+  assert_contains "$out" "uncommitted changes" "tracked CAPTAINS-LOG edit remains dirty"
+  [ "$(head_sha "$clone")" = "$before" ] || fail "tracked CAPTAINS-LOG edit: clone was advanced"
+  grep -q 'local tracked edit' "$clone/CAPTAINS-LOG.md" \
+    || fail "tracked CAPTAINS-LOG edit was discarded"
+  pass "a tracked CAPTAINS-LOG.md modification remains blocking"
+}
+
+test_untracked_captains_log_plus_second_dirty_path_is_stuck() {
+  local home clone out before
+  home=$(new_home)
+  clone=$(build_pair "$home" captains-log-plus-dirt)
+  advance_origin "$home" captains-log-plus-dirt C1
+  before=$(head_sha "$clone")
+  printf 'Captain-owned local content\n' > "$clone/CAPTAINS-LOG.md"
+  printf 'second dirty path\n' > "$clone/other.txt"
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_contains "$out" "captains-log-plus-dirt: STUCK:" "CAPTAINS-LOG plus second dirt reports STUCK"
+  [ "$(head_sha "$clone")" = "$before" ] || fail "CAPTAINS-LOG plus second dirt: clone was advanced"
+  assert_present "$clone/CAPTAINS-LOG.md" "CAPTAINS-LOG plus second dirt: log was removed"
+  assert_present "$clone/other.txt" "CAPTAINS-LOG plus second dirt: second path was removed"
+  pass "an untracked CAPTAINS-LOG.md plus any second dirty path remains blocking"
+}
+
+test_nested_captains_log_is_stuck() {
+  local home clone out before
+  home=$(new_home)
+  clone=$(build_pair "$home" captains-log-nested)
+  advance_origin "$home" captains-log-nested C1
+  before=$(head_sha "$clone")
+  mkdir -p "$clone/notes"
+  printf 'nested log\n' > "$clone/notes/CAPTAINS-LOG.md"
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_contains "$out" "captains-log-nested: STUCK:" "nested CAPTAINS-LOG reports STUCK"
+  [ "$(head_sha "$clone")" = "$before" ] || fail "nested CAPTAINS-LOG: clone was advanced"
+  assert_present "$clone/notes/CAPTAINS-LOG.md" "nested CAPTAINS-LOG was removed"
+  pass "a nested CAPTAINS-LOG.md does not match the root-only exception"
+}
+
+test_similarly_named_captains_log_is_stuck() {
+  local home clone out before
+  home=$(new_home)
+  clone=$(build_pair "$home" captains-log-similar)
+  advance_origin "$home" captains-log-similar C1
+  before=$(head_sha "$clone")
+  printf 'similar name\n' > "$clone/CAPTAINS-LOG.md.bak"
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_contains "$out" "captains-log-similar: STUCK:" "similarly named log reports STUCK"
+  [ "$(head_sha "$clone")" = "$before" ] || fail "similarly named log: clone was advanced"
+  assert_present "$clone/CAPTAINS-LOG.md.bak" "similarly named log was removed"
+  pass "a similarly named path does not match the exact exception"
 }
 
 test_non_default_branch_is_stuck_untouched() {
@@ -607,6 +724,12 @@ test_detached_clean_ancestor_recovers
 test_detached_unique_commit_is_stuck_untouched
 test_detached_clean_ancestor_with_diverged_local_default_is_stuck_untouched
 test_dirty_is_stuck_untouched
+test_lone_untracked_root_captains_log_allows_sync
+test_untracked_captains_log_keeps_git_overwrite_protection
+test_tracked_captains_log_modification_is_stuck
+test_untracked_captains_log_plus_second_dirty_path_is_stuck
+test_nested_captains_log_is_stuck
+test_similarly_named_captains_log_is_stuck
 test_non_default_branch_is_stuck_untouched
 test_diverged_is_stuck_untouched
 test_on_default_clean_behind_fast_forwards

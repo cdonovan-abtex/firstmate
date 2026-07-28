@@ -9,8 +9,10 @@
 # Every other off-default state - a non-default named branch, a detached HEAD with
 # unique commits, a dirty tree, or a diverged default - may hold real work, so it
 # is left untouched and reported as a quantified, loud "STUCK: ... N commits behind
-# ... - needs attention" warning rather than a quiet drift. Nothing is ever forced,
-# stashed, or discarded.
+# ... - needs attention" warning rather than a quiet drift. The sole cleanliness
+# exception is exactly one untracked root `CAPTAINS-LOG.md`; fleet sync may attempt
+# its normal fast-forward while Git keeps the untracked file visible and retains
+# its overwrite protection. Nothing is ever forced, stashed, or discarded.
 # Still skips (benignly) local-only/no-origin projects, missing remotes/branches,
 # and fetch failures.
 # Pruning never deletes the checked-out branch or a branch that still has a
@@ -334,8 +336,11 @@ sync_project() {
   fi
 
   cur=$(git -C "$PROJ" symbolic-ref --short HEAD 2>/dev/null || echo "")
+  status_porcelain=$(git -C "$PROJ" status --porcelain 2>/dev/null || true)
   dirty=no
-  [ -z "$(git -C "$PROJ" status --porcelain 2>/dev/null | head -1)" ] || dirty=yes
+  if [ -n "$status_porcelain" ] && [ "$status_porcelain" != "?? CAPTAINS-LOG.md" ]; then
+    dirty=yes
+  fi
   recovered=no
 
   if [ "$cur" != "$DEFAULT" ]; then
