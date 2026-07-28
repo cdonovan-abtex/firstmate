@@ -10,9 +10,12 @@
 # unique commits, a dirty tree, or a diverged default - may hold real work, so it
 # is left untouched and reported as a quantified, loud "STUCK: ... N commits behind
 # ... - needs attention" warning rather than a quiet drift. The sole cleanliness
-# exception is exactly one untracked root `CAPTAINS-LOG.md`; fleet sync may attempt
-# its normal fast-forward while Git keeps the untracked file visible and retains
-# its overwrite protection. Nothing is ever forced, stashed, or discarded.
+# exception is exactly one untracked root `CAPTAINS-LOG.md`, and it only relaxes
+# ordinary fast-forward eligibility for a clone already on its default branch -
+# detached-HEAD re-attachment still demands a fully clean tree. Git keeps the
+# untracked file visible and retains its overwrite protection; when that protection
+# blocks the fast-forward (origin publishes a tracked CAPTAINS-LOG.md) the clone is
+# reported STUCK, not skipped. Nothing is ever forced, stashed, or discarded.
 # Still skips (benignly) local-only/no-origin projects, missing remotes/branches,
 # and fetch failures.
 # Pruning never deletes the checked-out branch or a branch that still has a
@@ -38,6 +41,8 @@ PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 # shellcheck source=bin/fm-lock-lib.sh
 . "$SCRIPT_DIR/fm-lock-lib.sh"
 FM_LOCK_LOG_PREFIX=fleet-sync
+# The one repo-root path a Captain may keep untracked without blocking fleet sync.
+CAPTAINS_LOG=CAPTAINS-LOG.md
 "$FM_ROOT/bin/fm-guard.sh" || true
 
 # Bounded recovery for an orphaned .git/packed-refs.lock. A git ref rewrite
@@ -134,6 +139,15 @@ first_line() {
 # e.g. "could not delete reference ...:"). Other "File exists" errors must not match.
 is_packed_refs_lock_error() {
   printf '%s\n' "$1" | grep -Eq "Unable to create ['\"].*packed-refs\\.lock['\"]: File exists"
+}
+
+# True when git refused the merge because it would overwrite the untracked
+# CAPTAINS-LOG.md that the cleanliness exception admitted - i.e. origin now tracks
+# the file. Unlike a transient skip this state persists until a human resolves it,
+# so callers escalate it to a loud, quantified STUCK.
+is_captains_log_overwrite_refusal() {
+  printf '%s\n' "$1" | grep -q 'untracked working tree files would be overwritten' \
+    && printf '%s\n' "$1" | grep -q "^[[:space:]]*$CAPTAINS_LOG\$"
 }
 
 # Absolute path to $PROJ's packed-refs.lock, or empty when it cannot be resolved.
@@ -338,9 +352,12 @@ sync_project() {
   cur=$(git -C "$PROJ" symbolic-ref --short HEAD 2>/dev/null || echo "")
   status_porcelain=$(git -C "$PROJ" status --porcelain 2>/dev/null || true)
   dirty=no
-  if [ -n "$status_porcelain" ] && [ "$status_porcelain" != "?? CAPTAINS-LOG.md" ]; then
-    dirty=yes
-  fi
+  [ -z "$status_porcelain" ] || dirty=yes
+  # The Captain's log exception, kept separate from $dirty so it only ever relaxes
+  # the on-default fast-forward gate below - never detached-HEAD recovery, which
+  # mutates the working tree and so still requires a fully clean one.
+  lone_captains_log=no
+  [ "$status_porcelain" != "?? $CAPTAINS_LOG" ] || lone_captains_log=yes
   recovered=no
 
   if [ "$cur" != "$DEFAULT" ]; then
@@ -366,7 +383,7 @@ sync_project() {
       report_stuck "$(stuck_state)"
       return 0
     fi
-  elif [ "$dirty" = yes ]; then
+  elif [ "$dirty" = yes ] && [ "$lone_captains_log" = no ]; then
     # On the default branch but with uncommitted changes we must not disturb.
     report_stuck "$(stuck_state)"
     return 0
@@ -403,6 +420,10 @@ sync_project() {
     return 0
   }
   if ! merge_output=$(git -C "$PROJ" merge --ff-only "$BASE" 2>&1); then
+    if [ "$lone_captains_log" = yes ] && is_captains_log_overwrite_refusal "$merge_output"; then
+      report_stuck "branch $DEFAULT with untracked $CAPTAINS_LOG blocking fast-forward"
+      return 0
+    fi
     reason="fast-forward failed"
     if [ -n "$merge_output" ]; then
       reason="$reason: $(first_line "$merge_output")"

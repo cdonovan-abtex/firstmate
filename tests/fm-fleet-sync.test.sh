@@ -13,6 +13,9 @@
 # must be unchanged, and bootstrap must relay the new outcomes as FLEET_SYNC lines.
 # Exactly one untracked root CAPTAINS-LOG.md is the sole dirty-tree exception;
 # tracked edits, additional dirt, nested logs, and similar names remain blocking.
+# The exception relaxes only on-default fast-forward eligibility - detached-HEAD
+# recovery still demands a fully clean tree - and a fast-forward Git refuses in
+# order to protect that untracked file is reported STUCK rather than skipped.
 #
 # It also pins the orphaned .git/packed-refs.lock recovery in the fetch step
 # (fetch_with_packed_refs_lock_guard, backed by bin/fm-lock-lib.sh's shared
@@ -311,14 +314,42 @@ test_untracked_captains_log_keeps_git_overwrite_protection() {
 
   out=$(run_sync "$home" "$clone")
 
-  assert_contains "$out" "captains-log-conflict: skipped: fast-forward failed" \
-    "untracked CAPTAINS-LOG retains Git overwrite refusal"
+  assert_contains "$out" "captains-log-conflict: STUCK:" \
+    "untracked CAPTAINS-LOG overwrite refusal is reported loudly, not as a benign skip"
+  assert_contains "$out" "untracked CAPTAINS-LOG.md blocking fast-forward" \
+    "STUCK names the path that blocked the fast-forward"
+  assert_contains "$out" "commits behind origin/main - needs attention" \
+    "blocked-by-CAPTAINS-LOG STUCK is quantified"
+  assert_not_contains "$out" "skipped:" \
+    "a permanently unsyncable clone is never reported as a benign skip"
   [ "$(head_sha "$clone")" = "$before" ] || fail "conflicting untracked CAPTAINS-LOG: clone was advanced"
   [ "$(cat "$clone/CAPTAINS-LOG.md")" = "$content" ] \
     || fail "conflicting untracked CAPTAINS-LOG: local content was overwritten"
   [ "$(git -C "$clone" status --porcelain)" = "?? CAPTAINS-LOG.md" ] \
     || fail "conflicting untracked CAPTAINS-LOG: file no longer remains visible and untracked"
   pass "an untracked CAPTAINS-LOG.md retains Git's overwrite protection"
+}
+
+test_detached_with_lone_untracked_captains_log_is_stuck_untouched() {
+  local home clone out before
+  home=$(new_home)
+  clone=$(build_pair "$home" captains-log-detached)
+  advance_origin "$home" captains-log-detached C1
+  git -C "$clone" checkout --detach --quiet
+  before=$(head_sha "$clone")
+  printf 'Captain-owned local content\n' > "$clone/CAPTAINS-LOG.md"
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_contains "$out" "captains-log-detached: STUCK:" \
+    "detached HEAD plus lone CAPTAINS-LOG reports STUCK"
+  assert_not_contains "$out" "recovered" \
+    "the lone-log exception never relaxes detached-HEAD re-attachment"
+  [ "$(head_sha "$clone")" = "$before" ] || fail "detached lone CAPTAINS-LOG: HEAD was moved"
+  ! git -C "$clone" symbolic-ref -q HEAD >/dev/null \
+    || fail "detached lone CAPTAINS-LOG: clone was re-attached to the default branch"
+  assert_present "$clone/CAPTAINS-LOG.md" "detached lone CAPTAINS-LOG: log was removed"
+  pass "a detached HEAD with a lone untracked CAPTAINS-LOG.md is not auto-recovered"
 }
 
 test_tracked_captains_log_modification_is_stuck() {
@@ -726,6 +757,7 @@ test_detached_clean_ancestor_with_diverged_local_default_is_stuck_untouched
 test_dirty_is_stuck_untouched
 test_lone_untracked_root_captains_log_allows_sync
 test_untracked_captains_log_keeps_git_overwrite_protection
+test_detached_with_lone_untracked_captains_log_is_stuck_untouched
 test_tracked_captains_log_modification_is_stuck
 test_untracked_captains_log_plus_second_dirty_path_is_stuck
 test_nested_captains_log_is_stuck
