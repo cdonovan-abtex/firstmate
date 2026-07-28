@@ -367,10 +367,8 @@ test_captains_log_stuck_survives_a_non_english_locale() {
   git_localized_merge_refusal "$fakebin"
   out="$home/out-locale"; err="$home/err-locale"
 
-  set +e
   LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 \
-    run_sync_guarded "$home" "$fakebin" "$out" "$err" captains-log-locale
-  set -e
+    run_sync_guarded "$home" "$fakebin" "$out" "$err" captains-log-locale || true
 
   assert_contains "$(cat "$out")" "captains-log-locale: STUCK:" \
     "localized fleet member lost the STUCK escalation (git output read under ambient locale)"
@@ -681,12 +679,10 @@ test_orphaned_stale_packed_refs_lock_recovers() {
   lsof_no_holder "$fakebin"           # provably no live holder
   out="$home/out-lockstale"; err="$home/err-lockstale"
 
-  set +e
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRIES=2 \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRY_WAIT_SECS=0 \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_AGE_SECS=0 \
-    run_sync_guarded "$home" "$fakebin" "$out" "$err" lockstale
-  set -e
+    run_sync_guarded "$home" "$fakebin" "$out" "$err" lockstale || true
 
   assert_grep "removed provably-stale packed-refs lock" "$err" \
     "stale lock: guard did not force-remove the provably-stale lock"
@@ -711,12 +707,10 @@ test_live_packed_refs_lock_is_never_removed() {
   before=$(head_sha "$clone")
   out="$home/out-locklive"; err="$home/err-locklive"
 
-  set +e
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRIES=2 \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRY_WAIT_SECS=0 \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_AGE_SECS=0 \
-    run_sync_guarded "$home" "$fakebin" "$out" "$err" locklive
-  set -e
+    run_sync_guarded "$home" "$fakebin" "$out" "$err" locklive || true
 
   assert_grep "is not provably stale" "$err" "live lock: guard did not explain the refusal"
   assert_no_grep "removed provably-stale packed-refs lock" "$err" \
@@ -739,13 +733,11 @@ test_live_git_cwd_in_clone_dir_blocks_removal() {
   before=$(head_sha "$clone")
   out="$home/out-lockcwd"; err="$home/err-lockcwd"
 
-  set +e
   FLEET_TEST_LIVE_DIR="$clone" \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRIES=2 \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRY_WAIT_SECS=0 \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_AGE_SECS=0 \
-    run_sync_guarded "$home" "$fakebin" "$out" "$err" lockcwd
-  set -e
+    run_sync_guarded "$home" "$fakebin" "$out" "$err" lockcwd || true
 
   assert_grep "is not provably stale" "$err" "clone-cwd holder: guard did not refuse"
   assert_no_grep "removed provably-stale packed-refs lock" "$err" \
@@ -765,12 +757,10 @@ test_transient_packed_refs_lock_self_clears() {
   counter="$home/git-fetch-count"; : > "$counter"
   out="$home/out-locktrans"; err="$home/err-locktrans"
 
-  set +e
   GIT_FETCH_COUNTER="$counter" \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRIES=3 \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRY_WAIT_SECS=0 \
-    run_sync_guarded "$home" "$fakebin" "$out" "$err" locktrans
-  set -e
+    run_sync_guarded "$home" "$fakebin" "$out" "$err" locktrans || true
 
   assert_grep "cleared on its own" "$err" "transient lock: guard did not report the self-clear"
   assert_no_grep "removed provably-stale packed-refs lock" "$err" \
@@ -791,11 +781,9 @@ test_non_signature_fetch_failure_is_not_retried() {
   git -C "$clone" remote set-url origin "file://$home/remotes/does-not-exist.git"
   out="$home/out-locknonsig"; err="$home/err-locknonsig"
 
-  set +e
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRIES=3 \
   FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRY_WAIT_SECS=0 \
-    run_sync_guarded "$home" "$fakebin" "$out" "$err" locknonsig
-  set -e
+    run_sync_guarded "$home" "$fakebin" "$out" "$err" locknonsig || true
 
   assert_contains "$(cat "$out")" "locknonsig: skipped: fetch failed" "non-signature: fleet-sync did not report the fetch failure"
   assert_no_grep "waiting" "$err" "non-signature: a non-lock failure was wrongly retried"
