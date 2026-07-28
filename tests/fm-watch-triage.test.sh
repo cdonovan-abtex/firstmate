@@ -313,7 +313,23 @@ test_signal_crews_absorbable_classifier() {
   printf 'needs-decision [key=api-shape]: which port?\nresolved [key=api-shape]: bind 4173\npaused: waiting for captain\n' > "$state/c.status"
   signal_crews_absorbable "$state/c.status" "$state/c.turn-ended" \
     || fail "a paused crew whose decision was resolved was not absorbable"
-  unset FM_FAKE_CREW_STATE_a FM_FAKE_CREW_STATE_b FM_FAKE_CREW_STATE_c
+  # The SAME masking gate applies to the working absorb class: an open decision
+  # superseded by a later working: line (crew genuinely mid-run) must not be
+  # swallowed on the authoritative working read alone.
+  export FM_FAKE_CREW_STATE_d='state: working · source: run-step · still building'
+  printf 'working: still building\n' > "$state/d.status"
+  signal_crews_absorbable "$state/d.status" "$state/d.turn-ended" \
+    || fail "a working crew with no open decision was not absorbable"
+  printf 'needs-decision [key=api-shape]: which port?\nworking: still building\n' > "$state/d.status"
+  ! signal_crews_absorbable "$state/d.status" "$state/d.turn-ended" \
+    || fail "a working crew masking a still-open needs-decision was absorbable"
+  printf 'blocked [key=creds]: no deploy token\nworking: still building\n' > "$state/d.status"
+  ! signal_crews_absorbable "$state/d.status" "$state/d.turn-ended" \
+    || fail "a working crew masking a still-open blocked was absorbable"
+  printf 'needs-decision [key=api-shape]: which port?\nresolved [key=api-shape]: bind 4173\nworking: still building\n' > "$state/d.status"
+  signal_crews_absorbable "$state/d.status" "$state/d.turn-ended" \
+    || fail "a working crew whose decision was resolved was not absorbable"
+  unset FM_FAKE_CREW_STATE_a FM_FAKE_CREW_STATE_b FM_FAKE_CREW_STATE_c FM_FAKE_CREW_STATE_d
   pass "signal_crews_absorbable: absorbs only authoritative working/paused crews and surfaces stopped/terminal/unresolved crews and masked open decisions"
 }
 
@@ -515,6 +531,65 @@ test_paused_append_after_surfaced_decision_does_not_refire() {
   rows=$(grep -c "$(printf '\tsignal\t')" "$drain_out" || true)
   [ "$rows" -ge 1 ] || fail "the new blocked decision was not queued durably"
   pass "a paused append does not re-fire an already-surfaced decision while a new decision still wakes once"
+}
+
+# The same masking gate must hold for the WORKING absorb class: a crew that asks a
+# question and then, while a no-mistakes step is genuinely running, keeps writing
+# working: lines. The coalesced masked decision surfaces once; a split-turn working:
+# append does not re-fire it; a new key still wakes. The active run's own wedge
+# handling on the stale path is untouched (this test drives only the signal path).
+test_working_signal_masking_open_decision_surfaces_once() {
+  local dir state fakebin out drain_out capture_file window pid rows
+  dir=$(make_case working-masks-decision); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-wmask"
+  printf 'no-mistakes axi run: building...\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/wmask.meta"
+
+  # Coalesced: needs-decision superseded by working: in one grace window, crew
+  # authoritatively working via an active run-step. Must surface exactly once.
+  printf 'needs-decision [key=api-shape]: which port should the dev server bind?\nworking: still building\n' > "$state/wmask.status"
+  : > "$state/wmask.turn-ended"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_CREW_STATE='state: working · source: run-step · still building' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "a working: line masking an open needs-decision never surfaced"; }
+  grep -F "signal: $state/wmask.status" "$out" >/dev/null \
+    || fail "the masked decision did not surface through the signal path: $(cat "$out")"
+  [ -s "$state/.decision-seen-wmask" ] || fail "surfacing the masked decision did not record the decision-seen marker"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after masked working decision failed"
+  rows=$(grep -c "$(printf '\tsignal\t')" "$drain_out" || true)
+  [ "$rows" -ge 1 ] || fail "the masked working decision was not queued durably"
+
+  # Split-turn: another working: append leaves the fold unchanged - must not re-fire.
+  printf 'working: still building more\n' >> "$state/wmask.status"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_CREW_STATE='state: working · source: run-step · still building' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 50; then
+    reap "$pid"
+    fail "a later working: append re-fired an already-surfaced decision: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "the working: append printed a second reason: $(cat "$out")"; }
+  reap "$pid"
+
+  # A genuinely new decision key still wakes once.
+  printf 'blocked [key=creds]: no deploy token\n' >> "$state/wmask.status"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_CREW_STATE='state: working · source: run-step · still building' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "a new unsurfaced blocked decision behind a working crew never surfaced"; }
+  grep -F "signal: $state/wmask.status" "$out" >/dev/null \
+    || fail "the new blocked decision did not surface: $(cat "$out")"
+  pass "a needs-decision masked by a later working: line wakes exactly once while a new key still wakes"
 }
 
 test_turn_ended_provably_working_absorbed() {
@@ -1688,6 +1763,7 @@ test_provably_working_signal_absorbed
 test_signal_superseded_by_unchanged_pause_stays_quiet
 test_paused_signal_masking_open_decision_surfaces_once
 test_paused_append_after_surfaced_decision_does_not_refire
+test_working_signal_masking_open_decision_surfaces_once
 test_turn_ended_provably_working_absorbed
 test_turn_ended_not_working_surfaced
 test_working_note_not_working_surfaced

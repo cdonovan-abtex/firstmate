@@ -427,12 +427,14 @@ crew_is_paused() {  # <id>
 # A paused status/turn-end pair is the signal-path form of the same declared wait
 # the stale path already absorbs, so it must not complete the watcher first and
 # create a harness prompt before stale classification gets a chance to run.
-# A paused crew is absorbable ONLY while it has no still-open decision the captain
-# has not already been woken for: the authoritative state and the last status line
-# both read paused when the same turn appended "needs-decision ...:" and then
-# "paused: ...", so absorbing on that read alone would swallow the decision wake
-# entirely until the hour-long pause cadence. status_has_unsurfaced_open_decision
-# is the fold-plus-dedupe that sees through that masking while staying exactly-once.
+# A working OR paused crew is absorbable ONLY while it has no still-open decision
+# the captain has not already been woken for: the authoritative state and the last
+# status line both read working/paused when the same turn appended
+# "needs-decision ...:" and then "working: ..." / "paused: ...", so absorbing on
+# that read alone would swallow the decision wake - until the run ends (working) or
+# the hour-long pause cadence (paused). status_has_unsurfaced_open_decision is the
+# fold-plus-dedupe that sees through that masking on both classes while staying
+# exactly-once.
 # Pass the same space-separated file list as signal_reason_is_actionable; files are
 # mapped to task ids by stripping the .status / .turn-ended suffix. Returns 1 if any
 # task is stopped/unknown, and 1 for an empty/unresolvable list, because a no-verb
@@ -452,9 +454,8 @@ signal_crews_absorbable() {  # <file> ...
     case "$f" in */*) dir=${f%/*} ;; *) dir=. ;; esac
     class=$(crew_absorb_class "$task")
     case "$class" in
-      working) ;;
-      paused)  ! status_has_unsurfaced_open_decision "$dir/$task.status" || return 1 ;;
-      *)       return 1 ;;
+      working|paused)  ! status_has_unsurfaced_open_decision "$dir/$task.status" || return 1 ;;
+      *)               return 1 ;;
     esac
   done
   [ -n "$seen" ] || return 1
