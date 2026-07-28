@@ -335,15 +335,22 @@ classify_signal() {  # <reason-after-colon> <state>
     last=$(last_status_line "$f")
     [ -n "$last" ] || continue
     distilled="${distilled}$(basename "$f"): ${last} | "
-    status_is_captain_relevant "$last" || continue
-    rel=1
-    # Dedupe against the catch-all scan: if this status was already escalated
-    # (seen marker matches), skip escalating again. The seen marker is the
-    # single source of truth shared between the per-wake signal path and the
-    # heartbeat scan. all_seen stays 1 only if EVERY relevant file was seen.
-    task=$(basename "$f"); task="${task%.status}"
-    seen="$state/.subsuper-seen-status-$(_stale_key "$task")"
-    [ "$(cat "$seen" 2>/dev/null || true)" = "$last" ] || all_seen=0
+    if status_is_captain_relevant "$last"; then
+      rel=1
+      # Dedupe against the catch-all scan: if this status was already escalated
+      # (seen marker matches), skip escalating again. The seen marker is the
+      # single source of truth shared between the per-wake signal path and the
+      # heartbeat scan. all_seen stays 1 only if EVERY relevant file was seen.
+      task=$(basename "$f"); task="${task%.status}"
+      seen="$state/.subsuper-seen-status-$(_stale_key "$task")"
+      [ "$(cat "$seen" 2>/dev/null || true)" = "$last" ] || all_seen=0
+    elif status_has_unsurfaced_open_decision "$f"; then
+      # A still-open needs-decision/blocked masked by a later paused/turn-end line
+      # reads non-captain-relevant here; the durable fold and its exactly-once
+      # decision-seen marker (fm-classify-lib.sh) surface it once anyway.
+      rel=1
+      all_seen=0
+    fi
   done
   # strip a trailing " | " separator so the distilled line is clean
   distilled="${distilled% | }"
@@ -365,6 +372,13 @@ classify_stale() {  # <window> <state>
   local win=$1 state=$2 task last seen
   task=$(window_to_task "$win" "$state")
   last=$(last_status_line "$state/$task.status")
+  if status_has_unsurfaced_open_decision "$state/$task.status"; then
+    # A still-open needs-decision/blocked masked by a later paused: line must not
+    # be absorbed as a declared wait. The durable fold plus its exactly-once
+    # decision-seen marker surface it once, then revert to the pause cadence below.
+    printf 'escalate|stale + open decision: %s' "$(status_open_decision_summary "$state/$task.status")"
+    return
+  fi
   if [ -n "$last" ] && status_is_paused "$last"; then
     # A DECLARED external-wait pause (fm-classify-lib.sh): an idle pane is EXPECTED,
     # so this is not a wedge. The caller records a pause marker (long re-surface
@@ -530,6 +544,7 @@ mark_escalated_seen() {  # <kind> <arg> <state>
     signal)
       for f in $arg; do
         [ -e "$f" ] || continue
+        record_decision_surfaced "$f"
         last=$(last_status_line "$f")
         [ -n "$last" ] || continue
         status_is_captain_relevant "$last" || continue
@@ -538,6 +553,7 @@ mark_escalated_seen() {  # <kind> <arg> <state>
       done ;;
     stale)
       task=$(window_to_task "$arg" "$state")
+      record_decision_surfaced "$state/$task.status"
       last=$(last_status_line "$state/$task.status")
       [ -n "$last" ] && status_is_captain_relevant "$last" \
         && mark_status_seen "$state" "$task" "$last" ;;

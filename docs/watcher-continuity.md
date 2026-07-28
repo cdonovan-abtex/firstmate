@@ -45,8 +45,10 @@ The signal and stale paths both reuse `bin/fm-classify-lib.sh`'s authoritative `
 An unchanged authoritative `paused` state advances the signal and stale suppressors without enqueuing or closing the cycle.
 A real `needs-decision`, `blocked`, `done`, or `failed` status still enqueues before suppression and closes exactly one cycle.
 That guarantee survives a same-turn `paused:` line appended after the decision: the paused absorb consults `status_open_decisions`, the authoritative durable fold, rather than the last status line, so a masked open decision surfaces once instead of waiting out the pause cadence.
+Exactly-once is held across a split turn too: a shared per-home `.decision-seen-<task>` marker records the open-decision fold when it is surfaced, so a later `paused:` append that leaves the fold unchanged is recognised as already surfaced and absorbed, while a still-unsurfaced or newly-reopened decision key still wakes once.
+The away daemon applies the same fold-aware classification at its own signal and stale absorb points and shares that decision-seen marker, so a masked decision reaches the digest exactly once whether the watcher or the daemon owns triage.
 The stale path absorbs the successor's observation of an unchanged terminal event through a one-shot token armed by the path that surfaced it, which prevents a second adapter prompt after the first drain already consumed the durable rows.
-That token is deliberately separate from the heartbeat backstop's surfaced-status marker and is consumed by the single observation it deduped, so the next distinct pane observation - a crash or resume prompt, an interactive menu that reports a finish with no new status line - still surfaces.
+That token is deliberately separate from the heartbeat backstop's surfaced-status marker, is bound to the exact pane observation it is meant to absorb (its pane hash, not just the status line), and is consumed by a single matching observation, so a different pane state - a crash or resume prompt, an interactive menu that reports a finish with no new status line - never matches the bound hash and still surfaces.
 An authoritative `working` state outranks that dedupe seam, because only the provably-working absorb arms the wedge timer that still escalates a genuinely frozen run on an unchanged pane.
 Authenticated checks remain independent actionable sources, so a quiet paused service stays silent while a healthy check prints nothing and wakes when that check reports a failure.
 
@@ -90,6 +92,8 @@ After the fix, the same process remained live with no reason output or queue row
 
 Command: `tests/fm-watch-triage.test.sh`.
 Observed results included `ok - a signal superseded by unchanged paused state stays in one quiet watcher cycle` and `ok - needs-decision, blocked, done, and failed each wake once without a stale successor duplicate`.
+The same suite proves the bound dedupe token surfaces a crash prompt that arrives before the duplicate (`ok - a different pane event before the duplicate is never swallowed by the bound dedupe token`) and that a split-turn `paused:` append does not re-fire an already-surfaced decision (`ok - a paused append does not re-fire an already-surfaced decision while a new decision still wakes once`).
+`tests/fm-daemon.test.sh` proves the away daemon escalates a paused-masked open decision exactly once through both its signal and stale classifiers.
 
 Command: `tests/fm-wake-queue.test.sh`.
 Observed result included `ok - a paused service's health check stays silent while healthy and wakes on failure`.

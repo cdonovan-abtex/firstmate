@@ -233,13 +233,62 @@ status_open_decisions() {  # <status-file>
   printf '%s' "$open"
 }
 
-# 0 if <status-file>'s durable fold still holds an unresolved needs-decision or
-# blocked. Every absorb path that reads only the LAST status line must consult
-# this before staying quiet: a later paused:/done:/working: line masks a still-open
-# decision in a last-line read, and status_open_decisions is the authoritative
-# statement of that fold.
-status_has_open_decision() {  # <status-file>
-  [ -n "$(status_open_decisions "$1")" ]
+# A stable one-line-per-decision summary of the still-open keyed-decision fold,
+# suitable as an exactly-once dedupe key. Prints nothing when no decision is open.
+# Identical whether the crew's LAST line is the needs-decision/blocked opener or a
+# later paused/working/turn-end line that masks it in a last-line read, because it
+# folds the whole stream - so a marker recorded from it survives the masking.
+status_open_decision_summary() {  # <status-file>
+  local open out='' k v n
+  open=$(status_open_decisions "$1")
+  [ -n "$open" ] || return 0
+  while IFS=$(printf '\t') read -r k v n; do
+    [ -n "$k" ] || continue
+    out="${out}${k}=${v}:${n}"$'\n'
+  done <<EOF
+$open
+EOF
+  printf '%s' "$out"
+}
+
+# Deterministic path of the decision-seen dedupe marker beside a status file:
+# <dir>/.decision-seen-<task>. A single shared marker owned by whichever supervisor
+# is live (the always-on watcher signal path or the away daemon), so a masked open
+# decision is surfaced EXACTLY once even across an afk mode switch, and stays
+# per-home so cross-home isolation is preserved.
+_decision_seen_path() {  # <status-file>
+  local f=$1 dir base task
+  case "$f" in */*) dir=${f%/*} ;; *) dir=. ;; esac
+  base=${f##*/}; task=${base%.status}
+  printf '%s/.decision-seen-%s' "$dir" "$task"
+}
+
+# 0 when <status-file> has an open decision whose current fold summary DIFFERS
+# from the recorded decision-seen marker - a still-open needs-decision/blocked the
+# captain has not yet been woken for. 1 when no decision is open, or the open fold
+# was already surfaced, so a later paused/turn-end append that leaves the fold
+# unchanged does not re-fire an already-surfaced decision.
+status_has_unsurfaced_open_decision() {  # <status-file>
+  local summary seen
+  summary=$(status_open_decision_summary "$1")
+  [ -n "$summary" ] || return 1
+  seen=$(cat "$(_decision_seen_path "$1")" 2>/dev/null || true)
+  [ "$summary" != "$seen" ]
+}
+
+# Record the current open-decision fold as surfaced. Called on every path that
+# WAKES the captain for a task, so the next unchanged read of the same fold is
+# deduped. Clears the marker when no decision is open, so a key reopened after a
+# resolve surfaces again.
+record_decision_surfaced() {  # <status-file>
+  local summary path
+  path=$(_decision_seen_path "$1")
+  summary=$(status_open_decision_summary "$1")
+  if [ -n "$summary" ]; then
+    printf '%s' "$summary" > "$path"
+  else
+    rm -f "$path"
+  fi
 }
 
 # Fold material routed-work phases in the same keyed event stream.
@@ -378,11 +427,12 @@ crew_is_paused() {  # <id>
 # A paused status/turn-end pair is the signal-path form of the same declared wait
 # the stale path already absorbs, so it must not complete the watcher first and
 # create a harness prompt before stale classification gets a chance to run.
-# A paused crew is absorbable ONLY while its durable decision fold is empty: the
-# authoritative state and the last status line both read paused when the same turn
-# appended "needs-decision ...:" and then "paused: ...", so absorbing on that read
-# alone would swallow the decision wake entirely until the hour-long pause cadence.
-# status_has_open_decision is the fold that sees through that masking.
+# A paused crew is absorbable ONLY while it has no still-open decision the captain
+# has not already been woken for: the authoritative state and the last status line
+# both read paused when the same turn appended "needs-decision ...:" and then
+# "paused: ...", so absorbing on that read alone would swallow the decision wake
+# entirely until the hour-long pause cadence. status_has_unsurfaced_open_decision
+# is the fold-plus-dedupe that sees through that masking while staying exactly-once.
 # Pass the same space-separated file list as signal_reason_is_actionable; files are
 # mapped to task ids by stripping the .status / .turn-ended suffix. Returns 1 if any
 # task is stopped/unknown, and 1 for an empty/unresolvable list, because a no-verb
@@ -403,7 +453,7 @@ signal_crews_absorbable() {  # <file> ...
     class=$(crew_absorb_class "$task")
     case "$class" in
       working) ;;
-      paused)  ! status_has_open_decision "$dir/$task.status" || return 1 ;;
+      paused)  ! status_has_unsurfaced_open_decision "$dir/$task.status" || return 1 ;;
       *)       return 1 ;;
     esac
   done

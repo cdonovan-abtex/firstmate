@@ -167,6 +167,38 @@ test_stale_paused_classifies_pause() {
   pass "paused reasons with captain phrases remain pause-classified"
 }
 
+# Away-mode consistency: a still-open needs-decision/blocked masked by a later
+# paused: line must reach the captain's digest exactly once through BOTH the
+# daemon's signal and stale classifiers, deduped by the shared decision-seen fold
+# marker - the same fold-aware classification the always-on watcher applies.
+test_masked_open_decision_escalates_once_in_daemon() {
+  local dir state out win statusf
+  dir=$(make_supercase masked-open-decision); state="$dir/state"
+  win="sess:fm-masked-dec"
+  statusf="$state/masked-dec.status"
+  printf 'window=%s\nkind=ship\n' "$win" > "$state/masked-dec.meta"
+  printf 'needs-decision [key=api-shape]: which port?\npaused: waiting for captain\n' > "$statusf"
+
+  # Signal path: the paused-terminated status still escalates the masked decision.
+  out=$(FM_STATE_OVERRIDE="$state" classify_signal "$statusf" "$state")
+  case "$out" in escalate\|*) ;; *) fail "masked open decision did not escalate on the signal path: $out" ;; esac
+  # After the escalate commits its seen markers, the same unchanged fold self-handles.
+  FM_STATE_OVERRIDE="$state" mark_escalated_seen signal "$statusf" "$state"
+  [ -s "$state/.decision-seen-masked-dec" ] || fail "signal escalate did not record the decision-seen marker"
+  out=$(FM_STATE_OVERRIDE="$state" classify_signal "$statusf" "$state")
+  case "$out" in self\|*) ;; *) fail "an already-surfaced masked decision re-escalated on the signal path: $out" ;; esac
+
+  # Stale path: a fresh crew with the same masking escalates once, then reverts to
+  # the pause cadence after the decision is marked surfaced.
+  rm -f "$state/.decision-seen-masked-dec"
+  out=$(FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state")
+  case "$out" in escalate\|*) ;; *) fail "masked open decision did not escalate on the stale path: $out" ;; esac
+  FM_STATE_OVERRIDE="$state" mark_escalated_seen stale "$win" "$state"
+  out=$(FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state")
+  case "$out" in pause\|*) ;; *) fail "an already-surfaced masked decision did not revert to pause on the stale path: $out" ;; esac
+  pass "a paused-masked open decision escalates once via daemon signal and stale, then dedupes"
+}
+
 # handle_wake on a paused stale records a pause marker, drops any pre-existing wedge
 # marker (so a working->paused pane is not still wedge-aged), and does NOT escalate
 # on the wake itself - the recheck is housekeeping's job on the long cadence.
@@ -1775,6 +1807,7 @@ test_classify_check_and_unknown_escalate
 test_stale_transient_self_records_marker
 test_stale_terminal_escalates
 test_stale_paused_classifies_pause
+test_masked_open_decision_escalates_once_in_daemon
 test_handle_wake_paused_records_pause_marker
 test_handle_wake_paused_signal_records_pause_marker
 test_handle_wake_terminal_signal_clears_pause_tracking

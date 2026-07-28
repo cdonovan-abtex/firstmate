@@ -520,44 +520,66 @@ run_check_capture() {
 # Cross-path dedupe seam, kept SEPARATE from .hb-surfaced-<task>: that marker is a
 # fleet-wide "already woke firstmate" record the heartbeat backstop owns and the
 # heartbeat sweep writes for every task, so reading it here would suppress panes
-# no per-task surface ever covered, and it never expires. This marker is a
-# ONE-SHOT token instead - armed by the exact path that surfaced a captain-relevant
-# status and exits, consumed by the single successor observation that re-reads the
-# same idle pane. After that one absorb the token is gone, so a genuinely NEW pane
-# event (a crash/resume prompt, an interactive "Continue? [y/n]" menu - the
-# finish-through-a-menu case that must never be swallowed) surfaces normally.
+# no per-task surface ever covered, and it never expires. This marker is a ONE-SHOT
+# token instead, storing "<pane-hash>\t<status-line>": armed by the exact path that
+# surfaced a captain-relevant status against the pane observed at that moment, and
+# consumed only by a successor observation whose status line AND pane hash both
+# still match. A genuinely NEW pane event (a crash/resume prompt, an interactive
+# "Continue? [y/n]" menu - the finish-through-a-menu case that must never be
+# swallowed) has a different hash, so it never eats the token and surfaces normally.
 _stale_dupe_path() {  # <task>
   printf '%s/.stale-dupe-%s' "$STATE" "$(printf '%s' "$1" | tr ':/.' '___')"
 }
 
+# Hash of <task>'s current pane, using the same bounded capture and hash the stale
+# loop compares against, or empty when the window/backend cannot be read.
+_task_pane_hash() {  # <task>
+  local task=$1 w tail
+  w=$(fm_backend_target_of_meta "$STATE/$task.meta" 2>/dev/null || true)
+  [ -n "$w" ] || return 0
+  tail=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || return 0
+  printf '%s' "$tail" | hash_pane
+}
+
 # Arm the one-shot token for the captain-relevant status just surfaced from
-# <status-file>. A non-captain-relevant (or absent) last line clears any stale
-# token, so the seam can never outlive the event it describes.
-arm_stale_dupe() {  # <status-file>
-  local f=$1 task last
+# <status-file>, bound to the pane hash: <pane-hash> when the caller already has it
+# (the stale path), else the pane captured now (the signal path). A non-captain-
+# relevant (or absent) last line, or an unreadable pane, clears any token, so the
+# seam never outlives its event and never absorbs an unbound observation.
+arm_stale_dupe() {  # <status-file> [pane-hash]
+  local f=$1 h=${2-} task last tf
   case "$f" in *.status) ;; *) return 0 ;; esac
   task=$(basename "$f"); task="${task%.status}"
   last=$(last_status_line "$f")
+  tf=$(_stale_dupe_path "$task")
   if [ -n "$last" ] && status_is_captain_relevant "$last"; then
-    printf '%s' "$last" > "$(_stale_dupe_path "$task")"
-  else
-    rm -f "$(_stale_dupe_path "$task")"
+    [ -n "$h" ] || h=$(_task_pane_hash "$task")
+    if [ -n "$h" ]; then
+      printf '%s\t%s' "$h" "$last" > "$tf"
+      return 0
+    fi
   fi
+  rm -f "$tf"
 }
 
-# 0 when <task>'s current captain-relevant status line is exactly the event a
-# prior signal/stale path already surfaced AND that surface still has its unused
-# successor token. Consumes the token either way, so this returns 0 at most once
-# per surfaced status.
-consume_stale_dupe() {  # <task>
-  local task=$1 last token tf
+# 0 when <task>'s current captain-relevant status line AND current pane hash <h>
+# both match the observation a prior signal/stale path armed. Consumes the token
+# unconditionally (one-shot), so a first observation that does NOT match a bound
+# pane surfaces instead of silently eating the token.
+consume_stale_dupe() {  # <task> <pane-hash>
+  local task=$1 h=$2 last token tf token_hash token_line tab
+  tab=$(printf '\t')
   tf=$(_stale_dupe_path "$task")
   [ -f "$tf" ] || return 1
   token=$(cat "$tf" 2>/dev/null || true)
   rm -f "$tf"
+  case "$token" in *"$tab"*) ;; *) return 1 ;; esac
+  token_hash=${token%%"$tab"*}
+  token_line=${token#*"$tab"}
   last=$(last_status_line "$STATE/$task.status")
   status_is_captain_relevant "$last" || return 1
-  [ -n "$token" ] && [ "$token" = "$last" ]
+  [ "$token_line" = "$last" ] || return 1
+  [ -n "$token_hash" ] && [ "$token_hash" = "$h" ]
 }
 
 # Mark every current captain-relevant status as surfaced. Called after the
@@ -859,6 +881,7 @@ EOF
         [ -n "$sf" ] || continue
         printf '%s' "$sig" > "$sf"
         mark_surfaced "$f"
+        afk_present || record_decision_surfaced "$f"
         arm_stale_dupe "$f"
       done <<EOF
 $pending
@@ -944,7 +967,7 @@ EOF
               printf '%s' "$h" > "$sf"
               date +%s > "$ssf"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
-            elif consume_stale_dupe "$task"; then
+            elif consume_stale_dupe "$task" "$h"; then
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
               triage_log "absorbed stale duplicate of surfaced status: $w"
@@ -953,7 +976,7 @@ EOF
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
               mark_surfaced "$STATE/$task.status"
-              arm_stale_dupe "$STATE/$task.status"
+              arm_stale_dupe "$STATE/$task.status" "$h"
               wake "stale: $w"
             fi
           elif [ -e "$ssf" ]; then
