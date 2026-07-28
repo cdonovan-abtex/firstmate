@@ -134,6 +134,12 @@ first_line() {
   printf '%s\n' "$1" | sed -n '1s/[[:space:]]\{1,\}/ /g;1p'
 }
 
+# These two matchers read git's human-facing error text, which gettext localizes
+# under the operator's LANG/LC_ALL. Every git call whose output they inspect is
+# therefore pinned to LC_ALL=C at the call site, the same way bin/fm-wake-lib.sh
+# pins ps for lstart; without that pin a non-English fleet silently loses the
+# recovery and the STUCK escalation these drive.
+
 # True when git stderr shows the packed-refs.lock "File exists" race. The lock
 # path can appear anywhere in the message (git prefixes it with the failed ref op,
 # e.g. "could not delete reference ...:"). Other "File exists" errors must not match.
@@ -144,10 +150,11 @@ is_packed_refs_lock_error() {
 # True when git refused the merge because it would overwrite the untracked
 # CAPTAINS-LOG.md that the cleanliness exception admitted - i.e. origin now tracks
 # the file. Unlike a transient skip this state persists until a human resolves it,
-# so callers escalate it to a loud, quantified STUCK.
+# so callers escalate it to a loud, quantified STUCK. Git lists each blocked path
+# on its own indented line, matched literally so a similarly named path cannot.
 is_captains_log_overwrite_refusal() {
   printf '%s\n' "$1" | grep -q 'untracked working tree files would be overwritten' \
-    && printf '%s\n' "$1" | grep -q "^[[:space:]]*$CAPTAINS_LOG\$"
+    && printf '%s\n' "$1" | sed 's/^[[:space:]]*//' | grep -Fxq -- "$CAPTAINS_LOG"
 }
 
 # Absolute path to $PROJ's packed-refs.lock, or empty when it cannot be resolved.
@@ -177,7 +184,7 @@ packed_refs_lock_path() {
 # a session-start refresh (which discards fleet-sync stderr) still surfaces it.
 fetch_with_packed_refs_lock_guard() {
   local rc attempt=0 lock lock_desc
-  FETCH_OUTPUT=$(git -C "$PROJ" fetch origin --prune --quiet 2>&1); rc=$?
+  FETCH_OUTPUT=$(LC_ALL=C git -C "$PROJ" fetch origin --prune --quiet 2>&1); rc=$?
   [ "$rc" -eq 0 ] && return 0
   is_packed_refs_lock_error "$FETCH_OUTPUT" || return "$rc"
 
@@ -187,7 +194,7 @@ fetch_with_packed_refs_lock_guard() {
     attempt=$(( attempt + 1 ))
     echo "$label: fetch blocked by packed-refs lock ($lock_desc); waiting ${FLEET_SYNC_PACKED_REFS_LOCK_RETRY_WAIT_SECS}s and retrying ($attempt/${FLEET_SYNC_PACKED_REFS_LOCK_RETRIES}) (owning process may be exiting)" >&2
     sleep "$FLEET_SYNC_PACKED_REFS_LOCK_RETRY_WAIT_SECS"
-    FETCH_OUTPUT=$(git -C "$PROJ" fetch origin --prune --quiet 2>&1); rc=$?
+    FETCH_OUTPUT=$(LC_ALL=C git -C "$PROJ" fetch origin --prune --quiet 2>&1); rc=$?
     if [ "$rc" -eq 0 ]; then
       echo "$label: fetch succeeded on retry; packed-refs lock cleared on its own" >&2
       # One stdout summary so a session-start refresh (which discards fleet-sync
@@ -211,7 +218,7 @@ fetch_with_packed_refs_lock_guard() {
         return "$rc"
       fi
       echo "$label: removed provably-stale packed-refs lock $lock (age >= ${FLEET_SYNC_PACKED_REFS_LOCK_AGE_SECS}s, no live holder) and retrying fetch" >&2
-      FETCH_OUTPUT=$(git -C "$PROJ" fetch origin --prune --quiet 2>&1); rc=$?
+      FETCH_OUTPUT=$(LC_ALL=C git -C "$PROJ" fetch origin --prune --quiet 2>&1); rc=$?
       if [ "$rc" -eq 0 ]; then
         echo "$label: fetch succeeded after stale packed-refs lock cleanup" >&2
         echo "$label: recovered: removed a stale packed-refs lock (no live holder)"
@@ -419,7 +426,7 @@ sync_project() {
     echo "$label: skipped: cannot read local $DEFAULT"
     return 0
   }
-  if ! merge_output=$(git -C "$PROJ" merge --ff-only "$BASE" 2>&1); then
+  if ! merge_output=$(LC_ALL=C git -C "$PROJ" merge --ff-only "$BASE" 2>&1); then
     if [ "$lone_captains_log" = yes ] && is_captains_log_overwrite_refusal "$merge_output"; then
       report_stuck "branch $DEFAULT with untracked $CAPTAINS_LOG blocking fast-forward"
       return 0

@@ -186,6 +186,31 @@ SH
   chmod +x "$1/git"
 }
 
+# git shim: a gettext-localized git, i.e. the fleet member whose operator runs a
+# non-English LANG. Any `merge` reaching it WITHOUT LC_ALL=C answers with a
+# translated untracked-overwrite refusal; with LC_ALL=C it delegates to the real
+# git. Fleet-sync only sees the English text its matchers need if it pins the
+# locale itself, so this shim fails the run that reads ambient git output.
+git_localized_merge_refusal() {
+  cat > "$1/git" <<'SH'
+#!/usr/bin/env bash
+real=${REAL_GIT_FOR_TEST:?}
+is_merge=0
+for a in "$@"; do [ "$a" = merge ] && is_merge=1; done
+if [ "$is_merge" = 1 ] && [ "${LC_ALL:-}" != C ]; then
+  {
+    echo "error: Die folgenden unversionierten Dateien im Arbeitsverzeichnis wuerden durch den Merge ueberschrieben werden:"
+    printf '\t%s\n' CAPTAINS-LOG.md
+    echo "Bitte verschieben oder entfernen Sie diese, bevor Sie mergen."
+    echo "Abbruch"
+  } >&2
+  exit 1
+fi
+exec "$real" "$@"
+SH
+  chmod +x "$1/git"
+}
+
 # run_sync_guarded <home> <fakebin> <outfile> <errfile> [args...]: run fleet-sync
 # with the fakebin on PATH and stdout/stderr captured separately. Per-test knobs
 # (FM_FLEET_SYNC_PACKED_REFS_LOCK_*, GIT_FETCH_COUNTER) are read from the caller's
@@ -328,6 +353,33 @@ test_untracked_captains_log_keeps_git_overwrite_protection() {
   [ "$(git -C "$clone" status --porcelain)" = "?? CAPTAINS-LOG.md" ] \
     || fail "conflicting untracked CAPTAINS-LOG: file no longer remains visible and untracked"
   pass "an untracked CAPTAINS-LOG.md retains Git's overwrite protection"
+}
+
+test_captains_log_stuck_survives_a_non_english_locale() {
+  local home fakebin clone out err before
+  home=$(new_home)
+  fakebin="$home/fb-locale"; rm -rf "$fakebin"; mkdir -p "$fakebin"
+  clone=$(build_pair "$home" captains-log-locale)
+  before=$(head_sha "$clone")
+  printf 'Local Captain content must survive\n' > "$clone/CAPTAINS-LOG.md"
+  commit_file "$home/work-captains-log-locale" CAPTAINS-LOG.md upstream "publish conflicting log"
+  git -C "$home/work-captains-log-locale" push -q origin main
+  git_localized_merge_refusal "$fakebin"
+  out="$home/out-locale"; err="$home/err-locale"
+
+  set +e
+  LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 \
+    run_sync_guarded "$home" "$fakebin" "$out" "$err" captains-log-locale
+  set -e
+
+  assert_contains "$(cat "$out")" "captains-log-locale: STUCK:" \
+    "localized fleet member lost the STUCK escalation (git output read under ambient locale)"
+  assert_contains "$(cat "$out")" "untracked CAPTAINS-LOG.md blocking fast-forward" \
+    "localized fleet member lost the blocking-path detail"
+  assert_not_contains "$(cat "$out")" "skipped:" \
+    "localized fleet member fell back to a benign skip"
+  [ "$(head_sha "$clone")" = "$before" ] || fail "localized locale: clone was advanced"
+  pass "the CAPTAINS-LOG STUCK escalation is locale-invariant"
 }
 
 test_detached_with_lone_untracked_captains_log_is_stuck_untouched() {
@@ -757,6 +809,7 @@ test_detached_clean_ancestor_with_diverged_local_default_is_stuck_untouched
 test_dirty_is_stuck_untouched
 test_lone_untracked_root_captains_log_allows_sync
 test_untracked_captains_log_keeps_git_overwrite_protection
+test_captains_log_stuck_survives_a_non_english_locale
 test_detached_with_lone_untracked_captains_log_is_stuck_untouched
 test_tracked_captains_log_modification_is_stuck
 test_untracked_captains_log_plus_second_dirty_path_is_stuck
