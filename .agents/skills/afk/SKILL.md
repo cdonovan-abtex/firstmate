@@ -159,6 +159,10 @@ Classify each wake this way:
   Other signals with no captain-relevant status -> self-handle.
 - `signal` or `stale` for a declared `paused:` external wait -> self-handle and track the pause rather than a wedge.
   If it remains declared and idle past `FM_PAUSE_RESURFACE_SECS` (default 3600s), housekeeping sends one awaiting-external recheck and resets the pause window.
+- `signal` or `stale` whose last status line is not captain-relevant but whose task still has an open keyed `needs-decision:`/`blocked:` the captain has not been woken for -> escalate once, overriding both self-handle cases above.
+  A same-turn `working:` or `paused:` append masks that decision in any last-line read, so both classifiers consult the durable keyed-decision fold in `bin/fm-classify-lib.sh` and its shared decision-seen marker instead of the last line.
+  The stale form escalates as `stale + open decision: <key>=<verb>:<note>` and collapses several simultaneously open keys into one record.
+  Once surfaced, an unchanged fold reverts to the rules above, and the marker is retired as soon as the fold empties so a reopened key escalates again.
 - `check` -> always escalate. Check scripts print only when firstmate should wake.
 - `stale` with a terminal status or bare legacy captain-relevant line -> escalate.
   Nonterminal progress remains transient even when its prose contains a legacy free-text token or its seen-status marker already matches, so record a marker and self-handle.
