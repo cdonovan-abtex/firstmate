@@ -199,6 +199,34 @@ test_masked_open_decision_escalates_once_in_daemon() {
   pass "a paused-masked open decision escalates once via daemon signal and stale, then dedupes"
 }
 
+# The open-decision fold prints one line PER open key, but the classifier protocol
+# is exactly one "<action>|<distilled>" line and escalate_flush counts buffer rows
+# as events. Two simultaneously open keys must therefore reach the digest as ONE
+# row that still names both keys and both summaries.
+test_multiple_open_decisions_escalate_as_one_digest_row() {
+  local dir state out win statusf buf rows
+  dir=$(make_supercase multi-open-decision); state="$dir/state"
+  win="sess:fm-multi-dec"
+  statusf="$state/multi-dec.status"
+  printf 'window=%s\nkind=ship\n' "$win" > "$state/multi-dec.meta"
+  printf 'needs-decision [key=api-shape]: which port?\nblocked [key=creds]: no deploy token\npaused: waiting for captain\n' > "$statusf"
+
+  out=$(FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state")
+  case "$out" in escalate\|*) ;; *) fail "two open decisions did not escalate on the stale path: $out" ;; esac
+  [ "$(printf '%s' "$out" | wc -l | tr -d ' ')" = 0 ] \
+    || fail "the stale classifier emitted a multi-line decision: $out"
+  case "$out" in *api-shape*) ;; *) fail "the collapsed digest dropped the api-shape key: $out" ;; esac
+  case "$out" in *creds*) ;; *) fail "the collapsed digest dropped the creds key: $out" ;; esac
+  case "$out" in *"which port?"*) ;; *) fail "the collapsed digest dropped the api-shape summary: $out" ;; esac
+  case "$out" in *"no deploy token"*) ;; *) fail "the collapsed digest dropped the creds summary: $out" ;; esac
+
+  buf="$state/.subsuper-escalations"
+  FM_STATE_OVERRIDE="$state" escalate_add "$state" "${out#*|}"
+  rows=$(wc -l < "$buf" | tr -d ' ')
+  [ "$rows" = 1 ] || fail "two open decisions buffered as $rows escalation rows instead of one"
+  pass "several simultaneously open decisions collapse into one digest row without losing a key"
+}
+
 # handle_wake on a paused stale records a pause marker, drops any pre-existing wedge
 # marker (so a working->paused pane is not still wedge-aged), and does NOT escalate
 # on the wake itself - the recheck is housekeeping's job on the long cadence.
@@ -1808,6 +1836,7 @@ test_stale_transient_self_records_marker
 test_stale_terminal_escalates
 test_stale_paused_classifies_pause
 test_masked_open_decision_escalates_once_in_daemon
+test_multiple_open_decisions_escalate_as_one_digest_row
 test_handle_wake_paused_records_pause_marker
 test_handle_wake_paused_signal_records_pause_marker
 test_handle_wake_terminal_signal_clears_pause_tracking

@@ -333,6 +333,37 @@ test_signal_crews_absorbable_classifier() {
   pass "signal_crews_absorbable: absorbs only authoritative working/paused crews and surfaces stopped/terminal/unresolved crews and masked open decisions"
 }
 
+# The decision-seen marker must not outlive the fold it describes. A resolve is not
+# captain-relevant and its wake is ABSORBED, so no surface path ever runs; if the
+# marker survived that, the same key reopened later with the same summary would
+# match it and be swallowed for the rest of the run. The authoritative fold read
+# every absorb point performs retires the marker as soon as the fold empties.
+test_decision_seen_marker_retires_on_empty_fold() {
+  local dir state statusf marker
+  dir=$(make_case decision-seen-retire); state="$dir/state"
+  statusf="$state/reopen.status"
+  marker="$state/.decision-seen-reopen"
+
+  printf 'needs-decision [key=db]: pick the schema\n' > "$statusf"
+  status_has_unsurfaced_open_decision "$statusf" || fail "a fresh open decision read as already surfaced"
+  record_decision_surfaced "$statusf"
+  [ -s "$marker" ] || fail "surfacing the decision did not record the decision-seen marker"
+  ! status_has_unsurfaced_open_decision "$statusf" \
+    || fail "the just-surfaced decision fold re-read as unsurfaced"
+
+  # The resolve arrives on an absorbed wake: only the fold read runs, never a surface.
+  printf 'resolved [key=db]: chose postgres\nworking: migrating\n' >> "$statusf"
+  ! status_has_unsurfaced_open_decision "$statusf" \
+    || fail "an empty decision fold reported an unsurfaced open decision"
+  [ ! -e "$marker" ] || fail "the decision-seen marker survived an emptied fold on an absorbed wake"
+
+  # The SAME key reopened with the SAME summary must wake again.
+  printf 'needs-decision [key=db]: pick the schema\nworking: retrying\n' >> "$statusf"
+  status_has_unsurfaced_open_decision "$statusf" \
+    || fail "a decision key reopened after a resolve was deduped against the retired marker"
+  pass "the decision-seen marker retires on an emptied fold so a reopened key wakes again"
+}
+
 # --- benign wakes are absorbed ONLY when the crew is provably working ---------
 
 test_provably_working_signal_absorbed() {
@@ -590,6 +621,62 @@ test_working_signal_masking_open_decision_surfaces_once() {
   grep -F "signal: $state/wmask.status" "$out" >/dev/null \
     || fail "the new blocked decision did not surface: $(cat "$out")"
   pass "a needs-decision masked by a later working: line wakes exactly once while a new key still wakes"
+}
+
+# End-to-end counterpart to test_decision_seen_marker_retires_on_empty_fold: the
+# resolve wake is ABSORBED (resolved: is not captain-relevant and the crew reads
+# working), so the marker retirement has to happen on that absorb path. If it does
+# not, the crew hitting the SAME gate again produces a fold identical to the stale
+# marker and the reopened decision is swallowed for the rest of the run.
+test_resolved_then_reopened_decision_wakes_again() {
+  local dir state fakebin out drain_out capture_file window pid rows
+  dir=$(make_case decision-reopen); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-reopen"
+  printf 'idle awaiting captain\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/reopen.meta"
+  printf 'needs-decision [key=db]: pick the schema\n' > "$state/reopen.status"
+
+  # Wake #1: the decision surfaces and records the decision-seen marker.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_CREW_STATE='state: working · source: run-step · migrating' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "the initial needs-decision never surfaced"; }
+  [ -s "$state/.decision-seen-reopen" ] || fail "surfacing the decision did not record the decision-seen marker"
+
+  # The crew resolves it and keeps working: a benign, ABSORBED wake.
+  printf 'resolved [key=db]: chose postgres\nworking: migrating\n' >> "$state/reopen.status"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_CREW_STATE='state: working · source: run-step · migrating' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 50; then
+    reap "$pid"; fail "a resolve behind a working crew surfaced instead of being absorbed: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "the absorbed resolve printed a reason: $(cat "$out")"; }
+  [ ! -e "$state/.decision-seen-reopen" ] \
+    || { reap "$pid"; fail "the absorbed resolve left the decision-seen marker behind"; }
+  reap "$pid"
+
+  # The crew hits the same gate again with the identical summary: it must wake.
+  printf 'needs-decision [key=db]: pick the schema\nworking: retrying\n' >> "$state/reopen.status"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_CREW_STATE='state: working · source: run-step · retrying' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "a decision key reopened after a resolve never surfaced again"; }
+  grep -F "signal: $state/reopen.status" "$out" >/dev/null \
+    || fail "the reopened decision did not surface through the signal path: $(cat "$out")"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the reopened decision failed"
+  rows=$(grep -c "$(printf '\tsignal\t')" "$drain_out" || true)
+  [ "$rows" -ge 1 ] || fail "the reopened decision was not queued durably"
+  pass "a decision resolved on an absorbed wake and then reopened wakes the captain again"
 }
 
 test_turn_ended_provably_working_absorbed() {
@@ -1369,6 +1456,68 @@ test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash() {
   pass "unchanged stale hashes reclassify when a crew enters or leaves pause"
 }
 
+# The pause classification is CACHED for FM_STALE_ESCALATE_SECS: while the recheck
+# marker is fresh, a confirmed paused task stays on the bounded cadence without
+# consulting authoritative crew state or endpoint liveness at all, so benign pane
+# churn from a live agent is absorbed rather than re-surfaced. That quiet must be
+# finite: once the marker ages out, the full reclassification runs again and a crew
+# that is no longer paused surfaces. Both halves run with a crew state that would
+# classify as `none` if it were read, so quiet in the first half proves the cache
+# was used and the surface in the second proves it expired.
+test_paused_recheck_cache_expires_and_reclassifies() {
+  local dir state fakebin out capture_file window key sig pid back wakes
+  dir=$(make_case paused-recheck-cache); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-pause-cache"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/pause-cache.meta"
+  printf 'paused: awaiting the upstream release\n' > "$state/pause-cache.status"
+  sig=$(seen_sig "$state/pause-cache.status"); printf '%s' "$sig" > "$state/.seen-pause-cache_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf '%s' "$(hash_text 'idle awaiting external - first observation')" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  : > "$state/.paused-$key"
+  date +%s > "$state/.paused-rechecked-$key"
+
+  # Fresh cache: the pane hash changes (a live agent redrawing), the crew reads
+  # stopped and its agent is alive - the reclassifying answer would be `none`.
+  printf 'idle awaiting external - benign redraw\n' > "$capture_file"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: stopped · source: pane · idle' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 40; then
+    reap "$pid"
+    fail "a benign pane change inside the bounded pause recheck window surfaced: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "the cached pause printed a reason: $(cat "$out")"; }
+  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "the cached pause enqueued a durable wake"; }
+  [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "the cached pause lost its pause cadence marker"; }
+  [ -e "$state/.paused-rechecked-$key" ] || { reap "$pid"; fail "the cached pause discarded its recheck marker"; }
+  reap "$pid"
+
+  # Age the recheck marker past FM_STALE_ESCALATE_SECS: reclassification resumes,
+  # reads the same stopped crew behind a live agent, and surfaces one stale wake.
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$state/.paused-rechecked-$key"
+  else touch -m -d "@$back" "$state/.paused-rechecked-$key"; fi
+  printf 'idle awaiting external - still nobody home\n' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: stopped · source: pane · idle' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 80 \
+    || { reap "$pid"; fail "the expired pause recheck stayed quiet instead of reclassifying: $(cat "$out")"; }
+  grep -F "stale: $window" "$out" >/dev/null \
+    || fail "the expired pause recheck did not surface a stale wake: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue")
+  [ "$wakes" -eq 1 ] || fail "the expired pause recheck produced $wakes stale wakes instead of exactly one"
+  pass "a cached pause absorbs benign pane churn for a bounded window, then reclassifies once it expires"
+}
+
 test_nonterminal_paused_rechecks_authoritative_state() {
   local dir state fakebin out capture_file window key pane_hash sig pid
   dir=$(make_case nonterminal-paused-recheck); state="$dir/state"; fakebin="$dir/fakebin"
@@ -1759,11 +1908,13 @@ test_crew_is_provably_working_classifier
 test_status_is_paused_classifier
 test_crew_absorb_class_classifier
 test_signal_crews_absorbable_classifier
+test_decision_seen_marker_retires_on_empty_fold
 test_provably_working_signal_absorbed
 test_signal_superseded_by_unchanged_pause_stays_quiet
 test_paused_signal_masking_open_decision_surfaces_once
 test_paused_append_after_surfaced_decision_does_not_refire
 test_working_signal_masking_open_decision_surfaces_once
+test_resolved_then_reopened_decision_wakes_again
 test_turn_ended_provably_working_absorbed
 test_turn_ended_not_working_surfaced
 test_working_note_not_working_surfaced
@@ -1784,6 +1935,7 @@ test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed
 test_secondmate_unpause_clears_pause_tracking
 test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash
+test_paused_recheck_cache_expires_and_reclassifies
 test_nonterminal_paused_rechecks_authoritative_state
 test_paused_authoritative_working_preserves_wedge_timer
 test_nonterminal_stale_repairs_missing_or_corrupt_timer

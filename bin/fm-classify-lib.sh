@@ -268,11 +268,20 @@ _decision_seen_path() {  # <status-file>
 # captain has not yet been woken for. 1 when no decision is open, or the open fold
 # was already surfaced, so a later paused/turn-end append that leaves the fold
 # unchanged does not re-fire an already-surfaced decision.
+# This is the authoritative fold read every ABSORB path performs (the watcher's
+# signal_crews_absorbable, the daemon's classify_signal/classify_stale), and it is
+# where an empty fold RETIRES the marker: a resolve that lands on an absorbed wake
+# never reaches a surface path, so leaving the marker behind would make the same
+# key, reopened later with the same summary, look already-surfaced forever.
 status_has_unsurfaced_open_decision() {  # <status-file>
-  local summary seen
+  local summary seen path
+  path=$(_decision_seen_path "$1")
   summary=$(status_open_decision_summary "$1")
-  [ -n "$summary" ] || return 1
-  seen=$(cat "$(_decision_seen_path "$1")" 2>/dev/null || true)
+  if [ -z "$summary" ]; then
+    rm -f "$path"
+    return 1
+  fi
+  seen=$(cat "$path" 2>/dev/null || true)
   [ "$summary" != "$seen" ]
 }
 

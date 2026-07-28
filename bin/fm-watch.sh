@@ -880,12 +880,20 @@ EOF
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         printf '%s' "$sig" > "$sf"
-        mark_surfaced "$f"
-        afk_present || record_decision_surfaced "$f"
-        arm_stale_dupe "$f"
       done <<EOF
 $pending
 EOF
+      # Per-FILE bookkeeping runs over the deduped $files list, not over $pending:
+      # $pending concatenates two scan_signals runs with no .seen-* advance between
+      # them, so a file changed before the grace window is normally listed twice,
+      # and arm_stale_dupe captures the pane once per listing (a backend round-trip
+      # each). One surfaced file must cost at most one capture.
+      # shellcheck disable=SC2086  # $files is a space-separated signal-path list (ids carry no spaces)
+      for f in $files; do
+        mark_surfaced "$f"
+        afk_present || record_decision_surfaced "$f"
+        arm_stale_dupe "$f"
+      done
       wake "$reason"
     else
       while IFS=$(printf '\t') read -r sf sig f; do

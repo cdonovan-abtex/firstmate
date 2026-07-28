@@ -376,7 +376,11 @@ classify_stale() {  # <window> <state>
     # A still-open needs-decision/blocked masked by a later paused: line must not
     # be absorbed as a declared wait. The durable fold plus its exactly-once
     # decision-seen marker surface it once, then revert to the pause cadence below.
-    printf 'escalate|stale + open decision: %s' "$(status_open_decision_summary "$state/$task.status")"
+    # The fold prints one line per open key; the decision protocol is exactly one
+    # line, and escalate_add counts buffer rows as events, so several simultaneously
+    # open keys collapse into ONE record that still carries every key and summary.
+    printf 'escalate|stale + open decision: %s' \
+      "$(_collapse_newlines "$(status_open_decision_summary "$state/$task.status")")"
     return
   fi
   if [ -n "$last" ] && status_is_paused "$last"; then
