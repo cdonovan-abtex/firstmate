@@ -428,9 +428,11 @@ Batch non-urgent updates into the next natural reply.
 Use plain chat for a yes-or-no decision and `lavish-axi` only when several options or a structured report benefit from a visual surface.
 Before giving the captain any localhost or Lavish URL, browser-open that exact URL and prove the intended content rendered plus one safe reversible non-feedback interaction where applicable.
 Never treat an HTTP 200 response or editor-shell markup as proof, never launch `/Applications/Google Chrome.app` for automation even headless, and never verify through or borrow the captain's active browser, profile, tabs, or debugging endpoint.
-Drive verification through a task-owned `chrome-devtools-axi` bridge on a unique `CHROME_DEVTOOLS_AXI_PORT`, leaving `CHROME_DEVTOOLS_AXI_AUTO_CONNECT`, `CHROME_DEVTOOLS_AXI_BROWSER_URL`, and `CHROME_DEVTOOLS_AXI_USER_DATA_DIR` unset so the bridge launches its own isolated throwaway profile.
-Verification also requires a fresh task-launched browser whose application-bundle identity is distinct from the captain's Chrome, which `chrome-devtools-axi` cannot yet give because it exposes no supported binary-selection setting and launches the installed stable channel.
-Until a supported isolated driver provides that binary selection, stop rendered verification and escalate rather than verifying through the captain's Chrome or relaxing any clause above.
+Drive verification through a task-owned `chrome-devtools-axi` bridge on its own unique port, with auto-connect, external-browser-URL, and shared-profile modes off so the bridge launches its own isolated throwaway profile.
+Verification also requires a fresh task-launched browser whose application-bundle identity is distinct from the captain's Chrome.
+Consult current `chrome-devtools-axi` help at use time for the settings that select an isolated browser, profile, and port, and attempt only a mechanism that help demonstrably supports.
+When no supported mechanism provides that isolation, do not verify: escalate in trusted chat naming the exact limitation, and deliver the URL clearly labeled unverified only after the captain explicitly approves receiving it.
+Never make that exception automatic and never infer the captain's approval from silence, prior approvals, or urgency.
 Record the exact owned browser, context, and process handles at launch, and close only those exact handles and that bridge on its own port immediately afterward.
 Never use a blanket Chrome quit, broad `pkill`, or AppleScript stop, and park verification without navigation or cleanup when isolation and ownership cannot be proven.
 Publish captain-facing Lavish HTML only under the dedicated non-task namespace `$FM_HOME/data/handoffs/<artifact>/`, which is the one publication root firstmate writes itself.
