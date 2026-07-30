@@ -431,10 +431,10 @@ Never treat an HTTP 200 response or editor-shell markup as proof, never launch `
 Drive verification through a task-owned `chrome-devtools-axi` bridge on its own unique port, with auto-connect, external-browser-URL, and shared-profile modes off so the bridge launches its own isolated throwaway profile.
 Verification also requires a fresh task-launched browser whose application-bundle identity is distinct from the captain's Chrome.
 Consult current `chrome-devtools-axi` help at use time for the settings that select an isolated browser, profile, and port, and attempt only a mechanism that help demonstrably supports.
-When no supported mechanism provides that isolation, do not verify: escalate in trusted chat naming the exact limitation, and deliver the URL clearly labeled unverified only after the captain explicitly approves receiving it.
+When that isolation and ownership cannot be proven, do not navigate and do not run any browser cleanup: escalate immediately in trusted chat naming the exact limitation, and deliver the URL clearly labeled unverified only after the captain explicitly approves receiving it.
 Never make that exception automatic and never infer the captain's approval from silence, prior approvals, or urgency.
 Record the exact owned browser, context, and process handles at launch, and close only those exact handles and that bridge on its own port immediately afterward.
-Never use a blanket Chrome quit, broad `pkill`, or AppleScript stop, and park verification without navigation or cleanup when isolation and ownership cannot be proven.
+Never use a blanket Chrome quit, broad `pkill`, or AppleScript stop.
 Publish captain-facing Lavish HTML only under the dedicated non-task namespace `$FM_HOME/data/handoffs/<artifact>/`, which is the one publication root firstmate writes itself.
 A repository's durable `.lavish/` counts as published only once a worker has committed and landed that artifact through the project's selected delivery path, and firstmate never writes under `projects/` or into that root itself.
 Never publish from the `/private/tmp/claude-*/.../scratchpad/` class, generic `/tmp/`, an unlanded or disposable task copy, or a disposable `.lavish/`.
