@@ -38,7 +38,7 @@
 #                   silently pass as a gate skip.
 #   --jobs N        run the selected scripts with up to N concurrent workers.
 #                   Default is 1 (serial). N>1 is allowed only when every
-#                   selected script is in the Phase 2 proven-isolated set
+#                   selected script is in the proven-isolated set
 #                   (bin/fm-test-isolation-proof.sh --list). Cap is 8. Stateful
 #                   families never schedule under --jobs.
 #   -h, --help      print this header
@@ -118,14 +118,13 @@ now_ms() {
 family_for_basename() {
   case "$1" in
     fm-arm-pretool-check.test.sh|fm-ask-user-authority.test.sh|fm-brief.test.sh|\
-    fm-calm-pi-extension.test.sh|fm-captain-translation-contract.test.sh|fm-cd-pretool-check.test.sh|\
+    fm-calm-pi-extension.test.sh|fm-cd-pretool-check.test.sh|\
     fm-composer-ghost.test.sh|fm-composer-lib.test.sh|\
-    fm-continuity-pretool-check.test.sh|fm-crew-state.test.sh|fm-decision-hold-lifecycle.test.sh|\
-    fm-dispatch-select.test.sh|fm-ensure-agents-md.test.sh|fm-grok-harness.test.sh|\
-    fm-herdr-lab.test.sh|fm-instruction-owners.test.sh|fm-lint.test.sh|\
-    fm-install-herdr.test.sh|fm-nm-test-contract.test.sh|fm-no-mistakes-ownership.test.sh|\
+    fm-crew-state.test.sh|fm-decision-hold-lifecycle.test.sh|\
+    fm-documentation-audiences.test.sh|fm-ensure-agents-md.test.sh|fm-grok-harness.test.sh|\
+    fm-kimi-harness.test.sh|fm-herdr-lab.test.sh|fm-lint.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|\
-    fm-send-popup-settle.test.sh|fm-send-settle.test.sh|fm-stow-contract.test.sh|\
+    fm-send-popup-settle.test.sh|fm-send-settle.test.sh|\
     fm-subagent-pretool-check.test.sh|\
     fm-supervision-instructions.test.sh|fm-tmux-submit-busy.test.sh|fm-transition-lib.test.sh|\
     fm-test-run.test.sh|fm-test-isolation-proof.test.sh)
@@ -140,6 +139,7 @@ family_for_basename() {
     fm-afk-inject-herdr-e2e.test.sh|fm-afk-launch.test.sh|fm-backend-autodetect-smoke.test.sh|\
     fm-backend-herdr-eventwait-smoke.test.sh|fm-backend-herdr-presentation-e2e.test.sh|\
     fm-backend-herdr-prune-safety-e2e.test.sh|fm-backend-herdr-respawn-idem-e2e.test.sh|\
+    fm-herdr-session-cleanup-e2e.test.sh|\
     fm-backend-herdr-smoke.test.sh|fm-backend-herdr-workspace-per-home-e2e.test.sh)
       printf '%s\n' real-herdr-gated
       ;;
@@ -153,15 +153,16 @@ family_for_basename() {
     fm-update.test.sh)
       printf '%s\n' session-bootstrap
       ;;
-    fm-afk-pi-herdr-return-e2e.test.sh|fm-claude-continuity-live-e2e.test.sh|\
+    fm-afk-pi-herdr-return-e2e.test.sh|\
     fm-codex-continuity-live-e2e.test.sh|fm-grok-continuity-live-e2e.test.sh|\
-    fm-opencode-primary-live-e2e.test.sh|fm-pi-primary-live-e2e.test.sh|\
+    fm-grok-stop-live-e2e.test.sh|fm-opencode-primary-live-e2e.test.sh|fm-pi-primary-live-e2e.test.sh|\
     fm-send-secondmate-marker-herdr-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
     fm-backend-herdr.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
-    fm-send-strict.test.sh|fm-spawn-batch.test.sh|fm-spawn-dispatch-profile.test.sh|\
-    fm-spawn-worktree-settle.test.sh)
+    fm-herdr-session-cleanup.test.sh|fm-send-strict.test.sh|fm-spawn-batch.test.sh|\
+    fm-spawn-dispatch-profile.test.sh|fm-spawn-worktree-settle.test.sh|\
+    fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
       ;;
     fm-pr-check-security.test.sh|fm-pr-merge.test.sh|fm-review-diff.test.sh|\
@@ -227,7 +228,7 @@ real-herdr-gated
 EOF
 }
 
-# Exact Phase 2 proven-isolated candidate set (same paths as
+# Exact proven-isolated candidate set (same paths as
 # bin/fm-test-isolation-proof.sh --list). Do not expand without a new concurrent
 # isolation proof archive.
 list_proven_isolated() {
@@ -235,20 +236,15 @@ list_proven_isolated() {
 tests/fm-arm-pretool-check.test.sh
 tests/fm-backend-herdr.test.sh
 tests/fm-brief.test.sh
-tests/fm-captain-translation-contract.test.sh
 tests/fm-cd-pretool-check.test.sh
 tests/fm-composer-ghost.test.sh
 tests/fm-composer-lib.test.sh
 tests/fm-crew-state.test.sh
 tests/fm-decision-hold-lifecycle.test.sh
-tests/fm-dispatch-select.test.sh
 tests/fm-ensure-agents-md.test.sh
 tests/fm-grok-harness.test.sh
 tests/fm-herdr-lab.test.sh
-tests/fm-instruction-owners.test.sh
 tests/fm-lint.test.sh
-tests/fm-nm-test-contract.test.sh
-tests/fm-no-mistakes-ownership.test.sh
 tests/fm-pi-primary-types.test.sh
 tests/fm-pr-merge.test.sh
 tests/fm-review-diff.test.sh
@@ -256,7 +252,6 @@ tests/fm-send-popup-settle.test.sh
 tests/fm-send-settle.test.sh
 tests/fm-send-strict.test.sh
 tests/fm-spawn-batch.test.sh
-tests/fm-stow-contract.test.sh
 tests/fm-supervision-instructions.test.sh
 tests/fm-test-run.test.sh
 tests/fm-tmux-submit-busy.test.sh
@@ -265,48 +260,41 @@ tests/fm-x-mode.test.sh
 EOF
 }
 
-# Portable parallel shard 1: LPT balance of the proven-isolated set using
-# Phase 1 serial duration averages from CI timing artifacts on main after
-# #825/#832/#834 (docs/fm-test-portable-shards.md). Execution order is longest
-# first so wall-clock stays near the balanced sum.
+# Portable parallel shard 1: LPT balance of the proven-isolated set using the
+# current concurrent-proof durations in docs/fm-test-isolation-proof.json.
+# Execution order is longest first so wall-clock stays near the balanced sum.
 list_portable_parallel_1() {
   cat <<'EOF'
-tests/fm-arm-pretool-check.test.sh
+tests/fm-x-mode.test.sh
 tests/fm-cd-pretool-check.test.sh
-tests/fm-backend-herdr.test.sh
-tests/fm-pr-merge.test.sh
+tests/fm-decision-hold-lifecycle.test.sh
 tests/fm-test-run.test.sh
-tests/fm-send-popup-settle.test.sh
+tests/fm-composer-ghost.test.sh
+tests/fm-grok-harness.test.sh
+tests/fm-lint.test.sh
+tests/fm-pi-primary-types.test.sh
 tests/fm-review-diff.test.sh
 tests/fm-brief.test.sh
-tests/fm-dispatch-select.test.sh
-tests/fm-ensure-agents-md.test.sh
-tests/fm-instruction-owners.test.sh
-tests/fm-pi-primary-types.test.sh
 tests/fm-transition-lib.test.sh
-tests/fm-composer-lib.test.sh
-tests/fm-stow-contract.test.sh
 EOF
 }
 
 # Portable parallel shard 2: the complementary LPT half of the proven set.
 list_portable_parallel_2() {
   cat <<'EOF'
-tests/fm-decision-hold-lifecycle.test.sh
-tests/fm-x-mode.test.sh
-tests/fm-herdr-lab.test.sh
+tests/fm-backend-herdr.test.sh
+tests/fm-arm-pretool-check.test.sh
 tests/fm-crew-state.test.sh
-tests/fm-grok-harness.test.sh
-tests/fm-spawn-batch.test.sh
-tests/fm-send-strict.test.sh
+tests/fm-herdr-lab.test.sh
+tests/fm-pr-merge.test.sh
+tests/fm-send-popup-settle.test.sh
 tests/fm-tmux-submit-busy.test.sh
-tests/fm-composer-ghost.test.sh
 tests/fm-send-settle.test.sh
+tests/fm-send-strict.test.sh
+tests/fm-spawn-batch.test.sh
 tests/fm-supervision-instructions.test.sh
-tests/fm-lint.test.sh
-tests/fm-nm-test-contract.test.sh
-tests/fm-captain-translation-contract.test.sh
-tests/fm-no-mistakes-ownership.test.sh
+tests/fm-ensure-agents-md.test.sh
+tests/fm-composer-lib.test.sh
 EOF
 }
 
@@ -621,6 +609,11 @@ families_for_changed_path() {
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
       ;;
+    bin/fm-herdr-session-cleanup.sh)
+      printf '%s\n' session-bootstrap
+      printf '%s\n' real-herdr-gated
+      printf '%s\n' backend-dispatch
+      ;;
     bin/backends/zellij*|tests/zellij-test-safety.sh)
       printf '%s\n' zellij
       printf '%s\n' backend-dispatch
@@ -664,7 +657,7 @@ families_for_changed_path() {
     bin/fm-x-*|bin/fm-check*)
       printf '%s\n' pr-forge
       ;;
-    bin/fm-spawn.sh|bin/fm-send.sh|bin/fm-dispatch-select.sh|bin/fm-harness.sh|\
+    bin/fm-spawn.sh|bin/fm-send.sh|bin/fm-harness.sh|\
     bin/fm-peek.sh|bin/fm-composer*)
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
@@ -684,6 +677,9 @@ families_for_changed_path() {
     bin/fm-tmux-lib.sh|bin/fm-marker-lib.sh|bin/fm-operational-input.sh|bin/fm-tasks-axi-lib.sh|\
     bin/fm-primary-scope-lib.sh|bin/fm-project-mode.sh|bin/fm-promote.sh|\
     bin/fm-ff-lib.sh|bin/fm-gotmp*|bin/*pretool*)
+      printf '%s\n' pure-contract-unit
+      ;;
+    .agents/skills/*/SKILL.md)
       printf '%s\n' pure-contract-unit
       ;;
     .github/workflows/ci.yml|.no-mistakes.yaml)

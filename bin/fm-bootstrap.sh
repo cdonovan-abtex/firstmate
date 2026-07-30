@@ -52,10 +52,9 @@
 #          lavish-axi). tasks-axi is also version and feature gated (0.1.1+
 #          with update --archive-body and mv [<id>...]); an installed but
 #          incompatible build reports MISSING like no-mistakes. A compatible
-#          tasks-axi default backend is silent. quota-axi is required because
-#          every crew-dispatch profile array calls it automatically;
-#          fm-dispatch-select.sh still uses OS-backed random selection across
-#          valid candidates when quota data is unavailable.
+#          tasks-axi default backend is silent. quota-axi is required for the
+#          agent-owned dispatch-profile array procedure in AGENTS.md section 4
+#          and .agents/skills/quota-array-dispatch/SKILL.md.
 #          X mode is OPTIONAL and inert unless FM_HOME/.env has a non-empty
 #          FMX_PAIRING_TOKEN. When opted in, bootstrap requires curl+jq, writes
 #          the relay poll shim and 30s cadence config, and prints an FMX line.
@@ -438,7 +437,7 @@ secondmate_liveness_sweep() {
     [ -n "$target" ] || target="$window"
     agent_state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || agent_state=unreadable
     case "$harness" in
-      claude|codex|opencode|pi|grok) ;;
+      claude|codex|opencode|pi|pi-signed|grok|kimi) ;;
       *)
         case "$agent_state" in dead|missing) agent_state=unverified-harness ;; esac
         ;;
@@ -621,7 +620,7 @@ x_mode_remove_artifact() {
 # applying a cadence transition to a running watcher is the caller's job via
 # the emitted harness-aware supervision repair instruction.
 x_mode_setup() {
-  local env_file token shim cadence shim_body cadence_body tool missing
+  local env_file token shim cadence shim_body cadence_body tool missing shim_home
   env_file="$FM_HOME/.env"
   shim="$STATE/x-watch.check.sh"
   cadence="$CONFIG/x-mode.env"
@@ -684,9 +683,16 @@ x_mode_setup() {
 
   mkdir -p "$STATE" "$CONFIG" 2>/dev/null || { fmx_arm_failed; return 0; }
 
-  shim_body=$(fmx_poll_shim_content "$FM_HOME" "$FM_ROOT")
+  case "$FM_HOME" in
+    /*) shim_home=$FM_HOME ;;
+    *)
+      shim_home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) \
+        || { fmx_arm_failed; return 0; }
+      ;;
+  esac
+  shim_body=$(fmx_poll_shim_content "$shim_home" "$FM_ROOT")
   x_mode_write_if_changed "$shim" "$shim_body" 700 || { fmx_arm_failed; return 0; }
-  fmx_poll_shim_valid "$shim" "$FM_HOME" "$FM_ROOT" \
+  fmx_poll_shim_valid "$shim" "$shim_home" "$FM_ROOT" \
     || { fmx_arm_failed; return 0; }
 
   cadence_body=$(cat <<'EOF'
@@ -715,15 +721,15 @@ crew_dispatch_validate() {
     return 0
   fi
   err=$(jq -r '
-    def verified($h): ["claude","codex","opencode","pi","grok"] | index($h);
+    def verified($h): ["claude","codex","opencode","pi","pi-signed","grok","kimi"] | index($h);
     def effort_ok($h; $e):
       if $e == null then true
       elif ($e | type) != "string" then false
       elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e))
       elif $h == "codex" then (["low","medium","high","xhigh"] | index($e))
       elif $h == "grok" then (["low","medium","high"] | index($e))
-      elif $h == "pi" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "opencode" then false
+      elif $h == "pi" or $h == "pi-signed" then (["low","medium","high","xhigh","max"] | index($e))
+      elif $h == "opencode" or $h == "kimi" then false
       else true
       end;
     def profiles($value):
