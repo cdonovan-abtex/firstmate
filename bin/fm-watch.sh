@@ -324,12 +324,28 @@ busy_turn_over_age() {  # <task>
 # re-surface epoch so, once past the window, it fires once per window rather than
 # every poll. Advances the stale suppressor to <hash> and flags the key paused.
 handle_paused_stale() {  # <window> <task> <hash>
-  local win=$1 task=$2 h=$3 key statusf mtime age rf rf_age reason
+  local win=$1 task=$2 h=$3 key statusf mtime age rf rf_age reason summary
   key=$(printf '%s' "$win" | tr ':/.' '___')
   printf '%s' "$h" > "$STATE/.stale-$key"
   : > "$STATE/.paused-$key"
   rm -f "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key"
   statusf="$STATE/$task.status"
+  # A still-open needs-decision/blocked that a later paused:/captain-held line
+  # masks in a last-line read is NOT the declared wait this cadence absorbs:
+  # holding it for PAUSE_RESURFACE_SECS would sit on a decision the captain has
+  # never been woken for. Surface it once - the decision-seen marker keeps that
+  # exactly-once - and then revert to the pause cadence, matching the daemon's
+  # classify_stale. The pause bookkeeping above is already written, so the very
+  # next poll of this same hash absorbs normally. In away mode the daemon owns
+  # both the fold read and the marker, so leave it to the handoff.
+  if ! afk_present && status_has_unsurfaced_open_decision "$statusf"; then
+    summary=$(status_open_decision_summary "$statusf" | tr '\n' ' ')
+    reason="stale: $win (open decision masked by a declared pause: ${summary% })"
+    fm_wake_append stale "$win" "$reason" || exit 1
+    record_decision_surfaced "$statusf"
+    date +%s > "$STATE/.paused-resurfaced-$key"
+    wake "$reason"
+  fi
   mtime=$(stat_mtime "$statusf")
   case "$mtime" in ''|*[!0-9]*) mtime=$(date +%s) ;; esac
   age=$(( $(date +%s) - mtime ))
@@ -415,6 +431,7 @@ surface_nonterminal_stale() {  # <window> <hash>
   rm -f "$STATE/.stale-since-$key"
   task=$(window_to_task "$win" "$STATE")
   last=$(last_status_line "$STATE/$task.status")
+  record_decision_surfaced "$STATE/$task.status"
   if status_is_paused_or_captain_held "$last"; then
     : > "$STATE/.paused-$key"
     date +%s > "$STATE/.paused-rechecked-$key"
@@ -916,11 +933,17 @@ EOF
       # them, so a file changed before the grace window is normally listed twice,
       # and arm_stale_dupe captures the pane once per listing (a backend round-trip
       # each). One surfaced file must cost at most one capture.
+      # Both dedupe seams are away-mode guarded: in afk the daemon owns the
+      # decision-seen marker, and the stale-dupe token is consumed only by the
+      # non-afk stale branch below, so arming it here would be a pure backend
+      # round-trip on the wake path.
       # shellcheck disable=SC2086  # $files is a space-separated signal-path list (ids carry no spaces)
       for f in $files; do
         mark_surfaced "$f"
-        afk_present || record_decision_surfaced "$f"
-        arm_stale_dupe "$f"
+        if ! afk_present; then
+          record_decision_surfaced "$f"
+          arm_stale_dupe "$f"
+        fi
       done
       wake "$reason"
     else
@@ -1014,6 +1037,7 @@ EOF
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
               mark_surfaced "$STATE/$task.status"
+              record_decision_surfaced "$STATE/$task.status"
               arm_stale_dupe "$STATE/$task.status" "$h"
               wake "stale: $w"
             fi

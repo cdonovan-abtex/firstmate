@@ -251,6 +251,18 @@ EOF
   printf '%s' "$out"
 }
 
+# Map any per-task signal file to the task's status log, the only file the
+# decision fold is defined over. A wake lists <task>.status AND the empty
+# <task>.turn-ended marker interchangeably, so every fold read and marker write
+# below normalizes first: reading the marker file itself would fold an empty file
+# (no decision ever seen) and key the dedupe marker off a bogus per-suffix path.
+_decision_status_file() {  # <status-or-signal-file>
+  local f=$1 dir base task
+  case "$f" in */*) dir=${f%/*} ;; *) dir=. ;; esac
+  base=${f##*/}; task=${base%.status}; task=${task%.turn-ended}
+  printf '%s/%s.status' "$dir" "$task"
+}
+
 # Deterministic path of the decision-seen dedupe marker beside a status file:
 # <dir>/.decision-seen-<task>. A single shared marker owned by whichever supervisor
 # is live (the always-on watcher signal path or the away daemon), so a masked open
@@ -263,7 +275,7 @@ _decision_seen_path() {  # <status-file>
   printf '%s/.decision-seen-%s' "$dir" "$task"
 }
 
-# 0 when <status-file> has an open decision whose current fold summary DIFFERS
+# 0 when <status-or-signal-file>'s task has an open decision whose fold summary DIFFERS
 # from the recorded decision-seen marker - a still-open needs-decision/blocked the
 # captain has not yet been woken for. 1 when no decision is open, or the open fold
 # was already surfaced, so a later paused/turn-end append that leaves the fold
@@ -273,10 +285,11 @@ _decision_seen_path() {  # <status-file>
 # where an empty fold RETIRES the marker: a resolve that lands on an absorbed wake
 # never reaches a surface path, so leaving the marker behind would make the same
 # key, reopened later with the same summary, look already-surfaced forever.
-status_has_unsurfaced_open_decision() {  # <status-file>
-  local summary seen path
-  path=$(_decision_seen_path "$1")
-  summary=$(status_open_decision_summary "$1")
+status_has_unsurfaced_open_decision() {  # <status-or-signal-file>
+  local summary seen path statusf
+  statusf=$(_decision_status_file "$1")
+  path=$(_decision_seen_path "$statusf")
+  summary=$(status_open_decision_summary "$statusf")
   if [ -z "$summary" ]; then
     rm -f "$path"
     return 1
@@ -289,10 +302,11 @@ status_has_unsurfaced_open_decision() {  # <status-file>
 # WAKES the captain for a task, so the next unchanged read of the same fold is
 # deduped. Clears the marker when no decision is open, so a key reopened after a
 # resolve surfaces again.
-record_decision_surfaced() {  # <status-file>
-  local summary path
-  path=$(_decision_seen_path "$1")
-  summary=$(status_open_decision_summary "$1")
+record_decision_surfaced() {  # <status-or-signal-file>
+  local summary path statusf
+  statusf=$(_decision_status_file "$1")
+  path=$(_decision_seen_path "$statusf")
+  summary=$(status_open_decision_summary "$statusf")
   if [ -n "$summary" ]; then
     printf '%s' "$summary" > "$path"
   else

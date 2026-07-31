@@ -46,6 +46,8 @@ An unchanged authoritative `paused` state advances the signal and stale suppress
 A real `needs-decision`, `blocked`, `done`, or `failed` status still enqueues before suppression and closes exactly one cycle.
 That guarantee survives a same-turn `working:` or `paused:` line appended after the decision: both the working and paused absorb classes consult `status_open_decisions`, the authoritative durable fold, rather than the last status line, so a masked open decision surfaces once instead of waiting out the run or the pause cadence.
 Exactly-once is held across a split turn too: a shared per-home `.decision-seen-<task>` marker records the open-decision fold when it is surfaced, so a later `paused:` append that leaves the fold unchanged is recognised as already surfaced and absorbed, while a still-unsurfaced or newly-reopened decision key still wakes once.
+Every path that wakes the captain for a task records that marker - the signal surface and both stale surfaces, terminal and non-terminal - and every fold read and marker write resolves a `<task>.turn-ended` marker to `<task>.status` first, so a wake carried only by the empty turn-end marker sees the same fold rather than an empty file and a per-suffix marker path.
+The stale path is not exempt from the fold: when a signal wake did not get there first, because a watcher restart rebaselined the signal suppressors or the stale classification simply ran earlier, the pause absorb surfaces the masked decision once, naming it in the wake reason, and only then returns to the pause cadence.
 Reopening works because the marker is retired the moment the fold reads empty, at the same authoritative fold read every absorb point already performs: a `resolved:` that lands on an absorbed wake never reaches a surface path, so without that retirement the same key reopened with the same summary would look already-surfaced for the rest of the run.
 The away daemon applies the same fold-aware classification at its own signal and stale absorb points and shares that decision-seen marker, so a masked decision reaches the digest exactly once whether the watcher or the daemon owns triage.
 The stale path absorbs the successor's observation of an unchanged terminal event through a one-shot token armed by the path that surfaced it, which prevents a second adapter prompt after the first drain already consumed the durable rows.
@@ -83,9 +85,13 @@ The same suite covers ordinary same-process session replacement for `/new`, `/re
 `tests/fm-turnend-guard.test.sh` covers the cooperative `--claude` guard.
 `tests/fm-watch-triage.test.sh` deterministically holds the signal grace window open while a working event is superseded by `paused` plus turn-end, then proves the unchanged idle pane remains in the same quiet watcher cycle.
 The same suite proves `needs-decision`, `blocked`, `done`, and `failed` each close one cycle while the successor absorbs the unchanged terminal stale observation, that a `needs-decision` or `blocked` masked by a later `paused:` or `working:` line still closes exactly one cycle without re-firing on unchanged later updates, and that the successor dedupe releases after one observation so a new pane event behind an unchanged terminal status still escalates.
+It also proves both stale surfaces record the decision-seen marker and that a decision reaching the stale path masked by a `paused:` line surfaces once, named, before returning to the pause cadence.
+`tests/fm-daemon.test.sh` proves the away daemon escalates such a decision exactly once through its signal and stale classifiers, resolves a turn-end-only wake to the task's status log, and names the decision in the escalated digest.
 `tests/fm-wake-queue.test.sh` proves a registered service-health check remains silent during a healthy pause and preserves the queued actionable wake when the service fails.
 
-## Deterministic notification-noise verification, 2026-07-23
+## Deterministic notification-noise verification, 2026-07-23 (pre-merge)
+
+The results below were observed before the 2026-07-31 base merge that brought in the semantic busy-state contract, the `bin/fm-crew-state.sh` changes, and the Herdr backend work; the post-merge revalidation of the affected suites is recorded in the next section.
 
 The end-user reproduction used the event order observed for `epicoracle-quoting-devserver-v1`: a working service-ready event entered signal grace, the same turn appended `paused` and turn-end, and the successor then observed the unchanged idle pane.
 Before the fix, the fixture printed `signal: ...task.status ...task.turn-ended` and completed the watcher.
@@ -108,6 +114,24 @@ No live Herdr lifecycle command was necessary because this change does not alter
 
 Command: `bin/fm-lint.sh` with pinned ShellCheck 0.11.0.
 Observed result: exit 0 with no findings.
+
+## Post-merge revalidation, 2026-07-31
+
+Re-run after the base merge and after closing the exactly-once gaps it exposed: both watcher stale surfaces now record the shared decision-seen marker, the watcher's paused stale absorb consults the same fold the daemon's `classify_stale` consults, every fold read and marker write resolves a `<task>.turn-ended` marker to `<task>.status`, the daemon's signal digest names the masked decision it escalates for, and the stale-dupe token is armed only in normal mode where it is consumed.
+
+Command: `tests/fm-watch-triage.test.sh`.
+Observed result: exit 0, 52 assertions passed, including `ok - both watcher stale surfaces record the decision-seen marker, and a pause-masked decision surfaces once` alongside the pre-merge pause, dedupe-token, and masked-decision assertions.
+
+Command: `tests/fm-daemon.test.sh`.
+Observed result: exit 0, 102 assertions passed, including `ok - signal fold reads resolve turn-end markers to the status log and name the decision in the digest` and `ok - a paused-masked open decision escalates once via daemon signal and stale, then dedupes`.
+
+Commands: `tests/fm-wake-queue.test.sh`, `tests/fm-supervision-events.test.sh`, and `tests/fm-watch-checkpoint.test.sh`.
+Observed result: exit 0 for each, with 12, 7, and 4 assertions passed respectively.
+
+Command: `shellcheck -x` with pinned ShellCheck 0.11.0 over `bin/fm-watch.sh`, `bin/fm-supervise-daemon.sh`, `bin/fm-classify-lib.sh`, `tests/fm-watch-triage.test.sh`, and `tests/fm-daemon.test.sh`.
+Observed result: exit 0 with no findings.
+
+The runtime-backend and remaining primary-harness suites listed in the pre-merge section were not re-run in this round; they cover files this change does not touch, and the repository's own test and lint gates run them.
 
 ## Active limits and verification
 

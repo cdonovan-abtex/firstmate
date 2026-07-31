@@ -336,28 +336,42 @@ _collapse_newlines() {  # <text>
 # summary firstmate would otherwise have to re-read.
 
 classify_signal() {  # <reason-after-colon> <state>
-  local reason=$1 state=$2 f last distilled="" rel="" all_seen=1 task seen
+  local reason=$1 state=$2 f last distilled="" rel="" all_seen=1 task seen sfile folded=""
   for f in $reason; do
     [ -e "$f" ] || continue
+    # Every signal file resolves to one task status log for the fold read, so a
+    # wake carrying only the (empty) <task>.turn-ended marker still sees a masked
+    # decision, exactly as the watcher's signal_crews_absorbable does.
+    sfile=$(_decision_status_file "$f")
     last=$(last_status_line "$f")
-    [ -n "$last" ] || continue
-    distilled="${distilled}$(basename "$f"): ${last} | "
-    if status_is_captain_relevant "$last"; then
-      rel=1
-      # Dedupe against the catch-all scan: if this status was already escalated
-      # (seen marker matches), skip escalating again. The seen marker is the
-      # single source of truth shared between the per-wake signal path and the
-      # heartbeat scan. all_seen stays 1 only if EVERY relevant file was seen.
-      task=$(basename "$f"); task="${task%.status}"
-      seen="$state/.subsuper-seen-status-$(_stale_key "$task")"
-      [ "$(cat "$seen" 2>/dev/null || true)" = "$last" ] || all_seen=0
-    elif status_has_unsurfaced_open_decision "$f"; then
-      # A still-open needs-decision/blocked masked by a later paused/turn-end line
-      # reads non-captain-relevant here; the durable fold and its exactly-once
-      # decision-seen marker (fm-classify-lib.sh) surface it once anyway.
-      rel=1
-      all_seen=0
+    if [ -n "$last" ]; then
+      distilled="${distilled}$(basename "$f"): ${last} | "
+      if status_is_captain_relevant "$last"; then
+        rel=1
+        # Dedupe against the catch-all scan: if this status was already escalated
+        # (seen marker matches), skip escalating again. The seen marker is the
+        # single source of truth shared between the per-wake signal path and the
+        # heartbeat scan. all_seen stays 1 only if EVERY relevant file was seen.
+        task=$(basename "$f"); task="${task%.status}"
+        seen="$state/.subsuper-seen-status-$(_stale_key "$task")"
+        [ "$(cat "$seen" 2>/dev/null || true)" = "$last" ] || all_seen=0
+        folded="$folded $sfile"
+        continue
+      fi
     fi
+    # A still-open needs-decision/blocked masked by a later paused/turn-end line
+    # reads non-captain-relevant (or, for a bare turn-end marker, as no line at
+    # all) above; the durable fold and its exactly-once decision-seen marker
+    # (fm-classify-lib.sh) surface it once anyway. Fold each task once per wake,
+    # since a status file and its turn-end marker both map here, and carry the
+    # fold summary into the digest so the pre-read names the open decision
+    # instead of the routine pause line masking it - matching classify_stale.
+    case " $folded " in *" $sfile "*) continue ;; esac
+    folded="$folded $sfile"
+    status_has_unsurfaced_open_decision "$sfile" || continue
+    rel=1
+    all_seen=0
+    distilled="${distilled}$(basename "$sfile"): open decision: $(_collapse_newlines "$(status_open_decision_summary "$sfile")") | "
   done
   # strip a trailing " | " separator so the distilled line is clean
   distilled="${distilled% | }"

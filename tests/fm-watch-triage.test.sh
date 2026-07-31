@@ -1232,6 +1232,90 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   pass "a declared pause is absorbed on first sight, then re-surfaced as a recheck past the threshold, never wedge-escalated"
 }
 
+# The signal path does not always reach a masked open decision first: a watcher
+# restart rebaselines .seen-*, and a stale wake can be classified before the
+# status signal fires. The stale path must then apply the SAME fold the daemon's
+# classify_stale applies - surface the masked decision once, name it in the wake
+# reason, record the shared decision-seen marker - and then revert to the pause
+# cadence, so the captain is not left holding an unsurfaced decision for a whole
+# PAUSE_RESURFACE_SECS window. The terminal stale path must record the same
+# marker, so a surfaced decision is never re-surfaced by a later fold read.
+test_stale_paths_record_and_surface_masked_decisions() {
+  local dir state fakebin out drain_out capture_file window key pane_hash sig pid statusf
+  dir=$(make_case stale-masked-decision); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-stale-masked"
+  printf 'idle awaiting captain' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/smask.meta"
+  statusf="$state/smask.status"
+  # The decision is masked by a later paused: line, and .seen-* is primed so the
+  # signal path stays quiet and the stale path owns this wake.
+  printf 'needs-decision [key=api-shape]: which port should the dev server bind?\npaused: waiting for captain\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-smask_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle awaiting captain")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  # A re-surface threshold no fixture can reach: any wake here comes from the fold.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting for captain' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_PAUSE_RESURFACE_SECS=999999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "a stale pause masking an open decision never surfaced"; }
+  grep -F "stale: $window" "$out" >/dev/null \
+    || fail "the masked decision did not surface through the stale path: $(cat "$out")"
+  grep -F "open decision" "$out" >/dev/null \
+    || fail "the stale wake did not name the masked open decision: $(cat "$out")"
+  grep -F "api-shape" "$out" >/dev/null \
+    || fail "the stale wake did not carry the open decision key: $(cat "$out")"
+  [ -s "$state/.decision-seen-smask" ] || fail "the stale surface did not record the decision-seen marker"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the masked stale failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null \
+    || fail "the masked stale decision was not queued durably"
+
+  # Unchanged state: the fold is now surfaced, so the pane returns to the pause
+  # cadence and the watcher keeps blocking without a second wake.
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting for captain' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_PAUSE_RESURFACE_SECS=999999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 60; then
+    reap "$pid"
+    fail "the already-surfaced masked decision re-fired on the stale path: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "the already-surfaced masked decision printed a second reason: $(cat "$out")"; }
+  reap "$pid"
+
+  # The terminal stale path owns the same marker: a decision surfaced there must
+  # not look unsurfaced to the next fold read.
+  dir=$(make_case stale-terminal-decision-marker); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-stale-decided"
+  printf 'idle awaiting captain' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/decided.meta"
+  printf 'needs-decision [key=creds]: which credentials should the job use?\n' > "$state/decided.status"
+  sig=$(seen_sig "$state/decided.status"); printf '%s' "$sig" > "$state/.seen-decided_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle awaiting captain")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "the terminal stale decision never surfaced"; }
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "the terminal stale decision did not surface: $(cat "$out")"
+  [ -s "$state/.decision-seen-decided" ] \
+    || fail "the terminal stale surface did not record the decision-seen marker"
+  pass "both watcher stale surfaces record the decision-seen marker, and a pause-masked decision surfaces once"
+}
+
 # A captain-held crew can leave a stable backend endpoint after its agent exits.
 # fm-crew-state then authoritatively reports stopped rather than paused, but the
 # confirmed-dead agent plus the declared wait or captain-held transfer must retain
@@ -2218,6 +2302,7 @@ test_busy_pane_repeated_escalation_reaches_demand_deep_inspection
 test_busy_pane_default_turn_age_bound_is_3600s
 test_nonterminal_stale_not_working_surfaced
 test_nonterminal_stale_paused_absorbed_then_resurfaced
+test_stale_paths_record_and_surface_masked_decisions
 test_exited_declared_pause_and_live_pause_use_bounded_cadence
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed

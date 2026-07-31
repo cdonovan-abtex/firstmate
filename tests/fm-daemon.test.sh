@@ -252,6 +252,50 @@ test_masked_open_decision_escalates_once_in_daemon() {
   pass "a paused-masked open decision escalates once via daemon signal and stale, then dedupes"
 }
 
+# Signal wakes list <task>.status and the empty <task>.turn-ended marker
+# interchangeably, and a decision masked in a last-line read is invisible in both.
+# The fold read must therefore resolve either file to the task's status log (as the
+# watcher's signal_crews_absorbable does), and the escalated digest must name the
+# decision rather than the routine pause line masking it - otherwise the captain is
+# woken by a pre-read that says nothing happened, and the seen marker retires it.
+test_signal_decision_fold_maps_turn_end_and_names_the_decision() {
+  local dir state out win statusf turnend
+  dir=$(make_supercase turn-end-masked-decision); state="$dir/state"
+  win="sess:fm-turnend-dec"
+  statusf="$state/turnend-dec.status"
+  turnend="$state/turnend-dec.turn-ended"
+  printf 'window=%s\nkind=ship\n' "$win" > "$state/turnend-dec.meta"
+  printf 'needs-decision [key=api-shape]: which port?\npaused: waiting for captain\n' > "$statusf"
+  : > "$turnend"
+
+  # The status file's own signal was already absorbed; only the turn-end marker
+  # is listed on this wake, and it carries no status line at all.
+  out=$(FM_STATE_OVERRIDE="$state" classify_signal "$turnend" "$state")
+  case "$out" in escalate\|*) ;; *) fail "a turn-end-only wake missed the masked open decision: $out" ;; esac
+  case "$out" in *api-shape*) ;; *) fail "the turn-end escalation did not name the open decision: $out" ;; esac
+
+  # The digest for a status+turn-end wake names the decision once, not twice, and
+  # stays a single line.
+  rm -f "$state/.decision-seen-turnend-dec"
+  out=$(FM_STATE_OVERRIDE="$state" classify_signal "$statusf $turnend" "$state")
+  case "$out" in escalate\|*) ;; *) fail "the masked decision did not escalate on a status+turn-end wake: $out" ;; esac
+  case "$out" in *"open decision"*) ;; *) fail "the signal digest omitted the open-decision summary: $out" ;; esac
+  [ "$(printf '%s' "$out" | grep -c 'api-shape' || true)" = 1 ] \
+    || fail "the signal digest folded the same task twice: $out"
+  [ "$(printf '%s' "$out" | wc -l | tr -d ' ')" = 0 ] \
+    || fail "the signal classifier emitted a multi-line decision: $out"
+
+  # mark_escalated_seen resolves the same way, so the marker lands on the task's
+  # status log even when the wake is carried by the turn-end marker alone.
+  rm -f "$state/.decision-seen-turnend-dec"
+  FM_STATE_OVERRIDE="$state" mark_escalated_seen signal "$turnend" "$state"
+  [ -s "$state/.decision-seen-turnend-dec" ] \
+    || fail "a turn-end-carried escalation did not record the decision-seen marker"
+  out=$(FM_STATE_OVERRIDE="$state" classify_signal "$turnend" "$state")
+  case "$out" in self\|*) ;; *) fail "an already-surfaced decision re-escalated on a turn-end wake: $out" ;; esac
+  pass "signal fold reads resolve turn-end markers to the status log and name the decision in the digest"
+}
+
 # The open-decision fold prints one line PER open key, but the classifier protocol
 # is exactly one "<action>|<distilled>" line and escalate_flush counts buffer rows
 # as events. Two simultaneously open keys must therefore reach the digest as ONE
@@ -1899,6 +1943,7 @@ test_stale_diagnostic_wedge_survives_busy_housekeeping
 test_stale_terminal_escalates
 test_stale_paused_classifies_pause
 test_masked_open_decision_escalates_once_in_daemon
+test_signal_decision_fold_maps_turn_end_and_names_the_decision
 test_multiple_open_decisions_escalate_as_one_digest_row
 test_handle_wake_paused_records_pause_marker
 test_handle_wake_paused_signal_records_pause_marker
