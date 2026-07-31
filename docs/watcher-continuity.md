@@ -89,65 +89,6 @@ It also proves both stale surfaces record the decision-seen marker and that a de
 `tests/fm-daemon.test.sh` proves the away daemon escalates such a decision exactly once through its signal and stale classifiers, resolves a turn-end-only wake to the task's status log, and names the decision in the escalated digest.
 `tests/fm-wake-queue.test.sh` proves a registered service-health check remains silent during a healthy pause and preserves the queued actionable wake when the service fails.
 
-## Deterministic notification-noise verification, 2026-07-23 (pre-merge)
-
-The results below were observed before the 2026-07-31 base merge that brought in the semantic busy-state contract, the `bin/fm-crew-state.sh` changes, and the Herdr backend work; the post-merge revalidation of the affected suites is recorded in the next section.
-
-The end-user reproduction used the event order observed for `epicoracle-quoting-devserver-v1`: a working service-ready event entered signal grace, the same turn appended `paused` and turn-end, and the successor then observed the unchanged idle pane.
-Before the fix, the fixture printed `signal: ...task.status ...task.turn-ended` and completed the watcher.
-After the fix, the same process remained live with no reason output or queue row and entered the existing pause cadence.
-
-Command: `tests/fm-watch-triage.test.sh`.
-Observed results included `ok - a signal superseded by unchanged paused state stays in one quiet watcher cycle` and `ok - needs-decision, blocked, done, and failed each wake once without a stale successor duplicate`.
-The same suite proves the bound dedupe token surfaces a crash prompt that arrives before the duplicate (`ok - a different pane event before the duplicate is never swallowed by the bound dedupe token`) and that a split-turn `paused:` append does not re-fire an already-surfaced decision (`ok - a paused append does not re-fire an already-surfaced decision while a new decision still wakes once`).
-`tests/fm-daemon.test.sh` proves the away daemon escalates a paused-masked open decision exactly once through both its signal and stale classifiers.
-
-Command: `tests/fm-wake-queue.test.sh`.
-Observed result included `ok - a paused service's health check stays silent while healthy and wakes on failure`.
-
-Commands: `tests/fm-supervision-events.test.sh`, `tests/fm-transition-lib.test.sh`, `tests/fm-supervision-instructions.test.sh`, `tests/fm-watch-checkpoint.test.sh`, and `tests/fm-pi-watch-extension.test.sh`.
-Observed result: every deterministic primary-harness and Herdr push assertion passed.
-
-Commands: `tests/fm-backend.test.sh`, `tests/fm-backend-herdr.test.sh`, `tests/fm-backend-zellij.test.sh`, `tests/fm-backend-orca.test.sh`, and `tests/fm-backend-cmux.test.sh`.
-Observed result: every runtime-backend unit assertion passed.
-No live Herdr lifecycle command was necessary because this change does not alter lifecycle mechanics, session targeting, or the backend event producer.
-
-Command: `bin/fm-lint.sh` with pinned ShellCheck 0.11.0.
-Observed result: exit 0 with no findings.
-
-## Post-merge revalidation, 2026-07-31
-
-Re-run after the base merge and after closing the exactly-once gaps it exposed: both watcher stale surfaces now record the shared decision-seen marker, the watcher's paused stale absorb consults the same fold the daemon's `classify_stale` consults, every fold read and marker write resolves a `<task>.turn-ended` marker to `<task>.status`, the daemon's signal digest names the masked decision it escalates for, and the stale-dupe token is armed only in normal mode where it is consumed.
-
-Command: `tests/fm-watch-triage.test.sh`.
-Observed result: exit 0, 52 assertions passed, including `ok - both watcher stale surfaces record the decision-seen marker, and a pause-masked decision surfaces once` alongside the pre-merge pause, dedupe-token, and masked-decision assertions.
-
-Command: `tests/fm-daemon.test.sh`.
-Observed result: exit 0, 102 assertions passed, including `ok - signal fold reads resolve turn-end markers to the status log and name the decision in the digest` and `ok - a paused-masked open decision escalates once via daemon signal and stale, then dedupes`.
-
-Commands: `tests/fm-wake-queue.test.sh`, `tests/fm-supervision-events.test.sh`, and `tests/fm-watch-checkpoint.test.sh`.
-Observed result: exit 0 for each, with 12, 7, and 4 assertions passed respectively.
-
-Command: `shellcheck -x` with pinned ShellCheck 0.11.0 over `bin/fm-watch.sh`, `bin/fm-supervise-daemon.sh`, `bin/fm-classify-lib.sh`, `tests/fm-watch-triage.test.sh`, and `tests/fm-daemon.test.sh`.
-Observed result: exit 0 with no findings.
-
-The runtime-backend and remaining primary-harness suites listed in the pre-merge section were not re-run in this round; they cover files this change does not touch, and the repository's own test and lint gates run them.
-
-## Fold cost on the parked-crew poll, 2026-07-31
-
-`handle_paused_stale` runs on every poll of a parked window, not once per stale hash, and is budgeted as a cheap absorb that never re-reads authoritative crew state.
-The decision fold it now consults must fit that budget, so `status_open_decisions` parses each status line through assign-to-variable helpers rather than a command substitution per line, and the surface paths take the verdict and the summary they name from a single `status_unsurfaced_open_decision_summary` call instead of folding the same log twice.
-The fold's output is unchanged; only its cost is.
-
-Measurement: ten folds of a 202-line status log, same input, same host.
-Observed result: 1.947s before, 0.074s after - roughly 195ms to 7ms per fold - with byte-identical output on both a single-decision log and a multi-key log exercising key tokens in note prose, a malformed key slug, and a resolve-then-reopen sequence.
-
-Commands: `tests/fm-watch-triage.test.sh`, `tests/fm-daemon.test.sh`, `tests/fm-decision-hold-lifecycle.test.sh`, `tests/fm-fleet-snapshot-view.test.sh`, and `tests/fm-crew-state.test.sh` - the fold's own suite plus every consumer of `status_open_decisions` and the line parsers.
-Observed result: exit 0 for each, with 52, 102, 9, 15, and 49 assertions passed respectively.
-
-Command: `shellcheck -x` with pinned ShellCheck 0.11.0 over `bin/fm-classify-lib.sh`, `bin/fm-watch.sh`, and `bin/fm-supervise-daemon.sh`.
-Observed result: exit 0 with no findings.
-
 ## Active limits and verification
 
 The goal is continuity without a Pi or OpenCode model-memory re-arm step.
@@ -155,4 +96,4 @@ No zero-latency guarantee is claimed because lock verification, watcher startup,
 OpenCode support targets persistent TUI sessions rather than headless `opencode run`.
 Claude depends on the Stop `asyncRewake` rewake, Grok retains native background-completion notifications, and Codex retains bounded foreground checkpoints.
 
-[`verification/supervision.md`](verification/supervision.md#watcher-continuity) records the current five-harness live evidence, the 2026-07-24 Stop-owned Claude auto-arm results, and exact opt-in commands.
+[`verification/supervision.md`](verification/supervision.md#watcher-continuity) records the current five-harness live evidence, the 2026-07-24 Stop-owned Claude auto-arm results, the 2026-07-31 notification-noise and open-decision-fold revalidation with its parked-crew fold-cost measurement, and exact opt-in commands.

@@ -198,6 +198,47 @@ tests/fm-claude-stop-autoarm.test.sh
 tests/fm-turnend-guard.test.sh
 ```
 
+### Notification-noise absorb and the open-decision fold
+
+The paused-absorb and exactly-once decision-fold guarantees in [`../watcher-continuity.md`](../watcher-continuity.md#notification-boundary) were verified deterministically on 2026-07-23 and re-verified on 2026-07-31 against the semantic busy-state contract, the current `bin/fm-crew-state.sh`, and the Herdr backend work.
+
+The reproduction is the event order that motivated the change: a working service-ready event enters signal grace, the same turn appends `paused` plus a turn-end marker, and the successor then observes the unchanged idle pane.
+Before the fix the fixture printed `signal: ...task.status ...task.turn-ended` and completed the watcher.
+After it the same process stayed live with no reason output and no queue row, and entered the existing pause cadence.
+
+```sh
+tests/fm-watch-triage.test.sh
+tests/fm-daemon.test.sh
+tests/fm-wake-queue.test.sh
+tests/fm-supervision-events.test.sh
+tests/fm-watch-checkpoint.test.sh
+```
+
+Observed result on 2026-07-31: exit 0 for each, with 52, 102, 12, 7, and 4 assertions passed respectively.
+
+`tests/fm-watch-triage.test.sh` included `ok - a signal superseded by unchanged paused state stays in one quiet watcher cycle`, `ok - needs-decision, blocked, done, and failed each wake once without a stale successor duplicate`, `ok - a different pane event before the duplicate is never swallowed by the bound dedupe token`, `ok - a paused append does not re-fire an already-surfaced decision while a new decision still wakes once`, and `ok - both watcher stale surfaces record the decision-seen marker, and a pause-masked decision surfaces once`.
+`tests/fm-daemon.test.sh` included `ok - signal fold reads resolve turn-end markers to the status log and name the decision in the digest` and `ok - a paused-masked open decision escalates once via daemon signal and stale, then dedupes`.
+`tests/fm-wake-queue.test.sh` included `ok - a paused service's health check stays silent while healthy and wakes on failure`.
+
+The 2026-07-23 pass additionally ran `tests/fm-transition-lib.test.sh`, `tests/fm-supervision-instructions.test.sh`, `tests/fm-pi-watch-extension.test.sh`, and the runtime-backend suites for tmux, Herdr, Zellij, Orca, and cmux, with every deterministic primary-harness, Herdr push, and runtime-backend assertion passing.
+No live Herdr lifecycle command was necessary because this behavior does not alter lifecycle mechanics, session targeting, or the backend event producer.
+
+`handle_paused_stale` runs on every poll of a parked window rather than once per stale hash, so the decision fold it consults is budgeted as a cheap absorb.
+Measurement over ten folds of a 202-line status log, same input and same host: 1.947s before the assign-to-variable parsers, 0.074s after - roughly 195ms to 7ms per fold - with byte-identical output on a single-decision log and on a multi-key log exercising key tokens in note prose, a malformed key slug, and a resolve-then-reopen sequence.
+The fold's own suite plus every consumer of `status_open_decisions` and the line parsers were re-run for that change:
+
+```sh
+tests/fm-watch-triage.test.sh
+tests/fm-daemon.test.sh
+tests/fm-decision-hold-lifecycle.test.sh
+tests/fm-fleet-snapshot-view.test.sh
+tests/fm-crew-state.test.sh
+```
+
+Observed result: exit 0 for each, with 52, 102, 9, 15, and 49 assertions passed respectively.
+
+Lint used pinned ShellCheck 0.11.0: `bin/fm-lint.sh` exited 0 with no findings on 2026-07-23, and `shellcheck -x` over `bin/fm-watch.sh`, `bin/fm-supervise-daemon.sh`, `bin/fm-classify-lib.sh`, `tests/fm-watch-triage.test.sh`, and `tests/fm-daemon.test.sh` exited 0 with no findings on 2026-07-31.
+
 ## Wedge-alarm channels
 
 The two real notification channels were bounded manually on 2026-07-10 on macOS 26.5.2 with Herdr 0.7.3.
