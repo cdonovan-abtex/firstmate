@@ -372,7 +372,7 @@ test_signal_crews_absorbable_classifier() {
 # match it and be swallowed for the rest of the run. The authoritative fold read
 # every absorb point performs retires the marker as soon as the fold empties.
 test_decision_seen_marker_retires_on_empty_fold() {
-  local dir state statusf marker
+  local dir state statusf marker summary
   dir=$(make_case decision-seen-retire); state="$dir/state"
   statusf="$state/reopen.status"
   marker="$state/.decision-seen-reopen"
@@ -394,6 +394,21 @@ test_decision_seen_marker_retires_on_empty_fold() {
   printf 'needs-decision [key=db]: pick the schema\nworking: retrying\n' >> "$statusf"
   status_has_unsurfaced_open_decision "$statusf" \
     || fail "a decision key reopened after a resolve was deduped against the retired marker"
+
+  # The surface paths take the verdict and the summary they name from ONE fold of
+  # the log, because the watcher's parked-crew path runs this read on every poll.
+  summary=$(status_unsurfaced_open_decision_summary "$statusf") \
+    || fail "the summary form did not report the reopened decision as unsurfaced"
+  [ "$summary" = "$(status_open_decision_summary "$statusf")" ] \
+    || fail "the summary form disagreed with the fold it dedupes against: $summary"
+  record_decision_surfaced "$statusf"
+  summary=$(status_unsurfaced_open_decision_summary "$statusf") \
+    && fail "the summary form re-reported an already-surfaced decision: $summary"
+  [ -z "$summary" ] || fail "the summary form printed a summary for an already-surfaced decision: $summary"
+  printf 'resolved [key=db]: chose postgres\n' >> "$statusf"
+  summary=$(status_unsurfaced_open_decision_summary "$statusf") \
+    && fail "the summary form reported an emptied fold as unsurfaced: $summary"
+  [ ! -e "$marker" ] || fail "the summary form did not retire the marker on an emptied fold"
   pass "the decision-seen marker retires on an emptied fold so a reopened key wakes again"
 }
 

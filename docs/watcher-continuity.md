@@ -133,6 +133,21 @@ Observed result: exit 0 with no findings.
 
 The runtime-backend and remaining primary-harness suites listed in the pre-merge section were not re-run in this round; they cover files this change does not touch, and the repository's own test and lint gates run them.
 
+## Fold cost on the parked-crew poll, 2026-07-31
+
+`handle_paused_stale` runs on every poll of a parked window, not once per stale hash, and is budgeted as a cheap absorb that never re-reads authoritative crew state.
+The decision fold it now consults must fit that budget, so `status_open_decisions` parses each status line through assign-to-variable helpers rather than a command substitution per line, and the surface paths take the verdict and the summary they name from a single `status_unsurfaced_open_decision_summary` call instead of folding the same log twice.
+The fold's output is unchanged; only its cost is.
+
+Measurement: ten folds of a 202-line status log, same input, same host.
+Observed result: 1.947s before, 0.074s after - roughly 195ms to 7ms per fold - with byte-identical output on both a single-decision log and a multi-key log exercising key tokens in note prose, a malformed key slug, and a resolve-then-reopen sequence.
+
+Commands: `tests/fm-watch-triage.test.sh`, `tests/fm-daemon.test.sh`, `tests/fm-decision-hold-lifecycle.test.sh`, `tests/fm-fleet-snapshot-view.test.sh`, and `tests/fm-crew-state.test.sh` - the fold's own suite plus every consumer of `status_open_decisions` and the line parsers.
+Observed result: exit 0 for each, with 52, 102, 9, 15, and 49 assertions passed respectively.
+
+Command: `shellcheck -x` with pinned ShellCheck 0.11.0 over `bin/fm-classify-lib.sh`, `bin/fm-watch.sh`, and `bin/fm-supervise-daemon.sh`.
+Observed result: exit 0 with no findings.
+
 ## Active limits and verification
 
 The goal is continuity without a Pi or OpenCode model-memory re-arm step.

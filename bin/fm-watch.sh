@@ -338,9 +338,8 @@ handle_paused_stale() {  # <window> <task> <hash>
   # classify_stale. The pause bookkeeping above is already written, so the very
   # next poll of this same hash absorbs normally. In away mode the daemon owns
   # both the fold read and the marker, so leave it to the handoff.
-  if ! afk_present && status_has_unsurfaced_open_decision "$statusf"; then
-    summary=$(status_open_decision_summary "$statusf" | tr '\n' ' ')
-    reason="stale: $win (open decision masked by a declared pause: ${summary% })"
+  if ! afk_present && summary=$(status_unsurfaced_open_decision_summary "$statusf"); then
+    reason="stale: $win (open decision masked by a declared pause: ${summary//$'\n'/ })"
     fm_wake_append stale "$win" "$reason" || exit 1
     record_decision_surfaced "$statusf"
     date +%s > "$STATE/.paused-resurfaced-$key"

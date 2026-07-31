@@ -159,20 +159,35 @@ status_is_paused_or_captain_held() {  # <status-line>
 # one-open-decision-per-task behavior (a bare "resolved:" closes "default").
 # The three parsers are pure reads of a single line; the verb parser strips any
 # key token before the colon so the leading word is recovered cleanly.
-status_line_verb() {  # <status-line> -> leading verb word
+# Each parser has an assign-to-variable twin (_fm_parse_*) that the whole-stream
+# fold below uses in place of a command substitution, because that fold runs on
+# the watcher's per-poll stale path for every parked crew: a subshell per status
+# line would make the cost of one poll grow with the length of the status log.
+# The printing forms are thin wrappers so there is one implementation of each rule.
+_fm_parse_verb() {  # <status-line> -> _FM_VERB
   local v=${1%%:*}
   v=${v%%\[key=*}
   v=${v#"${v%%[![:space:]]*}"}
-  v=${v%"${v##*[![:space:]]}"}
-  printf '%s' "$v"
+  _FM_VERB=${v%"${v##*[![:space:]]}"}
 }
-status_line_note() {  # <status-line> -> text after the first colon, trimmed
+status_line_verb() {  # <status-line> -> leading verb word
+  local _FM_VERB
+  _fm_parse_verb "$1"
+  printf '%s' "$_FM_VERB"
+}
+_fm_parse_note() {  # <status-line> -> _FM_NOTE
+  local n
   case "$1" in
-    *:*) local n=${1#*:}; printf '%s' "${n#"${n%%[![:space:]]*}"}" ;;
-    *) printf '%s' "$1" ;;
+    *:*) n=${1#*:}; _FM_NOTE=${n#"${n%%[![:space:]]*}"} ;;
+    *) _FM_NOTE=$1 ;;
   esac
 }
-_fm_decision_key() {  # <status-line> -> key slug, or "default" when no token
+status_line_note() {  # <status-line> -> text after the first colon, trimmed
+  local _FM_NOTE
+  _fm_parse_note "$1"
+  printf '%s' "$_FM_NOTE"
+}
+_fm_parse_decision_key() {  # <status-line> -> _FM_KEY; 1 on a malformed key token
   local prefix=${1%%:*} k
   case "$prefix" in
     *\[key=*\]*)
@@ -180,15 +195,22 @@ _fm_decision_key() {  # <status-line> -> key slug, or "default" when no token
       k=${k%%\]*}
       case "$k" in
         ''|*[!A-Za-z0-9._-]*) return 1 ;;
-        *) printf '%s' "$k" ;;
+        *) _FM_KEY=$k ;;
       esac
       ;;
-    *) printf 'default' ;;
+    *) _FM_KEY=default ;;
   esac
+}
+_fm_decision_key() {  # <status-line> -> key slug, or "default" when no token
+  local _FM_KEY
+  _fm_parse_decision_key "$1" || return 1
+  printf '%s' "$_FM_KEY"
 }
 # Drop the record for <key> from a newline-terminated "<key>\t<verb>\t<note>" set.
 # Portable (no associative arrays) so the fold runs on bash 3.2 as well as 4+.
-_fm_decision_drop() {  # <open-set> <key>
+# _FM_OPEN carries no trailing newline, exactly what the printing form loses to
+# the command substitution its callers wrap it in.
+_fm_parse_decision_drop() {  # <open-set> <key> -> _FM_OPEN
   local set=$1 key=$2 line out=''
   while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -199,7 +221,14 @@ _fm_decision_drop() {  # <open-set> <key>
   done <<EOF
 $set
 EOF
-  printf '%s' "$out"
+  while [ "${out%$'\n'}" != "$out" ]; do out=${out%$'\n'}; done
+  _FM_OPEN=$out
+}
+_fm_decision_drop() {  # <open-set> <key>
+  local _FM_OPEN
+  _fm_parse_decision_drop "$1" "$2"
+  [ -n "$_FM_OPEN" ] || return 0
+  printf '%s\n' "$_FM_OPEN"
 }
 # Fold the WHOLE status stream into the set of decisions still open. Prints one
 # TAB-separated "<key>\t<verb>\t<summary>" line per still-open decision, in
@@ -208,25 +237,26 @@ EOF
 # is the durable open-set the fleet snapshot and any point-in-time consumer must use
 # instead of trusting the last status line.
 status_open_decisions() {  # <status-file>
-  local f=$1 line verb key note resolve held open='' stripped
+  local f=$1 line resolve held open='' stripped _FM_VERB _FM_KEY _FM_NOTE _FM_OPEN
   [ -f "$f" ] || return 0
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   while IFS= read -r line || [ -n "$line" ]; do
     stripped=${line//[[:space:]]/}
     [ -n "$stripped" ] || continue
-    verb=$(status_line_verb "$line")
-    key=$(_fm_decision_key "$line") || continue
-    case "$verb" in
+    _fm_parse_verb "$line"
+    case "$_FM_VERB" in
+      needs-decision|blocked|"$resolve"|"$held") ;;
+      *) continue ;;
+    esac
+    _fm_parse_decision_key "$line" || continue
+    _fm_parse_decision_drop "$open" "$_FM_KEY"
+    open=$_FM_OPEN
+    [ -n "$open" ] && open="${open}"$'\n'
+    case "$_FM_VERB" in
       needs-decision|blocked)
-        note=$(status_line_note "$line")
-        open=$(_fm_decision_drop "$open" "$key")
-        [ -n "$open" ] && open="${open}"$'\n'
-        open="${open}${key}"$'\t'"${verb}"$'\t'"${note}"$'\n'
-        ;;
-      "$resolve"|"$held")
-        open=$(_fm_decision_drop "$open" "$key")
-        [ -n "$open" ] && open="${open}"$'\n'
+        _fm_parse_note "$line"
+        open="${open}${_FM_KEY}"$'\t'"${_FM_VERB}"$'\t'"${_FM_NOTE}"$'\n'
         ;;
     esac
   done < "$f"
@@ -275,17 +305,20 @@ _decision_seen_path() {  # <status-file>
   printf '%s/.decision-seen-%s' "$dir" "$task"
 }
 
-# 0 when <status-or-signal-file>'s task has an open decision whose fold summary DIFFERS
-# from the recorded decision-seen marker - a still-open needs-decision/blocked the
-# captain has not yet been woken for. 1 when no decision is open, or the open fold
-# was already surfaced, so a later paused/turn-end append that leaves the fold
-# unchanged does not re-fire an already-surfaced decision.
+# Prints the open-decision fold summary of <status-or-signal-file>'s task when it
+# DIFFERS from the recorded decision-seen marker - a still-open needs-decision or
+# blocked the captain has not yet been woken for - and returns 0. Prints nothing and
+# returns 1 when no decision is open, or the open fold was already surfaced, so a
+# later paused/turn-end append that leaves the fold unchanged does not re-fire an
+# already-surfaced decision.
 # This is the authoritative fold read every ABSORB path performs (the watcher's
 # signal_crews_absorbable, the daemon's classify_signal/classify_stale), and it is
 # where an empty fold RETIRES the marker: a resolve that lands on an absorbed wake
 # never reaches a surface path, so leaving the marker behind would make the same
 # key, reopened later with the same summary, look already-surfaced forever.
-status_has_unsurfaced_open_decision() {  # <status-or-signal-file>
+# A surface path needs both the verdict and the summary it should name; taking them
+# from one call keeps that to a single fold of the status log.
+status_unsurfaced_open_decision_summary() {  # <status-or-signal-file>
   local summary seen path statusf
   statusf=$(_decision_status_file "$1")
   path=$(_decision_seen_path "$statusf")
@@ -295,7 +328,13 @@ status_has_unsurfaced_open_decision() {  # <status-or-signal-file>
     return 1
   fi
   seen=$(cat "$path" 2>/dev/null || true)
-  [ "$summary" != "$seen" ]
+  [ "$summary" != "$seen" ] || return 1
+  printf '%s' "$summary"
+}
+
+# The predicate form of the read above, for absorb paths that only need the verdict.
+status_has_unsurfaced_open_decision() {  # <status-or-signal-file>
+  status_unsurfaced_open_decision_summary "$1" >/dev/null
 }
 
 # Record the current open-decision fold as surfaced. Called on every path that

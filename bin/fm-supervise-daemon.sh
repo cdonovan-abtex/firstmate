@@ -336,7 +336,7 @@ _collapse_newlines() {  # <text>
 # summary firstmate would otherwise have to re-read.
 
 classify_signal() {  # <reason-after-colon> <state>
-  local reason=$1 state=$2 f last distilled="" rel="" all_seen=1 task seen sfile folded=""
+  local reason=$1 state=$2 f last distilled="" rel="" all_seen=1 task seen sfile folded="" dec_summary
   for f in $reason; do
     [ -e "$f" ] || continue
     # Every signal file resolves to one task status log for the fold read, so a
@@ -368,10 +368,10 @@ classify_signal() {  # <reason-after-colon> <state>
     # instead of the routine pause line masking it - matching classify_stale.
     case " $folded " in *" $sfile "*) continue ;; esac
     folded="$folded $sfile"
-    status_has_unsurfaced_open_decision "$sfile" || continue
+    dec_summary=$(status_unsurfaced_open_decision_summary "$sfile") || continue
     rel=1
     all_seen=0
-    distilled="${distilled}$(basename "$sfile"): open decision: $(_collapse_newlines "$(status_open_decision_summary "$sfile")") | "
+    distilled="${distilled}$(basename "$sfile"): open decision: $(_collapse_newlines "$dec_summary") | "
   done
   # strip a trailing " | " separator so the distilled line is clean
   distilled="${distilled% | }"
@@ -390,18 +390,17 @@ classify_signal() {  # <reason-after-colon> <state>
 # first sight of a non-terminal stale it returns "self" and the caller records a
 # timestamp marker; persistence is escalated by housekeeping's recheck, not here.
 classify_stale() {  # <window> <state>
-  local win=$1 state=$2 task last seen
+  local win=$1 state=$2 task last seen dec_summary
   task=$(window_to_task "$win" "$state")
   last=$(last_status_line "$state/$task.status")
-  if status_has_unsurfaced_open_decision "$state/$task.status"; then
+  if dec_summary=$(status_unsurfaced_open_decision_summary "$state/$task.status"); then
     # A still-open needs-decision/blocked masked by a later paused: line must not
     # be absorbed as a declared wait. The durable fold plus its exactly-once
     # decision-seen marker surface it once, then revert to the pause cadence below.
     # The fold prints one line per open key; the decision protocol is exactly one
     # line, and escalate_add counts buffer rows as events, so several simultaneously
     # open keys collapse into ONE record that still carries every key and summary.
-    printf 'escalate|stale + open decision: %s' \
-      "$(_collapse_newlines "$(status_open_decision_summary "$state/$task.status")")"
+    printf 'escalate|stale + open decision: %s' "$(_collapse_newlines "$dec_summary")"
     return
   fi
   if [ -n "$last" ] && status_is_paused "$last"; then
