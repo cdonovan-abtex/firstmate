@@ -1,7 +1,8 @@
 # GitLab merge request watch verification
 
 Empirical record for the merge watch on GitLab, alongside the existing GitHub watch.
-Every command below was run on 2026-07-21 and its output is reproduced exactly.
+The original merge-state evidence was collected on 2026-07-21, and the destination/default-branch extraction was refreshed against the same public fixture on 2026-08-10.
+Bounded outputs below are either exact command output or an explicitly shown Node projection of forge JSON.
 
 ## Versions
 
@@ -11,6 +12,9 @@ Current glab version: 1.53.0
 
 $ bash --version | head -1
 GNU bash, version 5.3.9(1)-release (x86_64-pc-linux-gnu)
+
+$ node --version
+v22.23.1
 ```
 
 ## The evidence project
@@ -34,10 +38,9 @@ The stored record therefore carries `provider`, `url`, `host`, `path`, and `numb
 
 Two things about plain `glab` were established by running it, because assuming either one would have failed silently into a permanent "not merged".
 
-First, plain `glab` has no field selector.
-`gh` reads one field with `--json state -q .state`; `glab mr view` offers only `-F, --output string  Format output as: text, json`.
-Its JSON would need a JSON processor, and `jq` is not one of firstmate's common tools, so the state is read from glab's own field output instead.
-Only an exact `merged` wakes firstmate, so a changed output format produces no wake rather than a false merge.
+First, `glab mr view -F json` exposes the merge request state and `target_branch`, while `glab repo view <project-url> -F json` exposes the repository `default_branch`.
+The static outcome path parses those JSON objects with Node, which is already a common Firstmate prerequisite, and validates every returned branch with `git check-ref-format --branch` before recording or reporting it.
+Only an exact `merged` state wakes firstmate, so malformed JSON, a changed field shape, or an unreadable merge request produces no merge outcome.
 
 Second, `glab` cannot take a merge request URL the way `gh pr view` can.
 That form shells out to git for the current repository, and the watcher runs in no repository:
@@ -52,21 +55,13 @@ git: exit status 128
 Passing the project URL to `-R` with the merge request number works from anywhere, and resolves the instance from that URL rather than from glab's configured default:
 
 ```
-$ cd /tmp && glab mr view 1 -R https://gitlab.com/KarotKris/gitlab-merge-watch-fixture
-title:	Add the merged example file
-state:	merged
-author:	KarotKris
-labels:	
-assignees:	
-reviewers:	
-comments:	0
-number:	1
-url:	https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/1
---
-This merge request is the merged half of the fixture. It is merged on purpose, so that reading its state returns merged.
-
-$ cd /tmp && glab mr view 2 -R https://gitlab.com/KarotKris/gitlab-merge-watch-fixture | sed -n 's/^state:[[:space:]]*//p'
-open
+$ glab mr view 1 -R https://gitlab.com/KarotKris/gitlab-merge-watch-fixture -F json > mr1.json
+$ glab mr view 2 -R https://gitlab.com/KarotKris/gitlab-merge-watch-fixture -F json > mr2.json
+$ glab repo view https://gitlab.com/KarotKris/gitlab-merge-watch-fixture -F json > repo.json
+$ node -e 'const fs=require("fs");for(const f of process.argv.slice(1)){let o=JSON.parse(fs.readFileSync(f));console.log(f,JSON.stringify({state:o.state,target_branch:o.target_branch,default_branch:o.default_branch}))}' mr1.json mr2.json repo.json
+mr1.json {"state":"merged","target_branch":"main"}
+mr2.json {"state":"opened","target_branch":"main"}
+repo.json {"default_branch":"main"}
 ```
 
 ## End to end: arming and polling a real merge request
@@ -121,19 +116,19 @@ Running each published poll the way the watcher does, where an empty result mean
 
 ```
 $ fm-pr-poll.sh --validated $(tr '\n' ' ' < state/e1.pr-poll)
-merged
+PR https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/1 merged into 'main', the repository default branch.
 $ fm-pr-poll.sh --validated $(tr '\n' ' ' < state/e2.pr-poll)
 $ fm-pr-poll.sh --validated $(tr '\n' ' ' < state/e3.pr-poll)
 ```
 
-The merged fixture merge request produces exactly one `merged` line.
+The merged fixture merge request produces exactly one destination-qualified line.
 The open one produces nothing, and the unreachable placeholder host produces nothing rather than a false merge.
 
 The same bytes work in the watcher's sidecar-driven mode, where the published check locates its own record:
 
 ```
 $ state/e1x.check.sh
-merged
+PR https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/1 merged into 'main', the repository default branch.
 ```
 
 ## A missing CLI produces no wake, never a false merge
@@ -185,10 +180,28 @@ The rebuilt poll works, verified against a pull request that is genuinely merged
 
 ```
 $ fm-pr-poll.sh --validated $(tr '\n' ' ' < state/t1.pr-poll)
-merged
+PR https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/1 merged into 'main', the repository default branch.
 ```
 
 No armed watch is lost by upgrading.
+
+## Current regression and integration coverage
+
+The public ready-registration and merged-notification interfaces were reverified on 2026-08-10.
+The executable matrix covers a genuine default-branch merge, an integration-branch merge with an explicit not-default-delivery result, and unavailable or invalid base/default evidence that leaves default-branch delivery unverified.
+The same suite exercises GitHub and GitLab extraction, canonical PR identity binding, static poll provenance, retirement, merge-wrapper recording, and unavailable-forge silence.
+A live GitHub default-branch result was also read on 2026-08-10:
+
+```sh
+$ bin/fm-pr-poll.sh --validated github https://github.com/kunchenguid/firstmate/pull/750 github.com kunchenguid/firstmate 750
+PR https://github.com/kunchenguid/firstmate/pull/750 merged into 'main', the repository default branch.
+
+$ bin/fm-test-run.sh tests/fm-pr-check-security.test.sh tests/fm-pr-merge.test.sh tests/fm-teardown.test.sh
+```
+
+The supported integration axes were inspected with repository-wide reference searches after the behavior change.
+The PR outcome extractor and formatter sit above every primary harness (Claude, Codex, OpenCode, Pi, pi-signed, Grok, and Kimi) and every runtime backend (tmux, Herdr, Zellij, Orca, and cmux); none of those adapters parses or rewrites PR outcomes, so they are unaffected after inspection.
+GitHub and GitLab each have provider-specific extraction in `bin/fm-pr-poll.sh`, while local-only delivery never enters the PR outcome path and remains unchanged.
 
 ## What this change does not cover
 
@@ -196,5 +209,4 @@ No armed watch is lost by upgrading.
 It refuses a GitLab merge request URL rather than sending it to the wrong forge, so merging a merge request stays a deliberate manual step until merge parity lands separately.
 
 A GitLab task records no `pr_head=`.
-`gh` exposes the head commit as a selectable field, while plain `glab` exposes it only inside its JSON output, which would need a JSON processor firstmate does not require.
-Both consumers already treat it as optional: `bin/fm-teardown.sh` reads the head from the forge at teardown rather than from metadata and falls back to its provider-agnostic content check, and `bin/fm-review-diff.sh` resolves the head from the remote when none is recorded.
+The shared outcome extraction records its forge-reported `pr_base=` and `pr_default=` when available, while both head consumers continue treating `pr_head=` as optional: `bin/fm-teardown.sh` reads the head from the forge at cleanup and falls back to its provider-agnostic content check, and `bin/fm-review-diff.sh` resolves the head from the remote when none is recorded.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Merge a task's PR after recording pr= and any available pr_head= through
-# bin/fm-pr-check.sh, so teardown can verify landed work after squash merges.
+# Merge a task's PR after recording its canonical identity and available base,
+# repository-default, and head evidence through bin/fm-pr-check.sh, so outcomes
+# stay destination-qualified and teardown can verify work after squash merges.
 # The full canonical GitHub PR URL is parsed by bin/fm-pr-lib.sh and the derived
 # owner/repository and PR number are passed to gh-axi as separate arguments.
 #

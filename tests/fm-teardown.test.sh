@@ -273,10 +273,12 @@ SH
 case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
+      *"state,baseRefName,headRefOid"*) printf '%s\n' '{"state":"MERGED","baseRefName":"main","headRefOid":"$head"}' ; exit 0 ;;
       *"state,headRefOid"*) printf '%s\t%s\n' 'MERGED' '$head' ; exit 0 ;;
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
     esac
     ;;
+  "repo view") printf '%s\n' '{"defaultBranchRef":{"name":"main"}}' ; exit 0 ;;
 esac
 echo "error: pull request not found" >&2
 exit 1
