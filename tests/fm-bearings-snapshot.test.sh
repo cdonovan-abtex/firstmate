@@ -1310,6 +1310,49 @@ test_landed_default_handles_no_landed_items() {
   pass "landed selection handles no landed items"
 }
 
+# tasks-axi preserves the configured Done retention bound in its rendered heading.
+# Bearings must recognize that exact decorated contract without treating nearby
+# prose headings beginning with Done as completion sections.
+test_rendered_bounded_done_heading_reaches_landed() {
+  local home fakebin json actual expected expanded
+  home=$(make_home rendered-bounded-done)
+  : > "$home/data/secondmates.md"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+
+## Done planning notes
+- [x] unrelated-before - Not a completion (repo: firstmate) (kind: ship) (done 2026-07-30)
+
+## Done (10 most recent)
+- [x] rendered-pr - Rendered pull request https://github.com/kunchenguid/firstmate/pull/71 (repo: firstmate) (kind: ship) (merged 2026-07-29)
+- [x] rendered-report - Rendered scout data/rendered-report/report.md (repo: firstmate) (kind: scout) (reported 2026-07-28)
+- [x] rendered-local - Rendered local repair - local main (repo: firstmate) (kind: ship) (done 2026-07-27)
+- [x] rendered-captain - Completed captain action (repo: firstmate) (kind: captain) (done 2026-07-26)
+
+## Done archive notes
+- [x] unrelated-after - Also not a completion (repo: firstmate) (kind: ship) (done 2026-07-25)
+EOF
+  fakebin=$(make_fakebin "$home")
+  json=$(FM_BEARINGS_LANDED=2 FM_BEARINGS_LANDED_PER_HOME=3 run "$home" "$fakebin" --json)
+  actual=$(printf '%s' "$json" | jq -r '.landed[] | "\(.id)\t\(.artifact)"')
+  expected='rendered-pr	https://github.com/kunchenguid/firstmate/pull/71
+rendered-report	data/rendered-report/report.md'
+  [ "$actual" = "$expected" ] || fail "decorated Done heading lost completion identity or artifacts: $actual"
+  printf '%s' "$json" | jq -e '
+    ([.landed[].id] | index("unrelated-before") == null and index("unrelated-after") == null and index("rendered-captain") == null)
+      and ([.omitted[].surface] | any(test("landed showing 2 of 3")))
+  ' >/dev/null || fail "decorated Done heading widened classification or hid the truthful bound: $json"
+
+  expanded=$(FM_BEARINGS_LANDED=2 FM_BEARINGS_LANDED_PER_HOME=3 run "$home" "$fakebin" --json --all-landed)
+  printf '%s' "$expanded" | jq -e '
+    [.landed[].id] == ["rendered-pr", "rendered-report", "rendered-local"]
+      and ([.omitted[].surface] | any(test("landed showing")) | not)
+  ' >/dev/null || fail "--all-landed did not reveal the complete decorated Done set: $expanded"
+  pass "rendered bounded Done heading reaches landed without widening classification"
+}
+
 test_all_landed_keeps_complete_global_order() {
   local home alpha beta fakebin json actual expected
   home=$(make_home landed-all-order)
@@ -1910,6 +1953,7 @@ test_landed_default_refills_capacity_after_sparse_homes_exhaust
 test_landed_default_uses_deterministic_home_order_when_homes_exceed_cap
 test_landed_default_preserves_internal_order_for_ties
 test_landed_default_handles_no_landed_items
+test_rendered_bounded_done_heading_reaches_landed
 test_all_landed_keeps_complete_global_order
 test_landed_bounded_and_disclosed
 test_live_blocker_is_not_charted_queue_work

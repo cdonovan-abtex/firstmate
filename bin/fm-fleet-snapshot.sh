@@ -263,7 +263,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
     def section_state:
       if . == "In flight" then "in_flight"
       elif . == "Queued" then "queued"
-      elif . == "Done" then "done"
+      elif (. == "Done" or test("^Done \\([0-9]+ most recent\\)$")) then "done"
       else null end;
     def cap($rest; $re):
       (((($rest | capture($re)?) // {}) | .v) // null) as $v
