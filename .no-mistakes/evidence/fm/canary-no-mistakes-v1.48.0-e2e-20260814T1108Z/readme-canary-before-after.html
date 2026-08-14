@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:#f6f8fa;color:#1f2328;margin:0;padding:24px;}
+h3.cap{font:600 13px ui-monospace,SFMono-Regular,monospace;margin:0 0 10px;color:#59636e;}
+.row{display:flex;gap:20px;align-items:stretch;}
+.panel{flex:1;background:#fff;border:1px solid #d1d9e0;border-radius:8px;padding:18px 22px;}
+.md{font-size:15px;line-height:1.6;}
+.md h2{font-size:20px;border-bottom:1px solid #d1d9e0;padding-bottom:.3em;margin:18px 0 12px;}
+.md a{color:#0969da;text-decoration:none;} .md p{margin:0 0 12px;}
+.src{margin-top:20px;background:#0d1117;color:#e6edf3;border-radius:8px;padding:16px 20px;font:13px/1.7 ui-monospace,SFMono-Regular,monospace;white-space:pre-wrap;}
+.src .hl{background:#123d1c;color:#7ee787;}
+.note{margin-top:16px;font-size:13px;color:#59636e;}
+.badge{display:inline-block;background:#dafbe1;color:#1a7f37;border:1px solid #1a7f37;border-radius:20px;padding:4px 12px;font:600 12px ui-monospace,monospace;}
+</style></head><body>
+<div class="row">
+  <div class="panel"><h3 class="cap">BEFORE &mdash; base 6789876 &mdash; README.md as GitHub renders it</h3><div class="md"><h2 dir="auto">Contributing</h2>
+<p dir="auto">Contributions are welcome - see <a href="CONTRIBUTING.md">CONTRIBUTING.md</a> for the workflow, repo conventions, and how to run the tests.</p>
+<h2 dir="auto">License</h2>
+<p dir="auto">MIT - see <a href="LICENSE">LICENSE</a>.</p></div></div>
+  <div class="panel"><h3 class="cap">AFTER &mdash; target 0a235db &mdash; README.md as GitHub renders it</h3><div class="md"><h2 dir="auto">Contributing</h2>
+<p dir="auto">Contributions are welcome - see <a href="CONTRIBUTING.md">CONTRIBUTING.md</a> for the workflow, repo conventions, and how to run the tests.</p>
+<h2 dir="auto">License</h2>
+<p dir="auto">MIT - see <a href="LICENSE">LICENSE</a>.</p>
+</div></div>
+</div>
+<div class="src">README.md source tail @ 0a235db (the only tracked change, highlighted):
+
+Contributions are welcome - see [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, repo conventions, and how to run the tests.
+
+## License
+
+MIT - see [LICENSE](LICENSE).
+
+<span class="hl">&lt;!-- Temporary no-mistakes 1.48.0 end-to-end validation canary; this PR will be closed without merge. --&gt;</span>
+</div>
+<div class="note"><span class="badge">INERT</span>&nbsp;&nbsp;GitHub's POST /markdown output is identical for both commits: the HTML comment is stripped and never reaches a reader. Full-page browser screenshots of the whole README are pixel-identical before vs after (same SHA-256).</div>
+</body></html>
