@@ -71,6 +71,58 @@ find_chrome() {
   return 1
 }
 
+render_export_dom() {
+  local chrome=$1 export_file=$2 export_dom=$3 profile_dir=$4 chrome_pid chrome_wait=0
+  "$chrome" \
+    --headless=new \
+    --disable-gpu \
+    --no-sandbox \
+    --password-store=basic \
+    --use-mock-keychain \
+    --user-data-dir="$profile_dir" \
+    --virtual-time-budget=2000 \
+    --dump-dom \
+    "file://$export_file" >"$export_dom" 2>/dev/null &
+  chrome_pid=$!
+  while kill -0 "$chrome_pid" 2>/dev/null && [ "$chrome_wait" -lt 100 ]; do
+    grep -Fq '</html>' "$export_dom" 2>/dev/null && break
+    sleep 0.1
+    chrome_wait=$((chrome_wait + 1))
+  done
+  kill "$chrome_pid" 2>/dev/null || true
+  wait "$chrome_pid" 2>/dev/null || true
+  grep -Fq '</html>' "$export_dom" 2>/dev/null
+}
+
+test_headless_chrome_keychain_isolation() {
+  local fixture fake_chrome args export_file export_dom profile_dir
+  fixture="$TMP_ROOT/chrome-isolation"
+  fake_chrome="$fixture/fake-chrome"
+  args="$fixture/args"
+  export_file="$fixture/export.html"
+  export_dom="$fixture/export-dom.html"
+  profile_dir="$fixture/profile"
+  mkdir -p "$fixture"
+  printf '%s\n' '<html></html>' >"$export_file"
+  cat >"$fake_chrome" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$FM_FAKE_CHROME_ARGS"
+printf '%s\n' '<html></html>'
+SH
+  chmod +x "$fake_chrome"
+
+  FM_FAKE_CHROME_ARGS="$args" render_export_dom \
+    "$fake_chrome" "$export_file" "$export_dom" "$profile_dir" \
+    || fail "isolated headless Chrome boundary did not produce a DOM"
+  grep -Fxq -- '--password-store=basic' "$args" \
+    || fail "isolated headless Chrome boundary did not select the basic password store"
+  grep -Fxq -- '--use-mock-keychain' "$args" \
+    || fail "isolated headless Chrome boundary did not select the mock keychain"
+  grep -Fxq -- "--user-data-dir=$profile_dir" "$args" \
+    || fail "isolated headless Chrome boundary did not retain its temporary profile"
+  pass "isolated headless Chrome export uses a temporary profile, basic password store, and mock keychain"
+}
+
 test_home_resolution() {
   local fixture out status version
   if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
@@ -3079,7 +3131,7 @@ JS
 }
 
 test_interactive_terminal_e2e() {
-  local project config home session_file export_file export_dom default_snapshot expanded_snapshot hidden_snapshot active_before_snapshot active_hidden_snapshot export_snapshot restored_snapshot working_snapshot working_response_snapshot restarted_snapshot resumed_restored_snapshot hash_before hash_after now version chrome chrome_pid chrome_wait active_wait active_screen_wait boat_frame_one boat_frame_two boat_resized_snapshot boat_focus_snapshot boat_cleared_snapshot boat_hull_line boat_sail_line boat_column_one boat_column_two boat_line boat_color_snapshot boat_color_line boat_water_snapshot boat_water_line boat_water_first boat_water_changed boat_narrow_snapshot boat_narrow_sails boat_freeze_snapshot boat_resume_snapshot boat_freeze_column boat_freeze_sail boat_resume_column boat_resume_sail
+  local project config home session_file export_file export_dom default_snapshot expanded_snapshot hidden_snapshot active_before_snapshot active_hidden_snapshot export_snapshot restored_snapshot working_snapshot working_response_snapshot restarted_snapshot resumed_restored_snapshot hash_before hash_after now version chrome active_wait active_screen_wait boat_frame_one boat_frame_two boat_resized_snapshot boat_focus_snapshot boat_cleared_snapshot boat_hull_line boat_sail_line boat_column_one boat_column_two boat_line boat_color_snapshot boat_color_line boat_water_snapshot boat_water_line boat_water_first boat_water_changed boat_narrow_snapshot boat_narrow_sails boat_freeze_snapshot boat_resume_snapshot boat_freeze_column boat_freeze_sail boat_resume_column boat_resume_sail
   if ! command -v pi >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
     echo "skip: pi or tmux not found for Pi calm interactive E2E"
     return 0
@@ -3523,24 +3575,7 @@ const synthetic = entries.find((entry) => entry.type === "custom_message" && ent
 if (!synthetic || synthetic.display) process.exit(1);
 JS
   chrome=$(find_chrome) || fail "Chrome or Chromium is required for rendered export DOM assertions"
-  "$chrome" \
-    --headless=new \
-    --disable-gpu \
-    --no-sandbox \
-    --user-data-dir="$TMP_ROOT/chrome-profile" \
-    --virtual-time-budget=2000 \
-    --dump-dom \
-    "file://$export_file" >"$export_dom" 2>/dev/null &
-  chrome_pid=$!
-  chrome_wait=0
-  while kill -0 "$chrome_pid" 2>/dev/null && [ "$chrome_wait" -lt 100 ]; do
-    grep -Fq '</html>' "$export_dom" 2>/dev/null && break
-    sleep 0.1
-    chrome_wait=$((chrome_wait + 1))
-  done
-  kill "$chrome_pid" 2>/dev/null || true
-  wait "$chrome_pid" 2>/dev/null || true
-  grep -Fq '</html>' "$export_dom" 2>/dev/null \
+  render_export_dom "$chrome" "$export_file" "$export_dom" "$TMP_ROOT/chrome-profile" \
     || fail "could not render calm-mode HTML export DOM"
   node - "$export_dom" <<'JS' || fail "rendered export DOM violated the Calm conversation boundary"
 const dom = require("node:fs").readFileSync(process.argv[2], "utf8");
@@ -3920,6 +3955,12 @@ JS
   pass "Pi calm native E2E replaces the stock working row with a moving, resize-clamped working ship that freezes and resumes across two working periods in one Pi session, clears on abort, keeps captain turns visible, hides exact operational user rows without changing persistence, restores stock rendering Calm-off, survives restart, and preserves export plus Ctrl+O behavior"
 }
 
+if [ "${FM_CALM_CHROME_ISOLATION_TEST_ONLY:-0}" = 1 ]; then
+  test_headless_chrome_keychain_isolation
+  exit 0
+fi
+
+test_headless_chrome_keychain_isolation
 test_home_resolution
 test_pi_compat_no_upper_bound
 test_pi_compat_degraded_adapter
