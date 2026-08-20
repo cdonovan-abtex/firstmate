@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Focused rendering, lifecycle, persistence, and interactive TUI checks for /calm.
+# It also pins the keychain-safety contract of the headless Chrome invocation the
+# rendered-export assertions depend on (render_export_dom below).
+# Set FM_CALM_CHROME_ISOLATION_TEST_ONLY=1 to run only that Chrome isolation
+# check; the script then prints a focused-mode notice and exits 0 with the rest
+# of the suite deliberately unrun, so a focused pass is not full coverage.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -71,6 +76,12 @@ find_chrome() {
   return 1
 }
 
+# Renders one export file to DOM through an owned, throwaway Chrome process.
+# The profile must stay a temporary --user-data-dir, and --password-store=basic
+# plus --use-mock-keychain must stay with it: without both, Chrome falls back to
+# the host credential store and a headless test run can touch, unlock, or prompt
+# for the developer's real login keychain. test_headless_chrome_keychain_isolation
+# pins all three arguments.
 render_export_dom() {
   local chrome=$1 export_file=$2 export_dom=$3 profile_dir=$4 chrome_pid chrome_wait=0
   "$chrome" \
