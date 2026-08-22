@@ -6,6 +6,58 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## Spawned long-child power ownership
+
+Firstmate's supported harness launch templates were verified on 2026-08-22 on macOS 26.6.2 build 25G83 arm64.
+Each template routes its owned long child through `bin/fm-run-long-child.sh`, while raw unverified launch commands remain unchanged.
+On macOS the wrapper uses `/usr/bin/caffeinate -s -i -m <command>` utility mode, which keeps the public wrapper PID as the command and forks a child `caffeinate` helper that owns the assertions for exactly that command's lifetime.
+The wrapper executes directly on non-Darwin hosts.
+
+The live host reported AC power, `sleep 0` on AC, and `sleep 1` on battery.
+An idle-only counterfactual left `PreventSystemSleep` at zero.
+The corrected path held `PreventSystemSleep`, `PreventUserIdleSystemSleep`, and `PreventDiskIdle` at the start and after 35 seconds of a bounded 70-second command, then returned `PreventSystemSleep` to zero with neither process alive after normal exit.
+
+```sh
+pmset -g batt
+pmset -g custom | awk '/Battery Power:|AC Power:| sleep / {print}'
+/usr/bin/caffeinate -i -m /bin/sleep 2 &
+pmset -g assertions
+wait "$!"
+
+bin/fm-run-long-child.sh /bin/sleep 70 &
+owner_pid=$!
+helper_pid=$(pgrep -P "$owner_pid")
+ps -o pid=,ppid=,pgid=,stat=,etime=,command= -p "$owner_pid,$helper_pid"
+pmset -g assertions
+wait "$owner_pid"
+pmset -g assertions
+```
+
+Bounded observed state:
+
+```text
+Now drawing from 'AC Power'
+Battery Power: sleep 1
+AC Power: sleep 0
+idle-only PreventSystemSleep=0
+start PreventSystemSleep=1 owner=/bin/sleep helper=/usr/bin/caffeinate
+35s PreventSystemSleep=1 owner=/bin/sleep helper=/usr/bin/caffeinate
+normal_exit_status=0 owner_alive=no helper_alive=no
+post_exit PreventSystemSleep=0
+```
+
+Real-interface interruption was also checked by starting a 120-second child and sending `TERM` only to the public wrapper owner.
+The owner returned 143, its child assertion helper exited, and `PreventSystemSleep` returned from one to zero.
+Portable public-interface regression coverage separately pins argument selection, normal and failing child lifetime, interruption propagation, and assertion-helper cleanup without inspecting implementation bytes.
+
+The battery system-sleep axis remains an explicit hardware-state limit of this verification.
+The host stayed on AC throughout, and `caffeinate -s` is documented by the installed macOS manual as valid only on AC power, so this run does not prove a battery `PreventSystemSleep` assertion or an actual battery sleep transition.
+It does prove the battery-applicable idle and disk assertion selection through the public interface, but those assertions alone are not claimed to prevent the maintenance-sleep path.
+No power source, power setting, lid state, or whole-machine sleep was changed to manufacture evidence.
+
+A 2026-08-14 bounded AC canary using the same `-s -i -m` assertion set recorded `AppleClamshellState = Yes` while the long command continued without a sleep transition.
+That contradictory evidence falsifies the earlier premise that a closed lid is necessarily a hard stop, so lid state is not used to explain away the battery limit above.
+
 ## tmux
 
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.

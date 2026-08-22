@@ -232,6 +232,8 @@ EOF
   assert_contains "$out" "spawned $id harness=muse" "muse spawn did not report success"
 
   launch=$(cat "$home/launch.log")
+  assert_contains "$launch" "'$ROOT/bin/fm-run-long-child.sh'" \
+    "muse launch omitted the bounded long-child owner"
   # --yolo is what makes a crewmate pane viable at all: without it muse holds
   # every tool call for approval and sandboxes the network to proxy-only.
   assert_contains "$launch" ' --yolo ' "muse launch omitted --yolo"

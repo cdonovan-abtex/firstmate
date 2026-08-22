@@ -165,7 +165,7 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
 
   launch=$(cat "$LAUNCH_LOG")
-  expected="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
+  expected="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false '${ROOT}/bin/fm-run-long-child.sh' claude --dangerously-skip-permissions \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
   [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
@@ -429,6 +429,8 @@ test_claude_threads_model_and_effort() {
   expect_code 0 "$status" "claude spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude sonnet high
   launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "'${ROOT}/bin/fm-run-long-child.sh'" \
+    "claude launch omitted the bounded long-child owner"
   assert_contains "$launch" "claude --dangerously-skip-permissions --model 'sonnet' --effort 'high'" \
     "claude launch did not thread model and effort flags"
   assert_not_contains "$launch" "--tui-mode" "non-Pi launches must not receive Pi's TUI mode override"
@@ -446,6 +448,8 @@ test_codex_threads_model_and_effort() {
   expect_code 0 "$status" "codex spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5 high
   launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "'${ROOT}/bin/fm-run-long-child.sh'" \
+    "codex launch omitted the bounded long-child owner"
   assert_contains "$launch" "codex --model 'gpt-5' -c 'model_reasoning_effort=\"high\"' --dangerously-bypass-approvals-and-sandbox" \
     "codex launch did not thread model and reasoning effort config"
   pass "codex receives --model and model_reasoning_effort profile flags"
@@ -479,6 +483,8 @@ test_grok_threads_model_and_reasoning_effort() {
   expect_code 0 "$status" "grok spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 high
   launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "'${ROOT}/bin/fm-run-long-child.sh'" \
+    "grok launch omitted the bounded long-child owner"
   assert_contains "$launch" "grok --always-approve --model 'grok-4' --reasoning-effort 'high'" \
     "grok launch did not thread model and reasoning-effort flags"
   assert_not_contains "$launch" "--effort" "grok launch must use --reasoning-effort, not --effort"
@@ -534,6 +540,8 @@ test_cursor_threads_model_workspace_and_omits_effort_axis() {
   expect_code 0 "$status" "cursor spawn with a model-qualified reasoning class should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" cursor cursor-grok-4.5-high high
   launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "'${ROOT}/bin/fm-run-long-child.sh'" \
+    "cursor launch omitted the bounded long-child owner"
   assert_contains "$launch" "--trust --yolo --model 'cursor-grok-4.5-high' --workspace '$WT_DIR'" \
     "cursor launch did not carry trust, autonomy, model, and exact workspace flags"
   # The executable is RESOLVED, never named: `cursor` is not the CLI, so a
@@ -603,6 +611,8 @@ test_opencode_threads_model_and_ignores_effort_axis() {
   expect_code 0 "$status" "opencode spawn with model and ignored effort should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 high
   launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "'${ROOT}/bin/fm-run-long-child.sh'" \
+    "opencode launch omitted the bounded long-child owner"
   assert_contains "$launch" "opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
     "opencode launch did not thread model"
   assert_not_contains "$launch" "--effort" "opencode launch must not pass unsupported --effort"
@@ -623,7 +633,7 @@ test_pi_threads_model_and_max_effort() {
   expect_code 0 "$status" "pi spawn with max effort should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" pi openai-codex/gpt-5.6-sol max
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "FM_PI_HARNESS=pi '$FAKEBIN_DIR/pi' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e" \
+  assert_contains "$launch" "FM_PI_HARNESS=pi '${ROOT}/bin/fm-run-long-child.sh' '$FAKEBIN_DIR/pi' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e" \
     "pi launch did not force the regular TUI while threading the requested model and max thinking level"
   assert_not_contains "$launch" "FM_FIRSTMATE_PI_LAUNCH_BRIEF=" \
     "pi launch still exports the removed Calm input-reroute binding"
@@ -645,7 +655,7 @@ test_pi_signed_threads_shared_pi_profile_and_preserves_identity() {
   assert_contains "$out" "spawned $id harness=pi-signed" "pi-signed spawn did not preserve its visible identity"
   assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed openai-codex/gpt-5.6-sol max
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e" \
+  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '${ROOT}/bin/fm-run-long-child.sh' '$FAKEBIN_DIR/pi-signed' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e" \
     "pi-signed launch did not force the regular TUI with Pi's model, thinking, and extension semantics"
   assert_contains "$launch" "fm-operational-input.sh' encode launch-brief" \
     "pi-signed launch lost the canonical typed launch-brief envelope"
@@ -735,7 +745,7 @@ test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity() {
     "pi-signed secondmate spawn did not preserve its runtime identity"
   assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed default default
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
+  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '${ROOT}/bin/fm-run-long-child.sh' '$FAKEBIN_DIR/pi-signed' --tui-mode regular -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
     "pi-signed secondmate did not force the regular TUI with Pi's primary extension launch shape"
   pass "pi-signed is a distinct persistent secondmate runtime with shared Pi supervision semantics"
 }
@@ -770,7 +780,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='/opt/test/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='/opt/test/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false '${ROOT}/bin/fm-run-long-child.sh' claude" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
