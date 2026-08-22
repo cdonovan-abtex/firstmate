@@ -183,6 +183,7 @@ test_non_darwin_executes_directly() {
   rm -f "$ARGS_LOG"
   output=$(PATH="$FAKEBIN:$PATH" FM_FAKE_UNAME=Linux \
     FM_LONG_CHILD_CAFFEINATE_BIN="$FAKEBIN/caffeinate" \
+    FM_FAKE_ARGS_LOG="$ARGS_LOG" \
     "$OWNER" /bin/sh -c 'printf "direct:%s" "$1"; exit 19' _ value)
   status=$?
   [ "$status" -eq 19 ] || fail "non-Darwin child status changed from 19 to $status"
@@ -212,6 +213,7 @@ test_unreadable_host_identity_fails_loudly() {
   rm -f "$ARGS_LOG"
   output=$(PATH="$FAKEBIN:$PATH" FM_FAKE_UNAME_STATUS=127 \
     FM_LONG_CHILD_CAFFEINATE_BIN="$FAKEBIN/caffeinate" \
+    FM_FAKE_ARGS_LOG="$ARGS_LOG" \
     "$OWNER" /bin/sh -c 'printf unprotected' 2>&1)
   status=$?
   [ "$status" -eq 1 ] || fail "unrunnable host lookup returned $status instead of failing loudly"
@@ -219,8 +221,10 @@ test_unreadable_host_identity_fails_loudly() {
   case "$output" in *"host kernel identity"*) ;; *) fail "unrunnable host lookup diagnostic was not actionable: $output" ;; esac
   [ ! -e "$ARGS_LOG" ] || fail "unrunnable host lookup still reached the macOS assertion interface"
 
+  rm -f "$ARGS_LOG"
   output=$(PATH="$FAKEBIN:$PATH" FM_FAKE_UNAME='' \
     FM_LONG_CHILD_CAFFEINATE_BIN="$FAKEBIN/caffeinate" \
+    FM_FAKE_ARGS_LOG="$ARGS_LOG" \
     "$OWNER" /bin/sh -c 'printf unprotected' 2>&1)
   status=$?
   [ "$status" -eq 1 ] || fail "empty host identity returned $status instead of failing loudly"

@@ -999,12 +999,16 @@ families_for_changed_path() {
       printf '%s\n' live-harness-optin
       ;;
     bin/fm-spawn.sh)
-      # The launch templates live here, and the Orca suite is the only family
-      # that pins the composed launch text a template edit changes, so a spawn
-      # change re-runs it rather than deferring the break to full CI.
+      # The launch templates live here, so every family that pins the composed
+      # launch text is selected rather than deferring the break to full CI:
+      # backend-dispatch (spawn-dispatch-profile, trace-context-spawn),
+      # pure-contract-unit (kimi-harness, muse-harness), orca (backend-orca),
+      # and secondmate (secondmate-harness, which also executes the composed
+      # launch, and remote-secondmate-trace-context).
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
       printf '%s\n' orca
+      printf '%s\n' secondmate
       ;;
     bin/fm-send.sh|bin/fm-harness.sh|\
     bin/fm-peek.sh|bin/fm-composer*)
