@@ -1,0 +1,39 @@
+=== Regression proof: new coverage fails at the base commit and passes at the target ===
+base:   1231b6ae7fd4c5ff7e94d2f5ca2159536c4c41cb (exported read-only to /tmp/fm-base-check via git archive)
+target: fc7196f3cf9118c7f7526a5406271506c25d8b29 (this worktree)
+method: the target's test files were overlaid on the exported base tree and run with plain bash.
+
+--- [A] tests/fm-run-long-child.test.sh @ base ---
+$ cd /tmp/fm-base-check && bash tests/fm-run-long-child.test.sh
+env: /tmp/fm-base-check/bin/fm-run-long-child.sh: No such file or directory
+not ok - assertion owner did not become ready
+(non-zero: the bounded long-child power owner does not exist at base)
+
+--- [A'] tests/fm-run-long-child.test.sh @ target ---
+ok - long child: Darwin selects utility-mode assertions and releases them on normal exit
+ok - long child: failure status is preserved and its assertion is released
+ok - long child: interruption reaches the child and cannot orphan its assertion
+ok - long child: non-Darwin hosts execute the owned command directly
+ok - long child: invalid or unprotected launches fail loudly
+ok - long child: an unreadable host identity refuses instead of launching unprotected
+FM_TEST_END 2026-08-22T22:20:55Z tests/fm-run-long-child.test.sh exit=0 duration_ms=1793 gate_skip=false
+
+--- [B] tests/fm-spawn-dispatch-profile.test.sh @ base (real composed launch through fm-spawn.sh) ---
+$ cd /tmp/fm-base-check && bash tests/fm-spawn-dispatch-profile.test.sh
+not ok - no-profile claude launch did not use the canonical launch kind
+expected: env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false '/tmp/fm-base-check/bin/fm-run-long-child.sh' claude --dangerously-skip-permissions "$('/tmp/fm-base-check/bin/fm-operational-input.sh' encode launch-brief < '/var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T//fm-spawn-dispatch-profile.eLqjl5/profile-off/home/data/profile-off-z1/brief.md')"
+actual:   env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "$('/tmp/fm-base-check/bin/fm-operational-input.sh' encode launch-brief < '/var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T//fm-spawn-dispatch-profile.eLqjl5/profile-off/home/data/profile-off-z1/brief.md')"
+exit=1
+(exit=1: at base the crewmate launch line has no power-assertion owner in front of the harness)
+
+--- [B'] tests/fm-spawn-dispatch-profile.test.sh @ target ---
+ok - no --model/--effort records defaults and types the claude launch instructions
+ok - non-cursor launches clear inherited Cursor identity markers
+ok - relative home overrides ignore CDPATH and become absolute before spawn launch construction
+ok - absolute override spellings are preserved in spawn launch paths
+ok - active crew-dispatch profile allows the raw launch-command escape hatch
+ok - Pi launch probing omits --tui-mode on older Pi and preserves it on supporting Pi
+ok - pi-signed shares Pi launch semantics while preserving its configured and recorded identity
+ok - pi-signed is a distinct persistent secondmate runtime with shared Pi supervision semantics
+ok - active crew-dispatch profile does not block secondmate launches
+FM_TEST_END 2026-08-22T22:22:46Z tests/fm-spawn-dispatch-profile.test.sh exit=0 duration_ms=93481 gate_skip=false

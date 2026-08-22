@@ -1,0 +1,33 @@
+=== Crewmate pane identity + teardown through bin/fm-run-long-child.sh ===
+tmux 3.7b on macOS 26.6.2 build 25G83
+
+Why this matters: Firstmate reads a crewmate pane's FOREGROUND process for liveness and
+composer detection. If the power-assertion tool took over that slot, every pane would look
+like 'caffeinate'. This runs a real long-running foreground binary the way fm-spawn.sh now
+composes a launch line: <long-child-owner> <harness>.
+
+$ tmux new-session -d -s fm-longchild-evidence-41237 "'/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M0NN4HDT5VJNXGZH0E481X58/bin/fm-run-long-child.sh' '/var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T/tmp.uDrEJBldAl/harness-stand-in'"
+$ tmux display-message -p '#{pane_current_command}'  ->  cat      (NOT 'caffeinate')
+$ tmux display-message -p '#{pane_pid}'              ->  41717
+
+$ ps -eo pid=,ppid=,stat=,command=   (owner + its assertion helper)
+   41704     1 Ss   tmux new-session -d -s fm-longchild-evidence-41237 '/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M0NN4HDT5VJNXGZH0E481X58/bin/fm-run-long-child.sh' '/var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T/tmp.uDrEJBldAl/harness-stand-in'
+   41717 41704 Ss+  /var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T/tmp.uDrEJBldAl/harness-stand-in
+   41765 41717 S+   /usr/bin/caffeinate -s -i -m /var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T/tmp.uDrEJBldAl/harness-stand-in
+   -> the harness was exec'd IN PLACE, so it keeps the pane's foreground PID;
+      /usr/bin/caffeinate is its CHILD and holds the assertion for exactly that PID:
+
+$ pmset -g assertions   (owning process + named beneficiary)
+   pid 41765(caffeinate): [0x000106ca00019a63] 00:00:03 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+   	Details: caffeinate asserting on behalf of '/var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T/tmp.uDrEJBldAl/harness-stand-in' (pid 41717
+   pid 41765(caffeinate): [0x000106ca00079a64] 00:00:03 PreventSystemSleep named: "caffeinate command-line tool"  
+   	Details: caffeinate asserting on behalf of '/var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T/tmp.uDrEJBldAl/harness-stand-in' (pid 41717
+   pid 41765(caffeinate): [0x000106ca000f9a65] 00:00:03 PreventDiskIdle named: "caffeinate command-line tool"  
+   	Details: caffeinate asserting on behalf of '/var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T/tmp.uDrEJBldAl/harness-stand-in' (pid 41717
+
+--- teardown: kill the pane, which is how a crewmate actually ends ---
+$ tmux kill-session -t fm-longchild-evidence-41237
+$ pgrep -f 'caffeinate -s -i -m'          -> ''   (empty: assertion died with the pane)
+$ pgrep -f 'harness-stand-in'             -> ''   (empty: no orphaned child)
+$ pmset -g assertions            ->       PreventSystemSleep             0
+=== end ===

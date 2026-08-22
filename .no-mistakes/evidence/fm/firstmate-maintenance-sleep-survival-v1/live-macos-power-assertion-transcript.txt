@@ -1,0 +1,80 @@
+=== Firstmate long-child power-assertion live verification ===
+host: Darwin 25.6.0 arm64  macOS 26.6.2 build 25G83
+date: 2026-08-22T22:13:37Z (UTC)
+wrapper: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M0NN4HDT5VJNXGZH0E481X58/bin/fm-run-long-child.sh
+
+--- [0] host power condition (read-only) ---
+$ pmset -g batt
+Now drawing from 'AC Power'
+ -InternalBattery-0 (id=36044899)	100%; charged; 0:00 remaining present: true
+$ pmset -g custom | awk '/Battery Power:|AC Power:| sleep /'
+Battery Power:
+ sleep                1
+AC Power:
+ sleep                0
+
+--- [1] counterfactual: idle-only assertions (caffeinate -i -m) ---
+$ pmset -g assertions  (idle-only owner pid=87154)
+  PreventUserIdleSystemSleep=1  PreventSystemSleep=0  PreventDiskIdle=1
+  => idle-only assertion does NOT hold PreventSystemSleep; maintenance/system sleep stays permitted
+
+--- [2] corrected path: bin/fm-run-long-child.sh /bin/sleep 70 ---
+$ ps -o pid=,ppid=,pgid=,stat=,etime=,command= -p 90385,90427
+90385 87005 87000 S    00:02 /bin/sleep 70
+90427 90385 87000 S    00:02 /usr/bin/caffeinate -s -i -m /bin/sleep 70
+  public wrapper owner pid=90385   forked assertion helper pid=90427 (ppid=90385)
+$ pmset -g assertions   [t+2s]
+  PreventUserIdleSystemSleep=1  PreventSystemSleep=1  PreventDiskIdle=1
+$ pmset -g assertions | grep -i caffeinate   [t+2s]
+     PreventUserIdleDisplaySleep    0
+     PreventSystemSleep             1
+     PreventUserIdleSystemSleep     1
+     pid 90427(caffeinate): [0x000104860001991b] 00:00:02 PreventUserIdleSystemSleep named: "caffeinate command-line tool"  
+  	Details: caffeinate asserting on behalf of '/bin/sleep' (pid 90385)
+  	Localized=THE CAFFEINATE TOOL IS PREVENTING SLEEP.
+     pid 90427(caffeinate): [0x000104860007991c] 00:00:02 PreventSystemSleep named: "caffeinate command-line tool"  
+  	Details: caffeinate asserting on behalf of '/bin/sleep' (pid 90385)
+  	Localized=THE CAFFEINATE TOOL IS PREVENTING SLEEP.
+     pid 90427(caffeinate): [0x00010486000f991d] 00:00:02 PreventDiskIdle named: "caffeinate command-line tool"  
+  	Details: caffeinate asserting on behalf of '/bin/sleep' (pid 90385)
+  	Localized=THE CAFFEINATE TOOL IS PREVENTING SLEEP.
+     pid 550(powerd): [0x0000a81e0001a7f4] 06:34:18 PreventUserIdleSystemSleep named: "Powerd - Prevent sleep while display is on"  
+$ pmset -g assertions   [t+35s, child still running: 00:35]
+  PreventUserIdleSystemSleep=1  PreventSystemSleep=1  PreventDiskIdle=1
+normal exit: status=0 owner_alive=no helper_alive=no
+$ pmset -g assertions   [after normal exit]
+  PreventUserIdleSystemSleep=1  PreventSystemSleep=0  PreventDiskIdle=?
+
+--- [3] interruption: TERM the public wrapper owner only ---
+owner pid=36668 helper pid=36672
+$ pmset -g assertions   [before TERM]
+  PreventSystemSleep=1
+$ kill -TERM 36668  ->  status=143
+owner_alive=no helper_alive=no
+$ pgrep -f 'caffeinate -s -i -m /bin/sleep' -> '' (empty = no orphan assertion)
+$ pmset -g assertions   [after TERM]
+  PreventSystemSleep=0
+
+--- [4] honest hardware-state limit ---
+power source during this run: Now drawing from 'AC Power'
+caffeinate(8) documents -s as valid only on AC power; this host stayed on AC for the whole run,
+so no battery PreventSystemSleep assertion and no battery sleep transition is claimed here.
+No power source, power setting, lid state, or whole-machine sleep was changed to produce this evidence.
+=== end ===
+
+--- note on the "PreventDiskIdle=?" reading above ---
+`pmset -g assertions` omits PreventDiskIdle from its system-wide summary block when
+nobody holds it, so "?" in the post-exit line means "no longer listed" (released),
+not "unknown". Verified after the run:
+  Assertion status system-wide:
+     BackgroundTask                 0
+     ApplePushServiceTask           0
+     UserIsActive                   1
+     PreventUserIdleDisplaySleep    0
+     SoftwareUpdateTask             0
+     PreventSystemSleep             0
+     ExternalMedia                  0
+     PreventUserIdleSystemSleep     1
+     NetworkClientActive            0
+  Listed by owning process:
+  (no PreventDiskIdle row, no caffeinate owner: assertion fully released)

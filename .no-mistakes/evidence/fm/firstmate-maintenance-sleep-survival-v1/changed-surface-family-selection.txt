@@ -1,0 +1,23 @@
+=== bin/fm-test-run.sh changed-path routing for this change ===
+$ bin/fm-test-run.sh --list --changed --base 1231b6a
+(66 suites selected; the ones that pin or execute the composed crewmate launch:)
+  tests/fm-kimi-harness.test.sh
+  tests/fm-muse-harness.test.sh
+  tests/fm-run-long-child.test.sh
+  tests/fm-remote-secondmate-lifecycle-e2e.test.sh
+  tests/fm-remote-secondmate-trace-context.test.sh
+  tests/fm-secondmate-harness.test.sh
+  tests/fm-secondmate-lifecycle-e2e.test.sh
+  tests/fm-secondmate-liveness.test.sh
+  tests/fm-secondmate-safety.test.sh
+  tests/fm-secondmate-sync.test.sh
+  tests/fm-send-secondmate-marker.test.sh
+  tests/fm-spawn-dispatch-profile.test.sh
+  tests/fm-trace-context-spawn.test.sh
+  tests/fm-backend-orca.test.sh
+
+Before this change bin/fm-spawn.sh routed only to backend-dispatch + pure-contract-unit,
+so an orca/secondmate launch-text break would have deferred to full CI.
+
+$ bin/fm-test-run.sh --check-coverage
+FM_TEST_COVERAGE ok total=155 parallel=24 serial=119 serial_shards=4 herdr=12
