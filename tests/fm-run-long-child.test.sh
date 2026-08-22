@@ -181,6 +181,7 @@ test_interruption_releases_assertion_and_terminates_child() {
 test_non_darwin_executes_directly() {
   local output status
   rm -f "$ARGS_LOG"
+  # shellcheck disable=SC2016 # The inner /bin/sh, not this test shell, expands $1.
   output=$(PATH="$FAKEBIN:$PATH" FM_FAKE_UNAME=Linux \
     FM_LONG_CHILD_CAFFEINATE_BIN="$FAKEBIN/caffeinate" \
     FM_FAKE_ARGS_LOG="$ARGS_LOG" \
