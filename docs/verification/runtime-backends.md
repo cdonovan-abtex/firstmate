@@ -11,7 +11,7 @@ Exact task chronology, branch names, temporary homes, local paths, process ids, 
 Firstmate's supported harness launch templates were verified on 2026-08-22 on macOS 26.6.2 build 25G83 arm64.
 Each template routes its owned long child through `bin/fm-run-long-child.sh`, while raw unverified launch commands remain unchanged.
 On macOS the wrapper uses `/usr/bin/caffeinate -s -i -m <command>` utility mode, which keeps the public wrapper PID as the command and forks a child `caffeinate` helper that owns the assertions for exactly that command's lifetime.
-The wrapper executes directly on non-Darwin hosts.
+The wrapper executes directly on non-Darwin hosts, and refuses with a non-zero status when the host kernel identity cannot be read at all, so no child launches unprotected on an unidentified host.
 
 The live host reported AC power, `sleep 0` on AC, and `sleep 1` on battery.
 An idle-only counterfactual left `PreventSystemSleep` at zero.

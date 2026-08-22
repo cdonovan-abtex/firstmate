@@ -28,7 +28,8 @@ trap cleanup EXIT
 
 cat > "$FAKEBIN/uname" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' "${FM_FAKE_UNAME:-Darwin}"
+[ -n "${FM_FAKE_UNAME_STATUS:-}" ] && exit "$FM_FAKE_UNAME_STATUS"
+printf '%s\n' "${FM_FAKE_UNAME-Darwin}"
 SH
 
 cat > "$FAKEBIN/caffeinate" <<'SH'
@@ -206,8 +207,32 @@ test_missing_command_and_missing_macos_interface_fail_loudly() {
   pass "long child: invalid or unprotected launches fail loudly"
 }
 
+test_unreadable_host_identity_fails_loudly() {
+  local output status
+  rm -f "$ARGS_LOG"
+  output=$(PATH="$FAKEBIN:$PATH" FM_FAKE_UNAME_STATUS=127 \
+    FM_LONG_CHILD_CAFFEINATE_BIN="$FAKEBIN/caffeinate" \
+    "$OWNER" /bin/sh -c 'printf unprotected' 2>&1)
+  status=$?
+  [ "$status" -eq 1 ] || fail "unrunnable host lookup returned $status instead of failing loudly"
+  case "$output" in *unprotected*) fail "unrunnable host lookup launched the child unprotected" ;; esac
+  case "$output" in *"host kernel identity"*) ;; *) fail "unrunnable host lookup diagnostic was not actionable: $output" ;; esac
+  [ ! -e "$ARGS_LOG" ] || fail "unrunnable host lookup still reached the macOS assertion interface"
+
+  output=$(PATH="$FAKEBIN:$PATH" FM_FAKE_UNAME='' \
+    FM_LONG_CHILD_CAFFEINATE_BIN="$FAKEBIN/caffeinate" \
+    "$OWNER" /bin/sh -c 'printf unprotected' 2>&1)
+  status=$?
+  [ "$status" -eq 1 ] || fail "empty host identity returned $status instead of failing loudly"
+  case "$output" in *unprotected*) fail "empty host identity launched the child unprotected" ;; esac
+  case "$output" in *"host kernel identity"*) ;; *) fail "empty host identity diagnostic was not actionable: $output" ;; esac
+  [ ! -e "$ARGS_LOG" ] || fail "empty host identity still reached the macOS assertion interface"
+  pass "long child: an unreadable host identity refuses instead of launching unprotected"
+}
+
 test_darwin_selects_utility_mode_and_binds_normal_lifetime
 test_failure_status_and_cleanup_are_preserved
 test_interruption_releases_assertion_and_terminates_child
 test_non_darwin_executes_directly
 test_missing_command_and_missing_macos_interface_fail_loudly
+test_unreadable_host_identity_fails_loudly

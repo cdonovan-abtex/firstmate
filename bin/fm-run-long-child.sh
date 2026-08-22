@@ -10,7 +10,9 @@
 # effective only on AC power; -i and -m still request idle-system and disk-idle
 # protection on battery, but this interface does not claim that they prevent a
 # forced or maintenance sleep there. Other platforms execute the command
-# directly because this macOS assertion interface does not apply.
+# directly because this macOS assertion interface does not apply. A host whose
+# kernel identity cannot be read is refused loudly rather than launched
+# unprotected, because that fallback would silently drop the assertion on a Mac.
 #
 # FM_LONG_CHILD_CAFFEINATE_BIN overrides /usr/bin/caffeinate for hermetic
 # public-interface regression tests. Production callers leave it unset.
@@ -21,7 +23,12 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
-if [ "$(uname -s 2>/dev/null || echo unknown)" = Darwin ]; then
+if ! host_kernel=$(uname -s 2>/dev/null) || [ -z "$host_kernel" ]; then
+  echo "error: long-child protection requires a host kernel identity from uname -s" >&2
+  exit 1
+fi
+
+if [ "$host_kernel" = Darwin ]; then
   caffeinate_bin=${FM_LONG_CHILD_CAFFEINATE_BIN:-/usr/bin/caffeinate}
   if [ ! -x "$caffeinate_bin" ]; then
     echo "error: macOS long-child protection requires executable caffeinate at $caffeinate_bin" >&2
