@@ -159,6 +159,15 @@ cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or b
 cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `FM_ROOT` path, and `--secondmate` spawns are refused, mirroring Orca.
 Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectable as a runtime backend.
 
+## Spawned workers own their host power assertion
+
+An unattended macOS host can enter Maintenance Sleep and stop a long-running worker mid-turn even while an idle-sleep assertion is active, so idle protection alone is not enough.
+Every verified launch template therefore routes its worker through `bin/fm-run-long-child.sh`, which on macOS runs the harness under `caffeinate` utility mode so one assertion exists exactly as long as that one owned child and is released on normal exit, failure, and interruption.
+The wrapper executes the command directly on a non-Darwin host and refuses the launch when the host kernel identity cannot be read at all, rather than starting a Mac worker unprotected; its header owns the exact contract.
+The system-sleep assertion is valid only on AC power, while the idle-system and disk-idle assertions still apply on battery, and no battery system-sleep guarantee is claimed.
+The raw launch-command escape hatch for an unverified adapter stays unwrapped, and nothing asserts power outside a live child.
+[`verification/runtime-backends.md`](verification/runtime-backends.md#spawned-long-child-power-ownership) owns the live evidence and its exact hardware-state limit.
+
 ## Worktrees, not branches in your checkout
 
 Crewmates never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) pools clean worktrees for tmux, herdr, zellij, and cmux tasks, while Orca creates its own worktrees for `backend=orca`.

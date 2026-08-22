@@ -162,6 +162,10 @@
 #     __WORKTREE__  absolute path to the task worktree
 #     __CURSORBIN__ resolved, cursor-verified executable for a cursor launch
 #     __LONGCHILD__ absolute path to the bounded long-child power owner
+#                   Every verified template routes its worker through that owner so an
+#                   unattended host cannot sleep a live child out from under a turn; a raw
+#                   launch command for an unverified adapter is deliberately left unwrapped
+#                   (docs/architecture.md#spawned-workers-own-their-host-power-assertion).
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
