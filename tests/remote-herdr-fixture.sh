@@ -30,9 +30,21 @@
 # <send-fail-flag>.popup-settled. That models the real completion popup: Enter
 # selects a completion instead of submitting, so the typed draft stays in the
 # composer and remains readable, and no agent submission is recorded.
+#
+# The from-firstmate carrier that frames a parent request is read from its owner
+# (bin/fm-operational-input.sh, via the bin/fm-marker-lib.sh entry point the
+# other marker tests use) instead of being re-spelled here. Re-spelling it
+# would fail silently rather than loudly: a changed marker stops matching, the
+# fixture then reads the marker bytes as the request's first byte, no draft ever
+# begins with `$`, the popup never opens, and every popup regression passes
+# without exercising anything.
+
+# shellcheck source=bin/fm-marker-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/fm-marker-lib.sh"
 
 install_remote_herdr_fixture() { # <remote-root> <state> <log> <send-fail> <socket>
   local remote_root=$1 state=$2 log=$3 send_fail=$4 socket=$5 script="$1/bin/herdr"
+  local fromfirst_mark=$FM_FROMFIRST_MARK
   mkdir -p "$remote_root/bin"
   cat > "$script" <<SH
 #!/usr/bin/env bash
@@ -42,6 +54,7 @@ LOG='$log'
 SEND_FAIL='$send_fail'
 POPUP_REQUIRED='$send_fail.popup-required'
 POPUP_SETTLED='$send_fail.popup-settled'
+FROMFIRST_MARK='$fromfirst_mark'
 SOCKET='$socket'
 SH
   cat >> "$script" <<'SH'
@@ -51,8 +64,9 @@ save() { tmp="$STATE.tmp.$$"; cat > "$tmp" && mv "$tmp" "$STATE"; }
 popup_is_open() { # <composer-draft>
   local body=$1
   case "$body" in
-    "[fm-from-firstmate]"*corr=????????????????*)
-      body=${body#*corr=}
+    "$FROMFIRST_MARK"corr=????????????????*)
+      body=${body#"$FROMFIRST_MARK"}
+      body=${body#corr=}
       body=${body#????????????????}
       case "$body" in
         ' '*) body=${body# } ;;
