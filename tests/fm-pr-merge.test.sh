@@ -58,14 +58,11 @@ make_case() {
     "project=$case_dir/project" \
     "kind=ship" \
     "mode=no-mistakes"
-  # No worktree/project on disk; fm-pr-check.sh tolerates a worktree it cannot
-  # stat and simply skips the pr_head lookup via `gh` in that case, so give it
-  # one that resolves for cases that want pr_head recorded.
   printf '%s\n' "$case_dir"
 }
 
 # gh-axi mock recording every invocation to a log file, and gh mock answering
-# headRefOid for fm-pr-check.sh's pr_head lookup. Args: case_dir head_sha
+# the authoritative ready-outcome query. Args: case_dir head_sha
 add_gh_mocks() {
   local case_dir=$1 head=$2
   cat > "$case_dir/fakebin/gh-axi" <<'SH'
@@ -76,13 +73,9 @@ SH
   cat > "$case_dir/fakebin/gh" <<SH
 #!/usr/bin/env bash
 case "\${1:-} \${2:-}" in
-  "pr view")
-    case " \$* " in
-      *headRefOid*) printf '%s\n' '$head' ; exit 0 ;;
-    esac
-    ;;
+  "pr view") printf '%s\037%s\037%s\n' OPEN main '$head' ;;
+  "repo view") printf '%s\n' main ;;
 esac
-exit 0
 SH
   chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
 }
@@ -101,7 +94,10 @@ exit 0
 SH
   cat > "$case_dir/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
-exit 0
+case "${1:-} ${2:-}" in
+  "pr view") printf '%s\037%s\037%s\n' OPEN main 0123456789abcdef0123456789abcdef01234567 ;;
+  "repo view") printf '%s\n' main ;;
+esac
 SH
   chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
 }
@@ -120,6 +116,10 @@ case "${1:-} ${2:-}" in
   "mr view")
     [ ! -e "$case_dir/glab-view-fails" ] || exit 1
     cat "$FM_TEST_GLAB_JSON"
+    exit 0
+    ;;
+  "repo view")
+    printf '%s\n' '{"default_branch":"main"}'
     exit 0
     ;;
   "mr merge")
@@ -160,7 +160,7 @@ write_mr_json() {
   if [ "$pipeline" = present ]; then
     pipeline=$(printf '{"sha":"%s","status":"%s"}' "$pipeline_sha" "$pipeline_status")
   fi
-  printf '{"iid":7,"state":"%s","detailed_merge_status":"%s","has_conflicts":%s,' \
+  printf '{"iid":7,"state":"%s","target_branch":"main","detailed_merge_status":"%s","has_conflicts":%s,' \
     "$state" "$detail" "$conflicts" > "$file"
   printf '"blocking_discussions_resolved":%s,"sha":"%s","head_pipeline":%s}\n' \
     "$discussions" "$head" "$pipeline" >> "$file"

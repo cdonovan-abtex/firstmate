@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Merge a task's PR or MR after recording pr= and any available pr_head= through
-# bin/fm-pr-check.sh, so teardown can verify landed work after squash merges.
+# Merge a task's PR or MR after recording its canonical identity and available
+# destination, repository-default, and head evidence through bin/fm-pr-check.sh,
+# so outcomes stay destination-qualified and cleanup can verify landed work.
 # The full canonical URL is parsed by bin/fm-pr-lib.sh. A GitHub pull request is
 # addressed through gh-axi by the derived owner and repository; a GitLab merge
 # request is addressed through glab by the project URL rebuilt from the parsed
@@ -132,7 +133,12 @@ if [ "$PROVIDER" = gitlab ]; then
   RECORDED_HEAD=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 fi
 
-"$SCRIPT_DIR/fm-pr-check.sh" "$ID" "$URL"
+if ! "$SCRIPT_DIR/fm-pr-check.sh" "$ID" "$URL"; then
+  if [ "$PROVIDER" = gitlab ]; then
+    echo "error: could not read the GitLab merge request state before merging" >&2
+  fi
+  exit 1
+fi
 grep -qxF "pr=$URL" "$META" || {
   echo "error: PR metadata recording failed" >&2
   exit 1

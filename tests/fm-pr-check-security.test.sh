@@ -80,12 +80,21 @@ SH
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
-case " $* " in
-  *" headRefOid "*) printf '%s\n' "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ;;
-  *" state "*)
+case "${1:-} ${2:-}" in
+  "pr view")
     [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
     [ "${FM_TEST_GH_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GH_SLEEP"
-    printf '%s\n' "${FM_TEST_GH_STATE:-OPEN}"
+    head=${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}
+    case "$head" in
+      *[!0-9a-f]*) head= ;;
+      *) [ "${#head}" -eq 40 ] || [ "${#head}" -eq 64 ] || head= ;;
+    esac
+    printf '%s\037%s\037%s\n' \
+      "${FM_TEST_GH_STATE:-OPEN}" "${FM_TEST_GH_BASE:-main}" "$head"
+    ;;
+  "repo view")
+    [ "${FM_TEST_GH_DEFAULT_FAIL:-0}" = 0 ] || exit 1
+    printf '%s\n' "${FM_TEST_GH_DEFAULT:-main}"
     ;;
 esac
 SH
@@ -94,16 +103,24 @@ SH
 printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
 exit "${FM_TEST_GH_AXI_RC:-0}"
 SH
-  # Plain glab, reproducing the real CLI's contract: its field output on stdout
-  # and exit 0 on success, and a non-zero exit with no stdout on any failure.
   cat > "$fakebin/glab" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GLAB_LOG"
 [ "${FM_TEST_GLAB_FAIL:-0}" = 0 ] || exit 1
 [ "${FM_TEST_GLAB_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GLAB_SLEEP"
-printf 'title:\tfixture merge request\nstate:\t%s\nauthor:\tsomeone\n' "${FM_TEST_GLAB_STATE:-opened}"
+case "${1:-} ${2:-}" in
+  "mr view")
+    printf '{"state":"%s","target_branch":"%s"}\n' \
+      "${FM_TEST_GLAB_STATE:-opened}" "${FM_TEST_GLAB_BASE:-main}"
+    ;;
+  "repo view")
+    [ "${FM_TEST_GLAB_DEFAULT_FAIL:-0}" = 0 ] || exit 1
+    printf '{"default_branch":"%s"}\n' "${FM_TEST_GLAB_DEFAULT:-main}"
+    ;;
+esac
 SH
   chmod +x "$fakebin/gh" "$fakebin/gh-axi" "$fakebin/glab"
+  ln -sf "$REAL_JQ" "$fakebin/jq"
   : > "$dir/gh.log"
   : > "$dir/gh-axi.log"
   : > "$dir/glab.log"
@@ -740,7 +757,8 @@ test_static_poll_contract() {
     [ -z "$out" ] || fail "static poll emitted for non-merged state"
   done
   out=$(FM_TEST_GH_STATE=MERGED run_poll "$dir")
-  [ "$out" = merged ] || fail "static poll did not emit exactly one merged line"
+  [ "$out" = "PR https://github.com/o/r/pull/1 merged into 'main', the repository default branch." ] \
+    || fail "static poll did not emit the qualified merged outcome"
   out=$(FM_TEST_GH_FAIL=1 run_poll "$dir")
   [ -z "$out" ] || fail "static poll emitted after gh failure"
 
@@ -775,8 +793,59 @@ test_static_poll_contract() {
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "watcher did not surface merged poll"
-  [ "$(grep -c '^check: .*: merged$' "$dir/watch.out")" -eq 1 ] || fail "watcher did not convert merged output into exactly one wake"
-  pass "static poll is silent except for one merged line and remains watcher-bounded"
+  [ "$(grep -c "^check: .*: PR https://github.com/o/r/pull/1 merged into 'main', the repository default branch\\.$" "$dir/watch.out")" -eq 1 ] \
+    || fail "watcher did not convert the qualified merged output into exactly one wake"
+  pass "static poll is silent except for one qualified merged outcome and remains watcher-bounded"
+}
+
+test_pr_outcome_branch_reporting() {
+  local dir state rc url
+  url=https://github.com/o/r/pull/41
+
+  dir=$(make_case integration-outcome)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  FM_TEST_GH_BASE=release/2026 FM_TEST_GH_DEFAULT=main \
+    run_check_entry "$dir" task-a "$url" > "$dir/ready.out" 2> "$dir/ready.err" \
+    || fail "integration ready outcome could not be recorded"
+  grep -qF "PR $url is ready for review into 'release/2026'." "$dir/ready.out" \
+    || fail "integration ready outcome omitted its actual destination"
+  grep -qxF 'pr_base=release/2026' "$state/task-a.meta" \
+    || fail "integration ready outcome did not record its forge-reported base"
+  ! grep -q '^pr_default=' "$state/task-a.meta" \
+    || fail "ready outcome recorded default-branch evidence before it was needed"
+  ! grep -q '^repo view ' "$dir/gh.log" \
+    || fail "ready outcome looked up the repository default branch"
+
+  set +e
+  FM_TEST_GH_STATE=MERGED FM_TEST_GH_BASE=release/2026 FM_TEST_GH_DEFAULT=main \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/merged.out" 2> "$dir/merged.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "integration merged outcome watcher failed"
+  grep -qF "PR $url merged into 'release/2026'; the repository default branch is 'main'. This is not default-branch delivery." "$dir/merged.out" \
+    || fail "integration merge could be mistaken for default-branch delivery"
+
+  dir=$(make_case unavailable-outcome)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  FM_TEST_GH_BASE='invalid branch' \
+    run_check_entry "$dir" task-a "$url" > "$dir/ready.out" 2> "$dir/ready.err" \
+    || fail "qualified unavailable ready outcome could not be recorded"
+  grep -qF 'destination branch is unavailable from the forge' "$dir/ready.out" \
+    || fail "unavailable ready evidence was not explicitly qualified"
+  ! grep -q '^pr_base=' "$state/task-a.meta" || fail "invalid base evidence reached metadata"
+
+  set +e
+  FM_TEST_GH_STATE=MERGED FM_TEST_GH_BASE='invalid branch' FM_TEST_GH_DEFAULT='invalid default' \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/merged.out" 2> "$dir/merged.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "qualified unavailable merged outcome watcher failed"
+  grep -qF 'Default-branch delivery is unverified.' "$dir/merged.out" \
+    || fail "unavailable merged evidence implied default-branch delivery"
+
+  pass "ready and merged outcomes distinguish default, integration, and unavailable branch evidence"
 }
 
 test_atomic_interruption_leaves_no_partial_artifact() {
@@ -835,7 +904,8 @@ SH
     set -e
     wait "$direct_pid" || fail "concurrent direct arming failed"
     [ "$rc" -eq 0 ] || fail "concurrent watcher did not complete"
-    grep -q '^check: .*: merged$' "$dir/watch.out" || fail "concurrent watcher never saw complete poll"
+    grep -q "^check: .*: PR https://github.com/o/r/pull/1 merged into 'main', the repository default branch\\.$" "$dir/watch.out" \
+      || fail "concurrent watcher never saw the complete qualified poll outcome"
     [ ! -s "$dir/watch.err" ] || fail "concurrent watcher observed a partial artifact error"
     if [ -e "$dir/home/state/task-a.check.sh" ]; then
       cmp -s "$POLL" "$dir/home/state/task-a.check.sh" || fail "concurrent publication check bytes changed"
@@ -2350,7 +2420,7 @@ test_bootstrap_isolates_incomplete_poll_migration() {
     'backend=tmux'
   printf 'FMX_PAIRING_TOKEN=test-token\n' > "$dir/home/.env"
   mkdir -p "$dir/home/projects"
-  fm_fake_exit0 "$fakebin" curl jq
+  fm_fake_exit0 "$fakebin" curl
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
@@ -2408,7 +2478,7 @@ SH
   [ -e "$x_poll_marker" ] || fail "watcher did not continue X mention polling after isolated migration failure"
   assert_no_grep 'replacement-ran' "$dir/watch.out" \
     "watcher executed an unauthenticated check created after scan completion"
-  assert_grep "check: $state/z-healthy.check.sh: merged" "$dir/watch.out" \
+  assert_grep "check: $state/z-healthy.check.sh: PR https://github.com/o/r/pull/13 merged into 'main', the repository default branch." "$dir/watch.out" \
     "watcher did not continue the healthy authenticated poll"
   ack_watcher_cycle "$state" || fail "healthy authenticated poll wake acknowledgement failed"
   [ ! -e "$state/task-a.check.sh" ] && [ ! -L "$state/task-a.check.sh" ] \
@@ -2804,7 +2874,7 @@ SH
 # https://gitlab.com/KarotKris/gitlab-merge-watch-fixture is in
 # docs/gitlab-merge-watch.md; this exercises the same paths hermetically.
 test_gitlab_merge_watch() {
-  local dir state out rc url value noglab entry bindir name
+  local dir state out rc url value noglab nojq entry bindir name
   dir=$(make_case gitlab-merge-watch)
   state="$dir/home/state"
   url=https://gitlab.example/group/subgroup/project/-/merge_requests/7
@@ -2827,8 +2897,9 @@ group/subgroup/project
     out=$(FM_TEST_GLAB_STATE="$value" run_poll "$dir")
     [ -z "$out" ] || fail "GitLab poll emitted for a non-merged state"
   done
-  out=$(FM_TEST_GLAB_STATE=merged run_poll "$dir")
-  [ "$out" = merged ] || fail "GitLab poll did not emit exactly one merged line"
+  out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE=release/2026 FM_TEST_GLAB_DEFAULT=main run_poll "$dir")
+  [ "$out" = "PR $url merged into 'release/2026'; the repository default branch is 'main'. This is not default-branch delivery." ] \
+    || fail "GitLab poll did not emit the qualified merged outcome"
   out=$(FM_TEST_GLAB_FAIL=1 run_poll "$dir")
   [ -z "$out" ] || fail "GitLab poll emitted after a glab failure"
 
@@ -2839,6 +2910,17 @@ group/subgroup/project
     || fail "GitLab poll did not address glab by project URL and merge request number"
   ! grep -qF -- "$url" "$dir/glab.log" \
     || fail "GitLab poll passed a merge request URL to glab"
+
+  write_task_meta "$dir" task-d
+  FM_TEST_GLAB_STATE=opened FM_TEST_GLAB_BASE=release/2026 \
+    run_check_entry "$dir" task-d "$url" > "$dir/gitlab-ready.out" 2> "$dir/gitlab-ready.err" \
+    || fail "GitLab ready outcome could not be recorded"
+  grep -qF "is ready for review into 'release/2026'." "$dir/gitlab-ready.out" \
+    || fail "GitLab ready outcome omitted its destination"
+  grep -qxF 'pr_base=release/2026' "$state/task-d.meta" \
+    || fail "GitLab ready outcome did not record its destination"
+  ! grep -q '^pr_default=' "$state/task-d.meta" \
+    || fail "GitLab ready outcome looked up default-branch evidence prematurely"
 
   # An absent CLI must produce no wake rather than a false merge. The whole
   # search path is mirrored without glab, because a real glab anywhere on
@@ -2890,22 +2972,49 @@ EOF
   esac
   [ ! -e "$state/task-b.check.sh" ] || fail "refused GitLab arming left a poll armed"
 
+  # jq is also a visible arming prerequisite. This closes the old failure mode
+  # where an optional JSON runtime could disappear into poll silence forever.
+  nojq="$dir/nojq"
+  mkdir -p "$nojq"
+  while IFS= read -r bindir; do
+    [ -d "$bindir" ] || continue
+    for entry in "$bindir"/*; do
+      [ -e "$entry" ] || continue
+      name=$(basename "$entry")
+      [ "$name" = jq ] && continue
+      [ -e "$nojq/$name" ] || ln -s "$entry" "$nojq/$name" 2>/dev/null
+    done
+  done <<EOF
+$dir/fakebin
+$(printf '%s\n' "$BASE_PATH" | tr ':' '\n')
+EOF
+  ! PATH="$nojq" command -v jq >/dev/null 2>&1 \
+    || fail "the jq-free search path still resolved jq"
+  write_task_meta "$dir" task-e
+  set +e
+  out=$(FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
+    FM_TEST_GUARD_LOG="$dir/guard.log" PATH="$nojq" \
+    "$PR_CHECK" task-e "$url" 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "arming a GitLab watch succeeded with jq absent"
+  case "$out" in
+    *"requires jq on PATH"*) ;;
+    *) fail "arming a GitLab watch with jq absent did not report the missing parser" ;;
+  esac
+  [ ! -e "$state/task-e.check.sh" ] || fail "jq refusal left a poll armed"
+
   # The merge path addresses the forge the URL names, and never the other one.
-  # This fixture's glab answers with the field output the poll reads, so the
-  # merge's JSON read cannot be parsed, which must refuse rather than merge on a
-  # state it could not read.
+  # This fixture omits the merge-safety head fields, so merging must refuse.
   write_task_meta "$dir" task-c
   : > "$dir/glab.log"
-  # The merge path needs jq before it reads anything, so this case supplies it
-  # and the refusal below is the unreadable state rather than a missing tool.
-  ln -sf "$REAL_JQ" "$dir/fakebin/jq"
   set +e
   run_merge_entry "$dir" task-c "$url" >/dev/null 2> "$dir/merge-c.err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "merge wrapper merged a GitLab merge request it could not read"
-  grep -qF 'could not read the GitLab merge request state before merging' "$dir/merge-c.err" \
-    || fail "merge wrapper refused for some reason other than the state it could not read"
+  grep -qF 'could not read the GitLab merge request head commit before merging' "$dir/merge-c.err" \
+    || fail "merge wrapper refused for some reason other than the missing verified head"
   [ ! -s "$dir/gh-axi.log" ] || fail "merge wrapper reached the GitHub CLI for a GitLab URL"
   grep -qF "mr view 7 -R https://gitlab.example/group/subgroup/project" "$dir/glab.log" \
     || fail "merge wrapper did not read the merge request through glab at its own instance"
@@ -2979,7 +3088,7 @@ test_merged_poll_retires_once() {
   set -e
   [ "$rc" -eq 0 ] || fail "merged retirement watcher failed: $(cat "$dir/watch-1.err")"
   first=$(cat "$dir/watch-1.out")
-  case "$first" in check:*task-a.check.sh:*merged) ;; *) fail "first merged notification was not preserved: $first" ;; esac
+  case "$first" in check:*task-a.check.sh:*"merged into 'main', the repository default branch."*) ;; *) fail "first merged notification was not preserved: $first" ;; esac
   ack_watcher_cycle "$state" || fail "first merged notification handling acknowledgement failed"
   assert_poll_absent "$state" task-a
   [ "$(cat "$state/task-a.meta")" = "$meta_before" ] || fail "merged retirement changed canonical metadata"
@@ -2992,7 +3101,7 @@ test_merged_poll_retires_once() {
   [ "$rc" -eq 0 ] || fail "second watcher cycle failed: $(cat "$dir/watch-2.err")"
   second=$(cat "$dir/watch-2.out")
   case "$second" in check:*z-stop.check.sh:*stop-cycle) ;; *) fail "second cycle did not reach the control check: $second" ;; esac
-  ! grep -F 'task-a.check.sh: merged' "$dir/watch-2.out" >/dev/null \
+  ! grep -F 'task-a.check.sh: PR ' "$dir/watch-2.out" >/dev/null \
     || fail "retired merged poll executed a second time"
   ! grep "$(printf '\tcheck\ttask-a.check.sh\t')" "$state/.wake-queue" >/dev/null 2>&1 \
     || fail "handled merged notification remained queued after acknowledgement"
@@ -3077,7 +3186,7 @@ test_retirement_crash_recovery() {
   set -e
   [ "$rc" -eq 0 ] || fail "receipt recovery watcher failed: $(cat "$dir/restart.err")"
   assert_poll_absent "$state" task-a
-  ! grep -F 'task-a.check.sh: merged' "$dir/restart.out" >/dev/null || fail "receipt recovery duplicated the terminal wake"
+  ! grep -F 'task-a.check.sh: PR ' "$dir/restart.out" >/dev/null || fail "receipt recovery duplicated the terminal wake"
 
   dir=$(make_case retirement-after-check-removal)
   state="$dir/home/state"
@@ -3202,7 +3311,7 @@ test_external_merge_transition_retires_only_terminal_poll() {
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "external merged transition failed: $(cat "$dir/merged.err")"
-  case "$(cat "$dir/merged.out")" in check:*task-a.check.sh:*merged) ;; *) fail "external merge did not preserve its notification" ;; esac
+  case "$(cat "$dir/merged.out")" in check:*task-a.check.sh:*"merged into 'main', the repository default branch."*) ;; *) fail "external merge did not preserve its notification" ;; esac
   assert_poll_absent "$state" task-a
   pass "open/red, closed-unmerged, malformed, and forge errors remain armed until an exact merged transition"
 }
@@ -3366,7 +3475,7 @@ test_gitlab_merged_poll_retires() {
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "GitLab merged retirement watcher failed: $(cat "$dir/watch.err")"
-  case "$(cat "$dir/watch.out")" in check:*task-a.check.sh:*merged) ;; *) fail "GitLab merged wake was missing" ;; esac
+  case "$(cat "$dir/watch.out")" in check:*task-a.check.sh:*"merged into 'main', the repository default branch."*) ;; *) fail "GitLab merged wake was missing" ;; esac
   assert_poll_absent "$state" task-a
   grep -qxF "pr=$url" "$state/task-a.meta" || fail "GitLab retirement removed canonical metadata"
   pass "GitHub and GitLab exact merged results share one retirement path"
@@ -3385,6 +3494,7 @@ test_invalid_entrypoints_have_zero_side_effects
 test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
+test_pr_outcome_branch_reporting
 test_atomic_interruption_leaves_no_partial_artifact
 test_concurrent_watcher_sees_only_complete_publication
 test_postrename_poll_validation_revokes_and_retries
