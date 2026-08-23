@@ -51,9 +51,11 @@
 # submit against the recorded remote Herdr pane and relays its exit status
 # unchanged. That leg resolves the explicit endpoint against the private
 # parent-route metadata, while the already-applied marker and correlation stay
-# transport data rather than creating remote-home reply state. Popup settling
-# classifies the body inside that envelope, so supported harness behavior is
-# identical on local and remote routes.
+# transport data rather than creating remote-home reply state. The host-local
+# leg runs this warning guard against the remote home's ordinary state before
+# entering the route-scoped submission. Popup settling classifies the body
+# inside that envelope, so supported harness behavior is identical on local and
+# remote routes.
 # A leg that delivered the text into the live verified pane but could not
 # synchronously confirm the submit (exit 3 - typically a busy mate
 # whose harness queues the steer and keeps rendering it) is reported here as
@@ -149,7 +151,9 @@ fi
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
-FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' "$SCRIPT_DIR/fm-guard.sh" || true
+if [ "${FM_SEND_GUARD_DONE:-0}" != 1 ]; then
+  FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' "$SCRIPT_DIR/fm-guard.sh" || true
+fi
 
 fm_send_id_from_meta() {  # <meta-file>
   local base

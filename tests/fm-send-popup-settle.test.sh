@@ -140,6 +140,10 @@ first_settle 0.3 'explicit target $message -> fast path (unknown harness)' --exp
 # recorded Codex identity still selects the long popup settle from the body.
 first_settle 1.2 'framed explicit target + codex meta -> long settle' codex '$no-mistakes' explicit-meta
 
+# A dollar sign later in that framed request body does not open the leading-byte
+# popup and must retain the fast path.
+first_settle 0.3 'framed explicit target + nonleading dollar -> fast path' codex 'budget is $5' explicit-meta
+
 # The `/` slash case stays universal and unchanged: long settle regardless of
 # harness (here a non-codex claude target).
 first_settle 1.2 'claude /command -> long settle (slash unchanged)' claude '/no-mistakes'

@@ -23,7 +23,8 @@
 # docs/remote-secondmates.md owns why.
 # A private parent-route state directory stores only the remote secondmate
 # agent's endpoint record. Host-local send and key operations resolve through
-# that record; the home's own state/*.meta remains reserved for workers the
+# that record, but run their supervision warning against the home's ordinary
+# state first; the home's own state/*.meta remains reserved for workers the
 # secondmate supervises.
 # Retirement closes only this secondmate's panes or workspace and never
 # stops fm-remote or removes a sibling secondmate's workspace or panes.
@@ -184,11 +185,17 @@ cmd_launch() {
   print_route "$id"
 }
 
+remote_home_guard() {
+  FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$TARGET_HOME/state" \
+    FM_CONFIG_OVERRIDE="$TARGET_HOME/config" "$SCRIPT_DIR/fm-guard.sh" || true
+}
+
 cmd_send() {
   local id=$1 message=$2
   validate_id "$id"
   validate_home "$id"
   remote_endpoint_require "$id"
+  remote_home_guard
   # fm-send's exit status is the delivery verdict the parent home acts on
   # (0 = confirmed, 3 = delivered with the submit read-back unconfirmed, other
   # nonzero = failed; see bin/fm-send.sh's header). The job worker, entrypoint,
@@ -196,7 +203,7 @@ cmd_send() {
   # into a generic failure is exactly the false-negative the parent's remote
   # send path exists to avoid.
   FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$CONTROL_STATE" \
-    "$SCRIPT_DIR/fm-send.sh" "$REMOTE_ENDPOINT_TARGET" "$message"
+    FM_SEND_GUARD_DONE=1 "$SCRIPT_DIR/fm-send.sh" "$REMOTE_ENDPOINT_TARGET" "$message"
 }
 
 cmd_key() {
@@ -204,8 +211,9 @@ cmd_key() {
   validate_id "$id"
   validate_home "$id"
   remote_endpoint_require "$id"
+  remote_home_guard
   FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$CONTROL_STATE" \
-    "$SCRIPT_DIR/fm-send.sh" "$REMOTE_ENDPOINT_TARGET" --key "$key"
+    FM_SEND_GUARD_DONE=1 "$SCRIPT_DIR/fm-send.sh" "$REMOTE_ENDPOINT_TARGET" --key "$key"
 }
 
 cmd_capture() {

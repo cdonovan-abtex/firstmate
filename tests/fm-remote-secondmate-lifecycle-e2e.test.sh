@@ -737,14 +737,17 @@ pass "remote spawn launches on the remote-local backend and records a host-quali
 # the private parent-route state when it enters the remote host. The request is
 # already marked and correlated by the parent, so the host-local submission
 # must use that metadata without applying either envelope a second time. This
-# `$`-bearing body needs the recorded Codex popup settle in the fixture: losing
+# leading-`$` body needs the recorded Codex popup settle in the fixture: losing
 # the parent-route harness identity types the text but yields no submission
 # acknowledgement, while the metadata-backed path starts exactly one turn.
+# The fixture parses the already-applied carrier before checking that leading
+# body byte, matching the product's real trigger rather than any `$` elsewhere.
 remote_route_meta="$REMOTE_HOME/state/parent-route/ios.meta"
 remote_pane=$(sed -n 's/^herdr_pane_id=//p' "$remote_route_meta")
 submissions_before=$(jq -r --arg pane "$remote_pane" '.submissions[$pane] // 0' "$HERDR_STATE")
 pending_before=$(find "$PARENT/state/pending-replies" -maxdepth 1 -type f ! -name '.*' 2>/dev/null | wc -l | tr -d ' ')
 remote_pending_before=$(find "$REMOTE_HOME/state/pending-replies" -maxdepth 1 -type f ! -name '.*' 2>/dev/null | wc -l | tr -d ' ')
+route_pending_before=$(find "$REMOTE_HOME/state/parent-route/pending-replies" -maxdepth 1 -type f ! -name '.*' 2>/dev/null | wc -l | tr -d ' ')
 herdr_lines_before=$(wc -l < "$HERDR_LOG" | tr -d ' ')
 touch "$TMP_ROOT/herdr-send-fail.popup-required"
 rm -f "$TMP_ROOT/herdr-send-fail.popup-settled"
@@ -754,6 +757,8 @@ remote_env "$ROOT/bin/fm-send.sh" ios "$CONFIRMED_REQUEST" \
   > "$TMP_ROOT/send-confirmed.out" 2> "$TMP_ROOT/send-confirmed.err" \
   || fail "the public parent send did not receive the remote submission acknowledgement: $(cat "$TMP_ROOT/send-confirmed.err")"
 rm -f "$TMP_ROOT/herdr-send-fail.popup-required" "$TMP_ROOT/herdr-send-fail.popup-settled"
+assert_absent "$REMOTE_HOME/state/parent-route/.guard-watcher-stale-banner" \
+  "route-scoped endpoint metadata triggered a false supervision warning"
 tail -n "+$((herdr_lines_before + 1))" "$HERDR_LOG" > "$TMP_ROOT/send-confirmed.herdr"
 confirmed_line=$(grep -F 'pane send-text' "$TMP_ROOT/send-confirmed.herdr" \
   | grep -F "$CONFIRMED_REQUEST" || true)
@@ -780,7 +785,19 @@ assert_grep 'phase=awaiting_report' "$PARENT/state/pending-replies/$SUCCESS_CORR
 remote_pending_after=$(find "$REMOTE_HOME/state/pending-replies" -maxdepth 1 -type f ! -name '.*' 2>/dev/null | wc -l | tr -d ' ')
 [ "$remote_pending_after" -eq "$remote_pending_before" ] \
   || fail "the host-local leg created a duplicate remote-home pending-reply expectation"
+route_pending_after=$(find "$REMOTE_HOME/state/parent-route/pending-replies" -maxdepth 1 -type f ! -name '.*' 2>/dev/null | wc -l | tr -d ' ')
+[ "$route_pending_after" -eq "$route_pending_before" ] \
+  || fail "the route-scoped leg created a duplicate remote-local pending-reply expectation"
 pass "a parent request reaches the live remote agent exactly once with one marker, one correlation, and a submission acknowledgement"
+
+remote_env "$ROOT/bin/fm-send.sh" ios --key C-c \
+  > "$TMP_ROOT/send-key.out" 2> "$TMP_ROOT/send-key.err" \
+  || fail "the public parent key send failed: $(cat "$TMP_ROOT/send-key.err")"
+assert_no_grep 'WATCHER DOWN - SUPERVISION IS OFF' "$TMP_ROOT/send-key.err" \
+  "a route-scoped remote key send emitted a false supervision warning"
+assert_absent "$REMOTE_HOME/state/parent-route/.guard-watcher-stale-banner" \
+  "a route-scoped remote key send recorded a false supervision warning"
+pass "remote sends guard the remote home's ordinary supervision state"
 
 remote_route_meta="$REMOTE_HOME/state/parent-route/ios.meta"
 cp "$remote_route_meta" "$TMP_ROOT/remote-ios-before-default-session.meta"

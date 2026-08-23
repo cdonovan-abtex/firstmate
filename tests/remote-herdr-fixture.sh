@@ -25,8 +25,9 @@
 # Every invocation is appended verbatim to <log-file>, so a test reads back what
 # the remote pane received. Creating <send-fail-flag> makes every pane write
 # fail, which is how a test simulates an endpoint that cannot be reached. The
-# optional <send-fail-flag>.popup-required flag keeps a `$`-bearing draft from
-# submitting until the caller publishes <send-fail-flag>.popup-settled.
+# optional <send-fail-flag>.popup-required flag keeps a draft whose request
+# body begins with `$` from submitting until the caller publishes
+# <send-fail-flag>.popup-settled.
 
 install_remote_herdr_fixture() { # <remote-root> <state> <log> <send-fail> <socket>
   local remote_root=$1 state=$2 log=$3 send_fail=$4 socket=$5 script="$1/bin/herdr"
@@ -45,6 +46,19 @@ SH
 printf '%s\n' "$*" >> "$LOG"
 jq_state() { jq "$@" "$STATE"; }
 save() { tmp="$STATE.tmp.$$"; cat > "$tmp" && mv "$tmp" "$STATE"; }
+popup_is_open() { # <composer-draft>
+  local body=$1
+  case "$body" in
+    "[fm-from-firstmate]"*corr=????????????????*)
+      body=${body#*corr=}
+      body=${body#????????????????}
+      while [ "${body# }" != "$body" ]; do body=${body# }; done
+      while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
+      ;;
+  esac
+  case "$body" in \$*) return 0 ;; esac
+  return 1
+}
 ws=""; label=""; cwd=""
 args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
@@ -102,8 +116,9 @@ case "${1:-} ${2:-}" in
     pane=${3:-}
     key=${4:-}
     draft=$(jq_state -r --arg p "$pane" '.draft[$p] // ""')
-    if [ "$key" = enter ] && [ -f "$POPUP_REQUIRED" ] && [ ! -f "$POPUP_SETTLED" ]; then
-      case "$draft" in *\$*) exit 0 ;; esac
+    if [ "$key" = enter ] && [ -f "$POPUP_REQUIRED" ] && [ ! -f "$POPUP_SETTLED" ] \
+      && popup_is_open "$draft"; then
+      exit 0
     fi
     jq_state --arg p "$pane" '
       .typed[$p] = true
@@ -113,8 +128,9 @@ case "${1:-} ${2:-}" in
   "pane read")
     pane=${3:-}
     draft=$(jq_state -r --arg p "$pane" '.draft[$p] // ""')
-    if [ -f "$POPUP_REQUIRED" ] && [ ! -f "$POPUP_SETTLED" ]; then
-      case "$draft" in *\$*) exit 0 ;; esac
+    if [ -f "$POPUP_REQUIRED" ] && [ ! -f "$POPUP_SETTLED" ] \
+      && popup_is_open "$draft"; then
+      exit 0
     fi
     if [ -n "$draft" ]; then
       printf '❯ %s\n' "$draft"
