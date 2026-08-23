@@ -799,6 +799,31 @@ assert_absent "$REMOTE_HOME/state/parent-route/.guard-watcher-stale-banner" \
   "a route-scoped remote key send recorded a false supervision warning"
 pass "remote sends guard the remote home's ordinary supervision state"
 
+# The check above only proves the guard stopped reading the route-only endpoint
+# record. Prove the other half on the same public command: with genuine
+# in-flight work in the remote home's ORDINARY state and no watcher beacon
+# there, one parent `--key` send must raise that home's supervision alarm,
+# carrying the send-specific continue line and recording its episode against the
+# home's own state rather than the private parent-route directory.
+fm_write_meta "$REMOTE_HOME/state/remote-worker.meta" \
+  'kind=crewmate' 'window=fm-remote:remote-worker' 'harness=codex'
+remote_env "$ROOT/bin/fm-send.sh" ios --key C-c \
+  > "$TMP_ROOT/send-key-unsupervised.out" 2> "$TMP_ROOT/send-key-unsupervised.err" \
+  || fail "the public parent key send failed under a remote supervision lapse: $(cat "$TMP_ROOT/send-key-unsupervised.err")"
+assert_grep 'WATCHER DOWN - SUPERVISION IS OFF' "$TMP_ROOT/send-key-unsupervised.err" \
+  "an unsupervised remote home raised no supervision alarm through the parent send"
+assert_grep '1 task(s) in flight' "$TMP_ROOT/send-key-unsupervised.err" \
+  "the remote supervision alarm did not count the remote home's own in-flight work"
+assert_grep 'the requested message WILL still be sent' "$TMP_ROOT/send-key-unsupervised.err" \
+  "the remote supervision alarm lost the send-specific continue line"
+assert_present "$REMOTE_HOME/state/.guard-watcher-stale-banner" \
+  "the remote supervision episode was not recorded against the remote home's own state"
+assert_absent "$REMOTE_HOME/state/parent-route/.guard-watcher-stale-banner" \
+  "the remote supervision episode was recorded against the route-only endpoint state"
+rm -f "$REMOTE_HOME/state/remote-worker.meta" "$REMOTE_HOME/state/.guard-watcher-stale-banner"
+rm -rf "$REMOTE_HOME/state/.guard-watcher-stale-banner.lock"
+pass "an unsupervised remote home raises its own supervision alarm through the parent send"
+
 remote_route_meta="$REMOTE_HOME/state/parent-route/ios.meta"
 cp "$remote_route_meta" "$TMP_ROOT/remote-ios-before-default-session.meta"
 legacy_pane=$(sed -n 's/^herdr_pane_id=//p' "$remote_route_meta")
