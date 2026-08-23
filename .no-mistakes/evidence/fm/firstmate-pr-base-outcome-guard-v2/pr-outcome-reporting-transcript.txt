@@ -1,0 +1,123 @@
+Firstmate PR/MR outcome reporting - operator transcript
+Real bin/fm-pr-check.sh + bin/fm-pr-poll.sh; forge CLIs are local stubs.
+
+=== GitHub - open PR targeting the repository default branch ===
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/41
+PR https://github.com/o/r/pull/41 is ready for review into 'main'.
+armed: state/task-a.check.sh
+(exit 0)
+
+=== GitHub - open PR targeting an integration/release branch ===
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/41
+PR https://github.com/o/r/pull/41 is ready for review into 'release/2026'.
+armed: state/task-a.check.sh
+(exit 0)
+
+=== GitHub - draft PR ===
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/41
+PR https://github.com/o/r/pull/41 is open as a draft and not yet ready for review; its destination branch is 'main'.
+armed: state/task-a.check.sh
+(exit 0)
+
+=== GitHub - closed-without-merging PR ===
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/41
+PR https://github.com/o/r/pull/41 is closed without merging; its destination branch is 'main'.
+armed: state/task-a.check.sh
+(exit 0)
+
+=== GitHub - forge unreachable at arming (identity still recorded, watch still armed) ===
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/41
+PR https://github.com/o/r/pull/41 is unavailable from the forge; neither its state nor its destination branch could be established.
+armed: state/task-a.check.sh
+(exit 0)
+--- recorded metadata ---
+window=firstmate:fm-task-a
+endpoint_task_id=task-a
+worktree=/tmp/fm-outcome-demo/case.gE1LBt/gh-unavailable/wt
+project=/tmp/fm-outcome-demo/case.gE1LBt/gh-unavailable/project
+kind=ship
+mode=no-mistakes
+pr=https://github.com/o/r/pull/41
+
+=== GitHub - merged into the repository default branch ===
+$ state/task-a.check.sh          # what the watcher executes each cycle
+PR https://github.com/o/r/pull/41 merged into 'main', the repository default branch.
+(exit 0)
+
+=== GitHub - merged into an integration/release branch (default is main) ===
+$ state/task-a.check.sh          # what the watcher executes each cycle
+PR https://github.com/o/r/pull/41 merged into 'release/2026'; the repository default branch is 'main'. This is not default-branch delivery.
+(exit 0)
+
+=== GitHub - merged, repository default branch could not be established ===
+$ state/task-a.check.sh          # what the watcher executes each cycle
+PR https://github.com/o/r/pull/41 merged into 'release/2026'; the repository default branch could not be established. Default-branch delivery is unverified.
+(exit 0)
+
+=== GitHub - merged, neither destination nor default branch available ===
+$ state/task-a.check.sh          # what the watcher executes each cycle
+PR https://github.com/o/r/pull/41 merged, but its destination branch and the repository default branch are unavailable from the forge. Default-branch delivery is unverified.
+(exit 0)
+
+=== GitLab - open merge request targeting the default branch ===
+$ fm-pr-check.sh task-a https://gitlab.example/group/subgroup/project/-/merge_requests/17
+MR https://gitlab.example/group/subgroup/project/-/merge_requests/17 is ready for review into 'main'.
+armed: state/task-a.check.sh
+(exit 0)
+
+=== GitLab - closed-without-merging merge request ===
+$ fm-pr-check.sh task-a https://gitlab.example/group/subgroup/project/-/merge_requests/17
+MR https://gitlab.example/group/subgroup/project/-/merge_requests/17 is closed without merging; its destination branch is 'main'.
+armed: state/task-a.check.sh
+(exit 0)
+
+=== GitLab - merged into the repository default branch ===
+$ state/task-a.check.sh          # what the watcher executes each cycle
+MR https://gitlab.example/group/subgroup/project/-/merge_requests/17 merged into 'main', the repository default branch.
+(exit 0)
+
+=== GitLab - merged into an integration/release branch (default is main) ===
+$ state/task-a.check.sh          # what the watcher executes each cycle
+MR https://gitlab.example/group/subgroup/project/-/merge_requests/17 merged into 'release/2026'; the repository default branch is 'main'. This is not default-branch delivery.
+(exit 0)
+
+=== GitLab - merged, repository default branch could not be established ===
+$ state/task-a.check.sh          # what the watcher executes each cycle
+MR https://gitlab.example/group/subgroup/project/-/merge_requests/17 merged into 'main'; the repository default branch could not be established. Default-branch delivery is unverified.
+(exit 0)
+
+=== GitLab - merged, destination branch absent from the forge payload ===
+$ state/task-a.check.sh          # what the watcher executes each cycle
+MR https://gitlab.example/group/subgroup/project/-/merge_requests/17 merged, but its destination branch is unavailable from the forge; the repository default branch is 'main'. Default-branch delivery is unverified.
+(exit 0)
+
+=== GitLab - arming without jq on PATH names the missing tool instead of going silent ===
+$ PATH without jq; fm-pr-check.sh task-a https://gitlab.example/group/subgroup/project/-/merge_requests/17
+error: watching this GitLab merge request outcome requires jq on PATH
+(exit 1)
+
+=== GitHub - fm-pr-merge.sh frames the state it reads as pre-merge, not as the outcome ===
+$ fm-pr-merge.sh task-a https://github.com/o/r/pull/41
+before merging: PR https://github.com/o/r/pull/41 is ready for review into 'main'.
+armed: state/task-a.check.sh
+stub gh-axi: pr merge 41 --repo o/r --squash
+(exit 0)
+
+=== Deferred default-branch lookup - forge calls actually made ===
+ready arming:
+PR https://github.com/o/r/pull/41 is ready for review into 'main'.
+armed: state/task-a.check.sh
+  gh pr view https://github.com/o/r/pull/41 --json state,isDraft,baseRefName,headRefOid --jq [.state // "", (if .isDraft == true then "1" else "0" end), .baseRefName // "", ((.headRefOid // "") | if test("^[0-9a-f]{40}$|^[0-9a-f]{64}$") then . else "" end)] | join("\u001f")
+poll while still open:
+  gh pr view https://github.com/o/r/pull/41 --json state,isDraft,baseRefName,headRefOid --jq [.state // "", (if .isDraft == true then "1" else "0" end), .baseRefName // "", ((.headRefOid // "") | if test("^[0-9a-f]{40}$|^[0-9a-f]{64}$") then . else "" end)] | join("\u001f")
+poll after the merge:
+PR https://github.com/o/r/pull/41 merged into 'main', the repository default branch.
+  gh pr view https://github.com/o/r/pull/41 --json state,isDraft,baseRefName,headRefOid --jq [.state // "", (if .isDraft == true then "1" else "0" end), .baseRefName // "", ((.headRefOid // "") | if test("^[0-9a-f]{40}$|^[0-9a-f]{64}$") then . else "" end)] | join("\u001f")
+  gh repo view o/r --json defaultBranchRef --jq .defaultBranchRef.name // ""
+
+=== Watcher wake - what the captain actually receives when the PR merges ===
+PR https://github.com/o/r/pull/41 is ready for review into 'release/2026'.
+armed: state/task-a.check.sh
+$ fm-watch.sh                     # one bounded supervision cycle after the merge lands
+check: /tmp/fm-outcome-demo/case.gE1LBt/gh-watcher-wake/home/state/task-a.check.sh: PR https://github.com/o/r/pull/41 merged into 'release/2026'; the repository default branch is 'main'. This is not default-branch delivery.
+(watcher cycle complete)
