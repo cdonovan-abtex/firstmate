@@ -282,6 +282,7 @@ fm_pr_poll_provider_tools_present() {
 # the mapping has one owner rather than a literal at each message site. Sets
 # FM_PR_PROVIDER_LABEL and returns non-zero for an unknown provider.
 fm_pr_provider_label() {
+  # shellcheck disable=SC2034  # read by sourcing scripts (fm-pr-check.sh, fm-pr-check-migrate.sh)
   case "${1-}" in
     github) FM_PR_PROVIDER_LABEL='GitHub pull request' ;;
     gitlab) FM_PR_PROVIDER_LABEL='GitLab merge request' ;;
