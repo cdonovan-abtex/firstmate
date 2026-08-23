@@ -1,0 +1,22 @@
+$ cd <scratch copy with bin/ reverted to base 8714c9a, tests/ at 656d79e>
+$ bash tests/fm-remote-secondmate-lifecycle-e2e.test.sh
+ok - remote spawn launches on the remote-local backend and records a host-qualified route
+not ok - the confirmed remote request did not submit with exactly one acknowledged Enter: pane get w1:p3 --session fm-remote
+status --json --session fm-remote
+...(remote host command log echoed by the failure)...
+status --json --session fm-remote
+pane send-text w1:p3 [fm-from-firstmate]⁣corr=d7f0f0415f9793e3 $5 is the remote build budget; acknowledge receipt --session fm-remote
+agent get w1:p3 --session fm-remote
+status --json --session fm-remote
+pane send-keys w1:p3 enter --session fm-remote
+agent get w1:p3 --session fm-remote
+agent get w1:p3 --session fm-remote
+agent get w1:p3 --session fm-remote
+agent get w1:p3 --session fm-remote
+agent get w1:p3 --session fm-remote
+agent get w1:p3 --session fm-remote
+
+# The leading-$ completion popup swallowed the first Enter, fm-send retried Enter,
+# so the request was submitted more than once and the fixture recorded no agent submission.
+$ echo $?
+1

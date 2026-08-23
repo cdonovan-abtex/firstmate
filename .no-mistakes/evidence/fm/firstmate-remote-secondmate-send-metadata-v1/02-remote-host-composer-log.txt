@@ -1,0 +1,6 @@
+status --json --session fm-remote
+pane send-text w1:p3 [fm-from-firstmate]⁣corr=580d6871e8d9cb12 $5 is the remote build budget; acknowledge receipt --session fm-remote
+agent get w1:p3 --session fm-remote
+status --json --session fm-remote
+pane send-keys w1:p3 enter --session fm-remote
+agent get w1:p3 --session fm-remote
