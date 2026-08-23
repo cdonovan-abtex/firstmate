@@ -11,8 +11,8 @@
 # print only the human outcome. Every lookup error in poll mode stays silent, so
 # an unreadable PR can never be reported as merged; a ready caller instead gets
 # an explicitly unavailable outcome, so arming never depends on a reachable
-# forge. Missing destination/default evidence and non-review terminal states
-# are surfaced explicitly rather than inferred or folded into "ready".
+# forge. Missing destination/default evidence, drafts, and non-review terminal
+# states are surfaced explicitly rather than inferred or folded into "ready".
 set -u
 LC_ALL=C
 export LC_ALL
@@ -73,11 +73,13 @@ parse_forge_record() {
     *$'\n'*|*$'\r'*) return 1 ;;
   esac
   separator=$(printf '\037')
-  IFS="$separator" read -r state base head extra <<< "$record"
-  [ -z "$extra" ] && [ -n "$state" ]
+  IFS="$separator" read -r state draft base head extra <<< "$record"
+  [ -z "$extra" ] && [ -n "$state" ] || return 1
+  case "$draft" in 0|1) ;; *) return 1 ;; esac
 }
 
 state=
+draft=
 base=
 default_branch=
 head=
@@ -104,8 +106,8 @@ extract_forge_state() {
       .|..|*[!A-Za-z0-9._-]*) exit 0 ;;
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
-    pr_record=$(gh pr view "$url" --json state,baseRefName,headRefOid \
-      --jq '[.state // "", .baseRefName // "", ((.headRefOid // "") | if test("^[0-9a-f]{40}$|^[0-9a-f]{64}$") then . else "" end)] | join("\u001f")' \
+    pr_record=$(gh pr view "$url" --json state,isDraft,baseRefName,headRefOid \
+      --jq '[.state // "", (if .isDraft == true then "1" else "0" end), .baseRefName // "", ((.headRefOid // "") | if test("^[0-9a-f]{40}$|^[0-9a-f]{64}$") then . else "" end)] | join("\u001f")' \
       2>/dev/null) || return 1
     parse_forge_record "$pr_record" || return 1
     case "$state" in
@@ -149,7 +151,11 @@ extract_forge_state() {
       if type == "object"
         and (.state | type == "string")
         and ((.target_branch | type) == "string" or (.target_branch | type) == "null")
-      then [(.state), (.target_branch // ""), ""] | join("\u001f")
+        and ((.draft | type) == "boolean" or (.draft | type) == "null")
+        and ((.work_in_progress | type) == "boolean" or (.work_in_progress | type) == "null")
+      then [(.state),
+            (if (.draft // .work_in_progress // false) then "1" else "0" end),
+            (.target_branch // ""), ""] | join("\u001f")
       else error("invalid merge request outcome")
       end' 2>/dev/null) || return 1
     parse_forge_record "$pr_record" || return 1
@@ -163,6 +169,11 @@ extract_forge_state() {
     ;;
   *) exit 0 ;;
   esac
+  # A draft is open but explicitly not offered for review, so it is qualified
+  # separately rather than folded into the ready outcome.
+  if [ "$state" = ready ] && [ "$draft" = 1 ]; then
+    state=draft
+  fi
 }
 
 # Poll mode stays silent on every lookup error, so an unreadable PR can never be
@@ -172,6 +183,7 @@ extract_forge_state() {
 if ! extract_forge_state; then
   [ "$phase" = ready ] || exit 0
   state=unavailable
+  draft=
   base=
   head=
 fi
@@ -191,6 +203,7 @@ outcome_state=$state
 case "$outcome_state" in
   merged) verb=merged ;;
   ready) verb="is ready for review" ;;
+  draft) verb="is open as a draft and not yet ready for review" ;;
   closed) verb="is closed without merging" ;;
   locked) verb="is locked by the forge and not merged" ;;
   *) verb= ;;

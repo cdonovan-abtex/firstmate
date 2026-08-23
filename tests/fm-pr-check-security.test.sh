@@ -101,8 +101,9 @@ case "${1:-} ${2:-}" in
       *[!0-9a-f]*) head= ;;
       *) [ "${#head}" -eq 40 ] || [ "${#head}" -eq 64 ] || head= ;;
     esac
-    printf '%s\037%s\037%s\n' \
-      "${FM_TEST_GH_STATE:-OPEN}" "${FM_TEST_GH_BASE:-main}" "$head"
+    printf '%s\037%s\037%s\037%s\n' \
+      "${FM_TEST_GH_STATE:-OPEN}" "${FM_TEST_GH_DRAFT:-0}" \
+      "${FM_TEST_GH_BASE:-main}" "$head"
     ;;
   "repo view")
     [ "${FM_TEST_GH_DEFAULT_FAIL:-0}" = 0 ] || exit 1
@@ -122,11 +123,13 @@ printf '%s\n' "$*" >> "$FM_TEST_GLAB_LOG"
 [ "${FM_TEST_GLAB_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GLAB_SLEEP"
 case "${1:-} ${2:-}" in
   "mr view")
+    if [ "${FM_TEST_GLAB_DRAFT:-0}" = 0 ]; then draft=false; else draft=true; fi
     if [ "${FM_TEST_GLAB_BASE_ABSENT:-0}" = 0 ]; then
-      printf '{"state":"%s","target_branch":"%s"}\n' \
-        "${FM_TEST_GLAB_STATE:-opened}" "${FM_TEST_GLAB_BASE:-main}"
+      printf '{"state":"%s","draft":%s,"target_branch":"%s"}\n' \
+        "${FM_TEST_GLAB_STATE:-opened}" "$draft" "${FM_TEST_GLAB_BASE:-main}"
     else
-      printf '{"state":"%s","target_branch":null}\n' "${FM_TEST_GLAB_STATE:-opened}"
+      printf '{"state":"%s","draft":%s,"target_branch":null}\n' \
+        "${FM_TEST_GLAB_STATE:-opened}" "$draft"
     fi
     ;;
   "repo view")
@@ -876,6 +879,34 @@ test_pr_outcome_branch_reporting() {
   ! grep -q '^repo view ' "$dir/gh.log" \
     || fail "a closed outcome looked up the repository default branch"
 
+  # A draft pull request is open but explicitly not offered for review, so it
+  # must not be announced to the captain as ready either.
+  dir=$(make_case draft-outcome)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_DRAFT=1 FM_TEST_GH_BASE=main \
+    run_check_entry "$dir" task-a "$url" > "$dir/ready.out" 2> "$dir/ready.err" \
+    || fail "draft outcome could not be recorded"
+  grep -qF "PR $url is open as a draft and not yet ready for review; its destination branch is 'main'." "$dir/ready.out" \
+    || fail "a draft pull request was not reported as a draft"
+  ! grep -qF 'is ready for review into' "$dir/ready.out" \
+    || fail "a draft pull request was announced as ready for review"
+  grep -qxF 'pr_base=main' "$state/task-a.meta" \
+    || fail "a draft outcome dropped its forge-reported base"
+  ! grep -q '^repo view ' "$dir/gh.log" \
+    || fail "a draft outcome looked up the repository default branch"
+  [ -f "$state/task-a.check.sh" ] || fail "a draft outcome published no merge poll"
+
+  # The draft still merges through the same armed watch once it lands.
+  set +e
+  FM_TEST_GH_STATE=MERGED FM_TEST_GH_BASE=main FM_TEST_GH_DEFAULT=main \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/merged.out" 2> "$dir/merged.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "draft-armed merged outcome watcher failed"
+  grep -qF "PR $url merged into 'main', the repository default branch." "$dir/merged.out" \
+    || fail "a watch armed on a draft never reported its merge"
+
   # An unreachable forge must not block recording the PR identity or arming the
   # merge watch; the unread state is qualified instead of guessed.
   dir=$(make_case unreadable-forge-outcome)
@@ -903,7 +934,7 @@ test_pr_outcome_branch_reporting() {
   grep -qF "PR $url merged into 'main', the repository default branch." "$dir/merged.out" \
     || fail "a watch armed through an unreadable forge never reported its merge"
 
-  pass "ready and merged outcomes distinguish default, integration, closed, and unavailable evidence"
+  pass "ready and merged outcomes distinguish default, integration, draft, closed, and unavailable evidence"
 }
 
 test_atomic_interruption_leaves_no_partial_artifact() {
@@ -3006,6 +3037,17 @@ group/subgroup/project
     || fail "a closed merge request was not reported as closed without merging"
   ! grep -qF 'is ready for review' "$dir/gitlab-closed.out" \
     || fail "a closed merge request was announced as ready for review"
+
+  write_task_meta "$dir" task-i
+  FM_TEST_GLAB_STATE=opened FM_TEST_GLAB_DRAFT=1 FM_TEST_GLAB_BASE=main \
+    run_check_entry "$dir" task-i "$url" > "$dir/gitlab-draft.out" 2> "$dir/gitlab-draft.err" \
+    || fail "GitLab draft outcome could not be recorded"
+  grep -qF "PR $url is open as a draft and not yet ready for review; its destination branch is 'main'." "$dir/gitlab-draft.out" \
+    || fail "a draft merge request was not reported as a draft"
+  ! grep -qF 'is ready for review into' "$dir/gitlab-draft.out" \
+    || fail "a draft merge request was announced as ready for review"
+  grep -qxF 'pr_base=main' "$state/task-i.meta" \
+    || fail "a GitLab draft outcome dropped its forge-reported base"
 
   write_task_meta "$dir" task-g
   FM_TEST_GLAB_STATE=locked FM_TEST_GLAB_BASE=main \

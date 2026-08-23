@@ -133,9 +133,13 @@ if [ "$PROVIDER" = gitlab ]; then
   RECORDED_HEAD=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 fi
 
+# An unreadable forge no longer fails this step - it records a qualified
+# unavailable outcome - so a failure here is a recording or arming failure and
+# is reported as one. The unreadable-state refusal belongs to the live
+# pre-merge verification below.
 if ! "$SCRIPT_DIR/fm-pr-check.sh" "$ID" "$URL"; then
   if [ "$PROVIDER" = gitlab ]; then
-    echo "error: could not read the GitLab merge request state before merging" >&2
+    echo "error: the GitLab merge request identity could not be recorded, so it was not merged" >&2
   fi
   exit 1
 fi

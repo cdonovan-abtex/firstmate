@@ -244,7 +244,7 @@ fm_pr_outcome_parse() {
   IFS="$separator" read -r version FM_PR_OUTCOME_STATE FM_PR_OUTCOME_URL \
     FM_PR_OUTCOME_BASE FM_PR_OUTCOME_DEFAULT FM_PR_OUTCOME_HEAD FM_PR_OUTCOME_HUMAN extra <<< "$record"
   [ "$version" = fm-pr-outcome-v1 ] && [ -z "$extra" ] || return 1
-  case "$FM_PR_OUTCOME_STATE" in ready|closed|locked|merged|unavailable) ;; *) return 1 ;; esac
+  case "$FM_PR_OUTCOME_STATE" in ready|draft|closed|locked|merged|unavailable) ;; *) return 1 ;; esac
   [ "$FM_PR_OUTCOME_URL" = "$expected_url" ] || return 1
   [ -z "$FM_PR_OUTCOME_BASE" ] || fm_pr_branch_valid "$FM_PR_OUTCOME_BASE" || return 1
   [ -z "$FM_PR_OUTCOME_DEFAULT" ] || fm_pr_branch_valid "$FM_PR_OUTCOME_DEFAULT" || return 1

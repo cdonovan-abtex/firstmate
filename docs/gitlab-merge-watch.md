@@ -212,13 +212,13 @@ No armed watch is lost by upgrading.
 
 The destination-qualified public interfaces were reverified on 2026-08-23 with GNU Bash 5.3.9, jq 1.7.1-apple, gh 2.96.0, and Git 2.50.1.
 The executable matrix covers, for GitHub and GitLab alike, a genuine default-branch merge, an integration-branch merge with an explicit not-default-delivery result, unavailable or invalid base and default evidence that leaves default-branch delivery unverified, and a ready result that records its forge base without looking up the repository default.
-It also covers the non-review terminal states that must not be announced as ready - a closed-without-merging pull request or merge request, and a locked merge request - and a forge that cannot be read at all, where arming still records the canonical identity and arms the watch while reporting the state as unavailable rather than guessing it.
+It also covers the states that must not be announced as ready - a draft pull request or merge request, a closed-without-merging pull request or merge request, and a locked merge request - and a forge that cannot be read at all, where arming still records the canonical identity and arms the watch while reporting the state as unavailable rather than guessing it.
 The same suite exercises GitHub and GitLab extraction, canonical PR identity binding, static poll provenance, retirement, guarded merge recording, unavailable-forge silence, and named `glab`/`jq` registration refusals.
 
 ```sh
 $ bin/fm-test-run.sh tests/fm-pr-check-security.test.sh
 ok - static poll is silent except for one qualified merged outcome and remains watcher-bounded
-ok - ready and merged outcomes distinguish default, integration, closed, and unavailable evidence
+ok - ready and merged outcomes distinguish default, integration, draft, closed, and unavailable evidence
 ok - GitLab merge requests are followed on any instance and never wake falsely
 
 $ bin/fm-test-run.sh tests/fm-pr-merge.test.sh

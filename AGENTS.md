@@ -359,7 +359,7 @@ For PR-based ship tasks, the ready signal depends on mode: `no-mistakes` reports
 Run `bin/fm-pr-check.sh <id> <PR url>` - it records the canonical PR identity and available forge branch evidence, prints the authoritative destination-qualified ready or merged outcome, and arms the merge poll.
 Tell the captain the PR's full URL, always the complete `https://...` link rather than a bare `#number`, a concise outcome summary using that exact branch evidence, and the no-mistakes risk level when applicable.
 Say "merged into `<base>`" rather than default-branch delivery unless the repository default is established and matches.
-Relay a closed, locked, or unavailable outcome as that outcome; only an open pull request is ready for review.
+Relay a draft, closed, locked, or unavailable outcome as that outcome; only an open pull request that is not a draft is ready for review.
 A captain instruction to merge is explicit authority; `yolo` is the only standing routine merge authority.
 For any custom `state/<id>.check.sh` you write yourself, keep it an ordinary single-link mode-`0700` file, print one line only when firstmate should wake, print nothing otherwise, finish before `FM_CHECK_TIMEOUT`, then bind its current bytes with `bin/fm-check-register.sh <id>` before the watcher may execute it.
 

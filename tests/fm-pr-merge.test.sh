@@ -73,7 +73,7 @@ SH
   cat > "$case_dir/fakebin/gh" <<SH
 #!/usr/bin/env bash
 case "\${1:-} \${2:-}" in
-  "pr view") printf '%s\037%s\037%s\n' OPEN main '$head' ;;
+  "pr view") printf '%s\037%s\037%s\037%s\n' OPEN 0 main '$head' ;;
   "repo view") printf '%s\n' main ;;
 esac
 SH
@@ -95,7 +95,7 @@ SH
   cat > "$case_dir/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
-  "pr view") printf '%s\037%s\037%s\n' OPEN main 0123456789abcdef0123456789abcdef01234567 ;;
+  "pr view") printf '%s\037%s\037%s\037%s\n' OPEN 0 main 0123456789abcdef0123456789abcdef01234567 ;;
   "repo view") printf '%s\n' main ;;
 esac
 SH
