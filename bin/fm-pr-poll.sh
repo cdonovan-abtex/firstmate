@@ -199,6 +199,13 @@ esac
 if [ "$phase" = poll ]; then
   [ "$state" = merged ] || exit 0
 fi
+# Each forge names this object differently, and the outcome sentence is relayed
+# to the captain verbatim, so it uses the forge's own noun.
+case "$provider" in
+  github) subject=PR ;;
+  gitlab) subject=MR ;;
+  *) exit 0 ;;
+esac
 outcome_state=$state
 case "$outcome_state" in
   merged) verb=merged ;;
@@ -234,29 +241,29 @@ if [ "$outcome_state" = merged ]; then
 fi
 
 if [ "$outcome_state" = unavailable ]; then
-  human="PR $url is unavailable from the forge; neither its state nor its destination branch could be established."
+  human="$subject $url is unavailable from the forge; neither its state nor its destination branch could be established."
 elif [ "$outcome_state" = ready ]; then
   if [ -n "$base" ]; then
-    human="PR $url $verb into '$base'."
+    human="$subject $url $verb into '$base'."
   else
-    human="PR $url $verb, but its destination branch is unavailable from the forge."
+    human="$subject $url $verb, but its destination branch is unavailable from the forge."
   fi
 elif [ "$outcome_state" != merged ]; then
   if [ -n "$base" ]; then
-    human="PR $url $verb; its destination branch is '$base'."
+    human="$subject $url $verb; its destination branch is '$base'."
   else
-    human="PR $url $verb, and its destination branch is unavailable from the forge."
+    human="$subject $url $verb, and its destination branch is unavailable from the forge."
   fi
 elif [ -n "$base" ] && [ -n "$default_branch" ] && [ "$base" = "$default_branch" ]; then
-  human="PR $url $verb into '$base', the repository default branch."
+  human="$subject $url $verb into '$base', the repository default branch."
 elif [ -n "$base" ] && [ -n "$default_branch" ]; then
-  human="PR $url $verb into '$base'; the repository default branch is '$default_branch'. This is not default-branch delivery."
+  human="$subject $url $verb into '$base'; the repository default branch is '$default_branch'. This is not default-branch delivery."
 elif [ -n "$base" ]; then
-  human="PR $url $verb into '$base'; the repository default branch could not be established. Default-branch delivery is unverified."
+  human="$subject $url $verb into '$base'; the repository default branch could not be established. Default-branch delivery is unverified."
 elif [ -n "$default_branch" ]; then
-  human="PR $url $verb, but its destination branch is unavailable from the forge; the repository default branch is '$default_branch'. Default-branch delivery is unverified."
+  human="$subject $url $verb, but its destination branch is unavailable from the forge; the repository default branch is '$default_branch'. Default-branch delivery is unverified."
 else
-  human="PR $url $verb, but its destination branch and the repository default branch are unavailable from the forge. Default-branch delivery is unverified."
+  human="$subject $url $verb, but its destination branch and the repository default branch are unavailable from the forge. Default-branch delivery is unverified."
 fi
 
 if [ "$machine" -eq 1 ]; then

@@ -55,8 +55,8 @@ fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh" || 
 # lookup failure. GitHub's JSON selector is built into gh; GitLab JSON needs jq.
 # fm_pr_poll_prepare enforces the same gate for every other arming path.
 if ! fm_pr_poll_provider_tools_present "$PROVIDER"; then
-  if [ -n "$FM_PR_POLL_MISSING_TOOLS" ]; then
-    echo "error: watching this $PROVIDER PR outcome requires $FM_PR_POLL_MISSING_TOOLS on PATH" >&2
+  if [ -n "$FM_PR_POLL_MISSING_TOOLS" ] && fm_pr_provider_label "$PROVIDER"; then
+    echo "error: watching this $FM_PR_PROVIDER_LABEL outcome requires $FM_PR_POLL_MISSING_TOOLS on PATH" >&2
   else
     echo "error: invalid PR check request" >&2
   fi

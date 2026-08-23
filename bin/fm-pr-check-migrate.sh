@@ -1065,8 +1065,9 @@ if migration_needed; then
         # silently. Name the tool here so the rebuild failure below is
         # actionable rather than attributed to the private artifacts.
         if ! fm_pr_poll_provider_tools_present "$provider" \
-          && [ -n "$FM_PR_POLL_MISSING_TOOLS" ]; then
-          echo "PR_CHECK_MIGRATION: task $id: watching this $provider PR outcome requires $FM_PR_POLL_MISSING_TOOLS on PATH" >&2
+          && [ -n "$FM_PR_POLL_MISSING_TOOLS" ] \
+          && fm_pr_provider_label "$provider"; then
+          echo "PR_CHECK_MIGRATION: task $id: watching this $FM_PR_PROVIDER_LABEL outcome requires $FM_PR_POLL_MISSING_TOOLS on PATH" >&2
         fi
         if quarantine_artifact "$check" "$prefix" check \
           && quarantine_artifact "$data" "$prefix" data \

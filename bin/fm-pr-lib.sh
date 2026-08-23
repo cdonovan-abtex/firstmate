@@ -35,6 +35,7 @@ FM_PR_META_HOST=
 FM_PR_META_PATH=
 FM_PR_META_NUMBER=
 FM_PR_POLL_MISSING_TOOLS=
+FM_PR_PROVIDER_LABEL=
 FM_PR_OUTCOME_STATE=
 FM_PR_OUTCOME_URL=
 FM_PR_OUTCOME_BASE=
@@ -274,6 +275,18 @@ fm_pr_poll_provider_tools_present() {
   # shellcheck disable=SC2034
   FM_PR_POLL_MISSING_TOOLS=$missing
   [ -z "$missing" ]
+}
+
+# Forge noun for user-facing wording. GitHub and GitLab name the same object
+# differently and every captain-facing sentence uses the forge's own term, so
+# the mapping has one owner rather than a literal at each message site. Sets
+# FM_PR_PROVIDER_LABEL and returns non-zero for an unknown provider.
+fm_pr_provider_label() {
+  case "${1-}" in
+    github) FM_PR_PROVIDER_LABEL='GitHub pull request' ;;
+    gitlab) FM_PR_PROVIDER_LABEL='GitLab merge request' ;;
+    *) FM_PR_PROVIDER_LABEL=; return 1 ;;
+  esac
 }
 
 fm_pr_file_mode() {

@@ -143,7 +143,7 @@ $ fm-pr-poll.sh --validated $(tr '\n' ' ' < state/e3.pr-poll)
 ```
 
 That historical merged fixture produced exactly one `merged` line.
-The current formatter replaces that token with the full URL and forge-reported destination, while the open and unreachable cases remain silent.
+The current formatter replaces that token with `MR <url>` plus the forge-reported destination, while the open and unreachable cases remain silent.
 
 The historical sidecar-driven transcript exercised the same bytes while the published check located its own record:
 
@@ -168,7 +168,7 @@ The original missing-`glab` transcript used the earlier diagnostic; current test
 
 ```
 $ PATH="$noglab" fm-pr-check.sh e5 https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/1
-error: watching a GitLab merge request requires glab on PATH
+error: watching this GitLab merge request outcome requires glab on PATH
 $ echo $?
 1
 ```

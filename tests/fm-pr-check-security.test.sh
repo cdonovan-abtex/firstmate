@@ -829,6 +829,8 @@ test_pr_outcome_branch_reporting() {
     || fail "integration ready outcome could not be recorded"
   grep -qF "PR $url is ready for review into 'release/2026'." "$dir/ready.out" \
     || fail "integration ready outcome omitted its actual destination"
+  ! grep -qF "MR $url" "$dir/ready.out" \
+    || fail "a GitHub pull request outcome was announced with the GitLab noun"
   grep -qxF 'pr_base=release/2026' "$state/task-a.meta" \
     || fail "integration ready outcome did not record its forge-reported base"
   ! grep -q '^pr_default=' "$state/task-a.meta" \
@@ -2987,24 +2989,24 @@ group/subgroup/project
     [ -z "$out" ] || fail "GitLab poll emitted for a non-merged state"
   done
   out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE=release/2026 FM_TEST_GLAB_DEFAULT=main run_poll "$dir")
-  [ "$out" = "PR $url merged into 'release/2026'; the repository default branch is 'main'. This is not default-branch delivery." ] \
+  [ "$out" = "MR $url merged into 'release/2026'; the repository default branch is 'main'. This is not default-branch delivery." ] \
     || fail "GitLab poll did not emit the qualified merged outcome"
   out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE=main FM_TEST_GLAB_DEFAULT=main run_poll "$dir")
-  [ "$out" = "PR $url merged into 'main', the repository default branch." ] \
+  [ "$out" = "MR $url merged into 'main', the repository default branch." ] \
     || fail "GitLab poll did not confirm a genuine default-branch merge"
   # Unavailable or ambiguous GitLab evidence must be qualified, never inferred
   # into default-branch delivery from the merged state alone.
   out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE=main FM_TEST_GLAB_DEFAULT_FAIL=1 run_poll "$dir")
-  [ "$out" = "PR $url merged into 'main'; the repository default branch could not be established. Default-branch delivery is unverified." ] \
+  [ "$out" = "MR $url merged into 'main'; the repository default branch could not be established. Default-branch delivery is unverified." ] \
     || fail "an unreadable GitLab default branch was reported as default-branch delivery"
   out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_DEFAULT='invalid default' run_poll "$dir")
-  [ "$out" = "PR $url merged into 'main'; the repository default branch could not be established. Default-branch delivery is unverified." ] \
+  [ "$out" = "MR $url merged into 'main'; the repository default branch could not be established. Default-branch delivery is unverified." ] \
     || fail "an invalid GitLab default branch was reported as default-branch delivery"
   out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE_ABSENT=1 FM_TEST_GLAB_DEFAULT=main run_poll "$dir")
-  [ "$out" = "PR $url merged, but its destination branch is unavailable from the forge; the repository default branch is 'main'. Default-branch delivery is unverified." ] \
+  [ "$out" = "MR $url merged, but its destination branch is unavailable from the forge; the repository default branch is 'main'. Default-branch delivery is unverified." ] \
     || fail "an absent GitLab target branch was not qualified as unavailable"
   out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE='invalid branch' FM_TEST_GLAB_DEFAULT_FAIL=1 run_poll "$dir")
-  [ "$out" = "PR $url merged, but its destination branch and the repository default branch are unavailable from the forge. Default-branch delivery is unverified." ] \
+  [ "$out" = "MR $url merged, but its destination branch and the repository default branch are unavailable from the forge. Default-branch delivery is unverified." ] \
     || fail "wholly unavailable GitLab branch evidence was not qualified"
   out=$(FM_TEST_GLAB_FAIL=1 run_poll "$dir")
   [ -z "$out" ] || fail "GitLab poll emitted after a glab failure"
@@ -3028,12 +3030,15 @@ group/subgroup/project
   ! grep -q '^pr_default=' "$state/task-d.meta" \
     || fail "GitLab ready outcome looked up default-branch evidence prematurely"
 
+  ! grep -qF "PR $url" "$dir/gitlab-ready.out" \
+    || fail "a GitLab merge request outcome was announced with the GitHub noun"
+
   # The same closed and unreadable qualifications apply on the GitLab path.
   write_task_meta "$dir" task-f
   FM_TEST_GLAB_STATE=closed FM_TEST_GLAB_BASE=main \
     run_check_entry "$dir" task-f "$url" > "$dir/gitlab-closed.out" 2> "$dir/gitlab-closed.err" \
     || fail "GitLab closed outcome could not be recorded"
-  grep -qF "PR $url is closed without merging; its destination branch is 'main'." "$dir/gitlab-closed.out" \
+  grep -qF "MR $url is closed without merging; its destination branch is 'main'." "$dir/gitlab-closed.out" \
     || fail "a closed merge request was not reported as closed without merging"
   ! grep -qF 'is ready for review' "$dir/gitlab-closed.out" \
     || fail "a closed merge request was announced as ready for review"
@@ -3042,7 +3047,7 @@ group/subgroup/project
   FM_TEST_GLAB_STATE=opened FM_TEST_GLAB_DRAFT=1 FM_TEST_GLAB_BASE=main \
     run_check_entry "$dir" task-i "$url" > "$dir/gitlab-draft.out" 2> "$dir/gitlab-draft.err" \
     || fail "GitLab draft outcome could not be recorded"
-  grep -qF "PR $url is open as a draft and not yet ready for review; its destination branch is 'main'." "$dir/gitlab-draft.out" \
+  grep -qF "MR $url is open as a draft and not yet ready for review; its destination branch is 'main'." "$dir/gitlab-draft.out" \
     || fail "a draft merge request was not reported as a draft"
   ! grep -qF 'is ready for review into' "$dir/gitlab-draft.out" \
     || fail "a draft merge request was announced as ready for review"
@@ -3062,7 +3067,7 @@ group/subgroup/project
   FM_TEST_GLAB_FAIL=1 \
     run_check_entry "$dir" task-h "$url" > "$dir/gitlab-unread.out" 2> "$dir/gitlab-unread.err" \
     || fail "an unreadable GitLab forge blocked recording the merge request identity"
-  grep -qF "PR $url is unavailable from the forge; neither its state nor its destination branch could be established." "$dir/gitlab-unread.out" \
+  grep -qF "MR $url is unavailable from the forge; neither its state nor its destination branch could be established." "$dir/gitlab-unread.out" \
     || fail "an unreadable GitLab outcome was not explicitly qualified"
   grep -qxF "pr=$url" "$state/task-h.meta" \
     || fail "an unreadable GitLab forge lost the canonical merge request identity"
@@ -3115,8 +3120,8 @@ EOF
   set -e
   [ "$rc" -ne 0 ] || fail "arming a GitLab watch succeeded with glab absent"
   case "$out" in
-    *"requires glab on PATH"*) ;;
-    *) fail "arming a GitLab watch with glab absent did not report the missing CLI" ;;
+    *"GitLab merge request outcome requires glab on PATH"*) ;;
+    *) fail "arming a GitLab watch with glab absent did not name the merge request and the missing CLI" ;;
   esac
   [ ! -e "$state/task-b.check.sh" ] || fail "refused GitLab arming left a poll armed"
 
@@ -3147,8 +3152,8 @@ EOF
   set -e
   [ "$rc" -ne 0 ] || fail "arming a GitLab watch succeeded with jq absent"
   case "$out" in
-    *"requires jq on PATH"*) ;;
-    *) fail "arming a GitLab watch with jq absent did not report the missing parser" ;;
+    *"GitLab merge request outcome requires jq on PATH"*) ;;
+    *) fail "arming a GitLab watch with jq absent did not name the merge request and the missing parser" ;;
   esac
   [ ! -e "$state/task-e.check.sh" ] || fail "jq refusal left a poll armed"
 
