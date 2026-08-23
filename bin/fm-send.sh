@@ -151,6 +151,11 @@ fi
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
+# Skip this guard when the caller already ran it against the right home
+# (FM_SEND_GUARD_DONE is set by bin/fm-remote-secondmate-control.sh, whose
+# host-local leg guards the remote home's ordinary state before repointing this
+# send at the private parent-route state), so the warning still covers that
+# home's real supervision instead of route-only endpoint metadata.
 if [ "${FM_SEND_GUARD_DONE:-0}" != 1 ]; then
   FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' "$SCRIPT_DIR/fm-guard.sh" || true
 fi
