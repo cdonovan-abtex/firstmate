@@ -217,6 +217,7 @@ The destination-qualified public interfaces were reverified on 2026-08-23 with G
 The executable matrix covers, for GitHub and GitLab alike, a genuine default-branch merge, an integration-branch merge with an explicit not-default-delivery result, unavailable or invalid base and default evidence that leaves default-branch delivery unverified, and a ready result that records its forge base without looking up the repository default.
 It also covers the states that must not be announced as ready - a draft pull request or merge request, a closed-without-merging pull request or merge request, and a locked merge request - and a forge that cannot be read at all, where arming still records the canonical identity and arms the watch while reporting the state as unavailable rather than guessing it.
 The same suite exercises GitHub and GitLab extraction, canonical PR identity binding, static poll provenance, retirement, guarded merge recording, unavailable-forge silence, and named `glab`/`jq` registration refusals.
+A merge run reads the state before acting, so that reading is marked rather than reported as the outcome, and the regression below covers both the marked merge-path line and the unmarked reporting-path one.
 
 ```sh
 $ bin/fm-test-run.sh tests/fm-pr-check-security.test.sh
@@ -226,6 +227,7 @@ ok - GitLab merge requests are followed on any instance and never wake falsely
 
 $ bin/fm-test-run.sh tests/fm-pr-merge.test.sh
 ok - fm-pr-merge merges a GitLab merge request through glab instead of refusing it
+ok - fm-pr-merge marks the state it reads before merging instead of reporting it as the outcome
 ok - fm-pr-merge refuses before recording anything when glab or jq is absent
 
 $ bin/fm-test-run.sh tests/fm-teardown.test.sh
@@ -242,7 +244,10 @@ GitHub and GitLab each have provider-specific extraction in `bin/fm-pr-poll.sh`,
 
 ## Merging a merge request
 
-The live transcript in this section predates destination-qualified registration output; its merge-safety findings remain current, while the registration prefix now names the full URL and forge-reported destination as verified above.
+The live transcripts in this section predate destination-qualified registration output; their merge-safety findings remain current, while the recording step a merge run performs first now prints one line more than they show.
+`bin/fm-pr-merge.sh` invokes `bin/fm-pr-check.sh --pre-merge`, so every block below that opens with `armed: state/eN.check.sh` would today be preceded by `before merging: MR <url> ...` - the state read immediately before the merge attempt, marked so it is never relayed as the merge request's standing outcome.
+The two missing-CLI refusals immediately below are unaffected, because they refuse before the recording step runs at all.
+That marked output is asserted by the regression named in [Current destination-outcome verification](#current-destination-outcome-verification) rather than reproduced here.
 `bin/fm-pr-merge.sh` merges a GitLab merge request through the same recording and the same guards a GitHub pull request gets.
 Every run below used a throwaway `FM_HOME`, so no live task record was touched, and a `glab` wrapper that refused any `merge` subcommand outright, so no merge could reach the forge even if a check were wrong.
 That wrapper is why the open fixture merge request could be used as evidence at all: it is `mergeable` with discussions resolved, so the pipeline conditions are the only thing between it and a real merge.
