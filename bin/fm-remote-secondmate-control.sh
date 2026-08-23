@@ -187,7 +187,9 @@ cmd_launch() {
 
 remote_home_guard() {
   FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$TARGET_HOME/state" \
-    FM_CONFIG_OVERRIDE="$TARGET_HOME/config" "$SCRIPT_DIR/fm-guard.sh" || true
+    FM_CONFIG_OVERRIDE="$TARGET_HOME/config" \
+    FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' \
+    "$SCRIPT_DIR/fm-guard.sh" || true
 }
 
 cmd_send() {

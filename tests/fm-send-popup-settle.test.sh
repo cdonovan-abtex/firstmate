@@ -15,6 +15,7 @@
 #   $... explicit   -> 0.3  (session:window target has no meta -> harness unknown
 #                            -> non-codex safe default)
 #   framed $... explicit + recorded codex meta -> 1.2
+#   framed " $..." (sender-typed blank)         -> 0.3  (same as the unmarked form)
 #   plain text      -> 0.3  (fast path)
 #
 # The popup-settle is the FIRST sleep recorded: fm_tmux_submit_core types the text,
@@ -143,6 +144,12 @@ first_settle 1.2 'framed explicit target + codex meta -> long settle' codex '$no
 # A dollar sign later in that framed request body does not open the leading-byte
 # popup and must retain the fast path.
 first_settle 0.3 'framed explicit target + nonleading dollar -> fast path' codex 'budget is $5' explicit-meta
+
+# The envelope writes exactly ONE separator blank, so blanks the sender actually
+# typed still lead the body: no completion popup can open behind them, and the
+# marked and unmarked forms of the same text must classify identically.
+first_settle 0.3 'framed explicit target + sender-typed leading blank -> fast path' codex ' $no-mistakes' explicit-meta
+first_settle 0.3 'unmarked codex leading blank -> fast path' codex ' $no-mistakes'
 
 # The `/` slash case stays universal and unchanged: long settle regardless of
 # harness (here a non-codex claude target).

@@ -27,7 +27,9 @@
 # fail, which is how a test simulates an endpoint that cannot be reached. The
 # optional <send-fail-flag>.popup-required flag keeps a draft whose request
 # body begins with `$` from submitting until the caller publishes
-# <send-fail-flag>.popup-settled.
+# <send-fail-flag>.popup-settled. That models the real completion popup: Enter
+# selects a completion instead of submitting, so the typed draft stays in the
+# composer and remains readable, and no agent submission is recorded.
 
 install_remote_herdr_fixture() { # <remote-root> <state> <log> <send-fail> <socket>
   local remote_root=$1 state=$2 log=$3 send_fail=$4 socket=$5 script="$1/bin/herdr"
@@ -52,8 +54,10 @@ popup_is_open() { # <composer-draft>
     "[fm-from-firstmate]"*corr=????????????????*)
       body=${body#*corr=}
       body=${body#????????????????}
-      while [ "${body# }" != "$body" ]; do body=${body# }; done
-      while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
+      case "$body" in
+        ' '*) body=${body# } ;;
+        $'\t'*) body=${body#$'\t'} ;;
+      esac
       ;;
   esac
   case "$body" in \$*) return 0 ;; esac
@@ -120,23 +124,17 @@ case "${1:-} ${2:-}" in
       && popup_is_open "$draft"; then
       exit 0
     fi
-    jq_state --arg p "$pane" '
+    submitted=false
+    [ "$key" != enter ] || submitted=true
+    jq_state --arg p "$pane" --argjson submitted "$submitted" '
       .typed[$p] = true
       | .working[$p] = true
       | .draft[$p] = ""
-      | .submissions[$p] = ((.submissions[$p] // 0) + 1)' | save ;;
+      | .submissions[$p] = ((.submissions[$p] // 0) + (if $submitted then 1 else 0 end))' | save ;;
   "pane read")
     pane=${3:-}
     draft=$(jq_state -r --arg p "$pane" '.draft[$p] // ""')
-    if [ -f "$POPUP_REQUIRED" ] && [ ! -f "$POPUP_SETTLED" ] \
-      && popup_is_open "$draft"; then
-      exit 0
-    fi
-    if [ -n "$draft" ]; then
-      printf '❯ %s\n' "$draft"
-    else
-      printf '❯ \n'
-    fi
+    printf '❯ %s\n' "$draft"
     ;;
   "pane process-info") printf '{"result":{"process":{"name":"codex"}}}\n' ;;
   "agent get")
