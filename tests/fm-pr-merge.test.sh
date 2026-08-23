@@ -24,6 +24,7 @@
 #   (o) glab or jq absent refuses before any state is recorded
 #   (p) --sha in extra GitLab args fails fast, and still forwards on GitHub
 #   (q) a GitLab refusal still leaves pr= recorded and the merge poll armed
+#   (r) the state read before merging is never presented as the PR's outcome
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -250,6 +251,47 @@ test_records_pr_and_head_before_merging() {
   grep -qxF 'pr merge 9 --repo example/repo --squash' "$case_dir/gh-axi.log" \
     || fail "records-before-merge: gh-axi pr merge was not invoked with number, --repo, and default --squash"
   pass "fm-pr-merge records pr= and pr_head= before invoking gh-axi pr merge"
+}
+
+# The recording step reads the PR while it is still open, so its sentence says
+# "is ready for review". A merge run must not hand that back as the PR outcome
+# a crew would relay, because the merge happens immediately afterwards.
+test_pre_merge_state_is_not_reported_as_the_outcome() {
+  local case_dir rc url
+  url=https://github.com/example/repo/pull/9
+  case_dir=$(make_case pre-merge-outcome)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$url" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "pre-merge-outcome: fm-pr-merge should succeed"
+  grep -qxF 'pr merge 9 --repo example/repo --squash' "$case_dir/gh-axi.log" \
+    || fail "pre-merge-outcome: the merge itself did not run"
+  grep -qxF "PR $url is ready for review into 'main'." "$case_dir/stdout" \
+    && fail "pre-merge-outcome: a merged PR was reported as ready for review"
+  grep -qxF "before merging: PR $url is ready for review into 'main'." "$case_dir/stdout" \
+    || fail "pre-merge-outcome: the pre-merge state reading was not marked as one"
+  grep -qxF 'armed: state/task-x1.check.sh' "$case_dir/stdout" \
+    || fail "pre-merge-outcome: the merge watch was not armed"
+
+  # Reporting the same PR outside a merge keeps the unprefixed outcome.
+  set +e
+  FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
+    PATH="$case_dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-pr-check.sh" task-x1 "$url" > "$case_dir/check.out" 2> "$case_dir/check.err"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "pre-merge-outcome: plain fm-pr-check should succeed"
+  grep -qxF "PR $url is ready for review into 'main'." "$case_dir/check.out" \
+    || fail "pre-merge-outcome: reporting outside a merge lost the plain outcome sentence"
+
+  pass "fm-pr-merge marks the state it reads before merging instead of reporting it as the outcome"
 }
 
 test_merge_failure_propagates_after_recording() {
@@ -811,6 +853,7 @@ test_github_still_forwards_sha_arg() {
 }
 
 test_records_pr_and_head_before_merging
+test_pre_merge_state_is_not_reported_as_the_outcome
 test_merge_failure_propagates_after_recording
 test_extra_merge_args_forwarded
 test_missing_meta_refuses_before_merge

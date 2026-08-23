@@ -6,7 +6,10 @@
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
 # including a merge request on a self-hosted GitLab instance.
-# Usage: fm-pr-check.sh <task-id> <pr-url>
+# --pre-merge marks a caller that is about to act on the PR rather than report
+# on it, so the outcome it prints is framed as the state observed before that
+# action instead of as the PR's standing outcome.
+# Usage: fm-pr-check.sh [--pre-merge] <task-id> <pr-url>
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,6 +22,11 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
+OUTCOME_PREFIX=
+if [ "$#" -eq 3 ] && [ "$1" = --pre-merge ]; then
+  OUTCOME_PREFIX='before merging: '
+  shift
+fi
 if [ "$#" -ne 2 ]; then
   echo "error: invalid PR check request" >&2
   exit 2
@@ -143,5 +151,5 @@ fm_pr_poll_publish_prepared || {
   echo "error: could not publish PR poll" >&2
   exit 1
 }
-printf '%s\n' "$PR_OUTCOME"
+printf '%s%s\n' "$OUTCOME_PREFIX" "$PR_OUTCOME"
 printf 'armed: state/%s.check.sh\n' "$ID"

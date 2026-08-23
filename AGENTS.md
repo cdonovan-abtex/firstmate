@@ -361,6 +361,7 @@ Tell the captain the PR's full URL, always the complete `https://...` link rathe
 Say "merged into `<base>`" rather than default-branch delivery unless the repository default is established and matches.
 Relay a draft, closed, locked, or unavailable outcome as that outcome; only an open pull request that is not a draft is ready for review.
 The outcome names the object by its own forge - `PR <url>` for GitHub and `MR <url>` for GitLab - so relay that noun rather than renaming it.
+A `before merging:` prefix marks a state read by `bin/fm-pr-merge.sh` just before it acts, not the PR's standing outcome, so never relay that line as the landing result.
 A captain instruction to merge is explicit authority; `yolo` is the only standing routine merge authority.
 For any custom `state/<id>.check.sh` you write yourself, keep it an ordinary single-link mode-`0700` file, print one line only when firstmate should wake, print nothing otherwise, finish before `FM_CHECK_TIMEOUT`, then bind its current bytes with `bin/fm-check-register.sh <id>` before the watcher may execute it.
 

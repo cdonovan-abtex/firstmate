@@ -136,8 +136,9 @@ fi
 # An unreadable forge no longer fails this step - it records a qualified
 # unavailable outcome - so a failure here is a recording or arming failure and
 # is reported as one. The unreadable-state refusal belongs to the live
-# pre-merge verification below.
-if ! "$SCRIPT_DIR/fm-pr-check.sh" "$ID" "$URL"; then
+# pre-merge verification below. --pre-merge keeps the observed state visible
+# without presenting a state read before the merge as the PR's outcome.
+if ! "$SCRIPT_DIR/fm-pr-check.sh" --pre-merge "$ID" "$URL"; then
   if [ "$PROVIDER" = gitlab ]; then
     echo "error: the GitLab merge request identity could not be recorded, so it was not merged" >&2
   fi
