@@ -89,28 +89,64 @@ make_case() {
 printf 'guard\n' >> "$FM_TEST_GUARD_LOG"
 SH
   chmod +x "$fake_root/bin/fm-guard.sh"
-  cat > "$fakebin/gh" <<'SH'
-#!/usr/bin/env bash
+  # gh serves a real payload and runs the caller's real --json selection and
+  # --jq program, so bin/fm-pr-poll.sh's own forge query is what these tests
+  # exercise rather than a pre-joined answer. An unknown field is rejected the
+  # way gh rejects one, and the filter runs on gh's embedded jq rather than the
+  # PATH one, because a real gh keeps working when jq is not installed.
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'GH_EMBEDDED_JQ=%s\n' "$(printf '%q' "$REAL_JQ")"
+    cat <<'SH'
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
+gh_fields=
+gh_prog=
+gh_prev=
+for gh_arg in "$@"; do
+  case "$gh_prev" in
+    --json) gh_fields=$gh_arg ;;
+    --jq) gh_prog=$gh_arg ;;
+  esac
+  gh_prev=$gh_arg
+done
+gh_serve() {
+  local payload=$1 known=$2 field
+  local IFS=,
+  for field in $gh_fields; do
+    case ",$known," in
+      *",$field,"*) ;;
+      *) printf 'unknown JSON field: "%s"\n' "$field" >&2; exit 1 ;;
+    esac
+  done
+  unset IFS
+  if [ -z "$gh_prog" ]; then
+    printf '%s\n' "$payload"
+    return
+  fi
+  printf '%s' "$payload" | "$GH_EMBEDDED_JQ" -r "$gh_prog"
+}
 case "${1:-} ${2:-}" in
   "pr view")
     [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
     [ "${FM_TEST_GH_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GH_SLEEP"
-    head=${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}
-    case "$head" in
-      *[!0-9a-f]*) head= ;;
-      *) [ "${#head}" -eq 40 ] || [ "${#head}" -eq 64 ] || head= ;;
-    esac
-    printf '%s\037%s\037%s\037%s\n' \
-      "${FM_TEST_GH_STATE:-OPEN}" "${FM_TEST_GH_DRAFT:-0}" \
-      "${FM_TEST_GH_BASE:-main}" "$head"
+    if [ "${FM_TEST_GH_DRAFT:-0}" = 0 ]; then gh_draft=false; else gh_draft=true; fi
+    gh_payload=$("$GH_EMBEDDED_JQ" -n \
+      --arg state "${FM_TEST_GH_STATE:-OPEN}" \
+      --argjson isDraft "$gh_draft" \
+      --arg baseRefName "${FM_TEST_GH_BASE:-main}" \
+      --arg headRefOid "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" \
+      '{state:$state,isDraft:$isDraft,baseRefName:$baseRefName,headRefOid:$headRefOid}')
+    gh_serve "$gh_payload" 'state,isDraft,baseRefName,headRefOid,number,url,title'
     ;;
   "repo view")
     [ "${FM_TEST_GH_DEFAULT_FAIL:-0}" = 0 ] || exit 1
-    printf '%s\n' "${FM_TEST_GH_DEFAULT:-main}"
+    gh_payload=$("$GH_EMBEDDED_JQ" -n --arg name "${FM_TEST_GH_DEFAULT:-main}" \
+      '{defaultBranchRef:{name:$name}}')
+    gh_serve "$gh_payload" 'defaultBranchRef,name,owner,isPrivate'
     ;;
 esac
 SH
+  } > "$fakebin/gh"
   cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
@@ -937,6 +973,54 @@ test_pr_outcome_branch_reporting() {
     || fail "a watch armed through an unreadable forge never reported its merge"
 
   pass "ready and merged outcomes distinguish default, integration, draft, closed, and unavailable evidence"
+}
+
+# The GitHub query and its extraction filters are evaluated here rather than
+# answered by a pre-joined stub, so a field gh does not serve, or a filter that
+# stops matching, surfaces as a failed outcome instead of silent non-reporting.
+test_github_forge_query_is_evaluated() {
+  local dir state url head64 rc
+  url=https://github.com/o/r/pull/44
+  head64=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+  dir=$(make_case github-query-evaluated)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=$head64 FM_TEST_GH_STATE=OPEN FM_TEST_GH_BASE=release/2026 \
+    run_check_entry "$dir" task-a "$url" > "$dir/ready.out" 2> "$dir/ready.err" \
+    || fail "the GitHub ready query did not resolve"
+  grep -qxF "pr_head=$head64" "$state/task-a.meta" \
+    || fail "a 64-character object id did not survive the extraction filter"
+  grep -qF "PR $url is ready for review into 'release/2026'." "$dir/ready.out" \
+    || fail "the extracted state and base did not reach the outcome"
+
+  # A head that is not a whole object id is dropped by that same filter, so an
+  # unusable value never reaches the recorded evidence.
+  dir=$(make_case github-query-partial-head)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=0123456789abcdef \
+    run_check_entry "$dir" task-a "$url" >/dev/null 2>/dev/null \
+    || fail "a partial head blocked the GitHub ready query"
+  ! grep -q '^pr_head=' "$state/task-a.meta" \
+    || fail "a partial object id was recorded as head evidence"
+
+  # A merged outcome additionally needs the repository-default query program.
+  dir=$(make_case github-query-merged)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  run_check_entry "$dir" task-a "$url" >/dev/null 2>/dev/null \
+    || fail "the GitHub merged fixture could not be armed"
+  set +e
+  FM_TEST_GH_STATE=MERGED FM_TEST_GH_BASE=main FM_TEST_GH_DEFAULT=main \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/merged.out" 2> "$dir/merged.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "the GitHub merged query watcher failed"
+  grep -qF "PR $url merged into 'main', the repository default branch." "$dir/merged.out" \
+    || fail "the repository-default query program did not resolve"
+
+  pass "the GitHub forge query and its extraction filters are evaluated end to end"
 }
 
 test_atomic_interruption_leaves_no_partial_artifact() {
@@ -3724,6 +3808,7 @@ test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
 test_pr_outcome_branch_reporting
+test_github_forge_query_is_evaluated
 test_atomic_interruption_leaves_no_partial_artifact
 test_concurrent_watcher_sees_only_complete_publication
 test_postrename_poll_validation_revokes_and_retries

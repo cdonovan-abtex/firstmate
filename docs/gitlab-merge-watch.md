@@ -217,12 +217,14 @@ The destination-qualified public interfaces were reverified on 2026-08-23 with G
 The executable matrix covers, for GitHub and GitLab alike, a genuine default-branch merge, an integration-branch merge with an explicit not-default-delivery result, unavailable or invalid base and default evidence that leaves default-branch delivery unverified, and a ready result that records its forge base without looking up the repository default.
 It also covers the states that must not be announced as ready - a draft pull request or merge request, a closed-without-merging pull request or merge request, and a locked merge request - and a forge that cannot be read at all, where arming still records the canonical identity and arms the watch while reporting the state as unavailable rather than guessing it.
 The same suite exercises GitHub and GitLab extraction, canonical PR identity binding, static poll provenance, retirement, guarded merge recording, unavailable-forge silence, and named `glab`/`jq` registration refusals.
+Both forges are exercised through their real queries: the `gh` and `glab` stubs serve payloads in the shape each CLI returns and evaluate the caller's own `--json` selection and `jq` program, so a field the forge does not serve or a filter that stops matching fails a test instead of degrading into a silently unreported merge.
 A merge run reads the state before acting, so that reading is marked rather than reported as the outcome, and the regression below covers both the marked merge-path line and the unmarked reporting-path one.
 
 ```sh
 $ bin/fm-test-run.sh tests/fm-pr-check-security.test.sh
 ok - static poll is silent except for one qualified merged outcome and remains watcher-bounded
 ok - ready and merged outcomes distinguish default, integration, draft, closed, and unavailable evidence
+ok - the GitHub forge query and its extraction filters are evaluated end to end
 ok - GitLab merge requests are followed on any instance and never wake falsely
 ok - a migration recovery rebuild names the absent provider tool instead of blaming task artifacts
 
