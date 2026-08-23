@@ -87,7 +87,8 @@ open
 
 ## End to end: arming and polling a real merge request
 
-Three tasks were armed, two against the fixture and one against the placeholder host:
+Three tasks were armed, two against the fixture and one against the placeholder host.
+These 2026-07-21 outputs are retained as observed, from before destination qualification existed; arming now prints the qualified outcome sentence on the line before each `armed:` line.
 
 ```
 $ fm-pr-check.sh e1 https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/1
@@ -164,16 +165,18 @@ $ PATH="$noglab" fm-pr-poll.sh --validated $(tr '\n' ' ' < state/e3.pr-poll)
 
 Arming is the visible point where that can be reported, so it refuses there instead of arming a watch that can never fire.
 Registration names the missing tool directly; a migration rebuild names it too and leaves a repeating `failure-canonical` obligation until the tool is installed and bootstrap is rerun.
-The original missing-`glab` transcript used the earlier diagnostic; current tests assert named refusals for both tools:
+The 2026-07-21 missing-`glab` transcript below is retained exactly as it was observed, so it shows that release's diagnostic rather than the current one.
+The current wording, `error: watching this GitLab merge request outcome requires glab on PATH`, and the matching `jq` refusal are asserted by the executable regression named in [Current destination-outcome verification](#current-destination-outcome-verification) rather than reproduced here.
 
 ```
 $ PATH="$noglab" fm-pr-check.sh e5 https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/1
-error: watching this GitLab merge request outcome requires glab on PATH
+error: watching a GitLab merge request requires glab on PATH
 $ echo $?
 1
 ```
 
-A GitHub task is unaffected by a missing `glab`:
+A GitHub task is unaffected by a missing `glab`.
+This 2026-07-21 transcript is likewise retained as observed, from before destination qualification existed: arming now prints the qualified outcome sentence, `PR <url> is ready for review into '<base>'.`, on the line before `armed:`.
 
 ```
 $ PATH="$noglab" fm-pr-check.sh e6 https://github.com/kunchenguid/firstmate/pull/750
