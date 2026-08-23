@@ -51,7 +51,7 @@ The stored record therefore carries `provider`, `url`, `host`, `path`, and `numb
 Two things about plain `glab` were established by running it, because assuming either one would have failed silently into a permanent "not merged".
 
 First, plain `glab` has no field selector.
-`glab mr view -F json` exposes both `state` and `target_branch`, while `glab repo view -F json` exposes `default_branch`; the outcome path parses those fields with `jq`.
+`glab mr view -F json` exposes `state`, `target_branch`, and the draft flag as `draft` or, on older payloads, `work_in_progress`, while `glab repo view -F json` exposes `default_branch`; the outcome path parses those fields with `jq`.
 Both `glab` and `jq` are checked at every arming boundary - registration and the migration rebuild both go through `fm_pr_poll_prepare` - so neither can become an unnamed permanently silent dependency, and an upgrade cannot rebuild a poll into a parser that is not installed.
 Only an exact `merged` wakes firstmate, so malformed JSON, a changed field shape, or an unreadable merge request produces no merge outcome.
 
@@ -271,7 +271,7 @@ $ echo $?
 Neither refusal armed a poll or recorded a `pr=`, so a missing tool leaves no half-prepared merge behind.
 
 Both the watch and merge paths now read glab's JSON with `jq`.
-The watch needs `state` and `target_branch`; the merge additionally needs `detailed_merge_status`, `has_conflicts`, `blocking_discussions_resolved`, and the head pipeline.
+The watch needs only the outcome fields named in [How plain glab is invoked, and why](#how-plain-glab-is-invoked-and-why); the merge additionally needs `detailed_merge_status`, `has_conflicts`, `blocking_discussions_resolved`, and the head pipeline.
 Both entrypoints report the missing parser before recording anything, while an already-armed poll remains silent rather than producing a false merge if a dependency later disappears.
 
 The merged half of the fixture is refused, and every failing condition is listed rather than just the first:
