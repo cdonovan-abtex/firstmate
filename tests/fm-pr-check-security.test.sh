@@ -1884,6 +1884,82 @@ SH
   pass "all live, marker, diagnostic, X, custom-check, obligation, and teardown boundaries require single-link files"
 }
 
+# Mirror a search path with one tool omitted. A real one resolvable anywhere on
+# PATH would make an absent-tool assertion prove nothing. Echoes the new dir.
+make_tool_free_path() {
+  local dir=$1 name=$2 tool=$3 target bindir entry base
+  target="$dir/$name"
+  mkdir -p "$target"
+  while IFS= read -r bindir; do
+    [ -d "$bindir" ] || continue
+    for entry in "$bindir"/*; do
+      [ -e "$entry" ] || continue
+      base=$(basename "$entry")
+      [ "$base" = "$tool" ] && continue
+      [ -e "$target/$base" ] || ln -s "$entry" "$target/$base" 2>/dev/null
+    done
+  done <<EOF
+$dir/fakebin
+$(printf '%s\n' "$BASE_PATH" | tr ':' '\n')
+EOF
+  ! PATH="$target" command -v "$tool" >/dev/null 2>&1 \
+    || fail "the $tool-free search path still resolved $tool"
+  printf '%s\n' "$target"
+}
+
+# An interrupted migration leaves the legacy check quarantined and a pending
+# obligation behind, so the next run rebuilds through the recovery path rather
+# than the main loop. That rebuild hits the same provider-dependency gate, and
+# a refusal there must name the tool instead of blaming the private artifacts,
+# which are intact.
+test_recovery_rebuild_names_the_missing_provider_tool() {
+  local dir state rc nojq url pending
+  url=https://gitlab.example/group/subgroup/project/-/merge_requests/7
+  dir=$(make_case recovery-rebuild-missing-tool)
+  state="$dir/home/state"
+  pending="$state/.pr-check-quarantine/task-a.diagnostic.pending-canonical"
+  fm_write_meta "$state/task-a.meta" \
+    'window=fm-task-a' \
+    "pr=$url"
+  printf 'legacy canonical bytes\n' > "$state/task-a.check.sh"
+  mkdir "$state/task-a.pr-poll"
+
+  set +e
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" \
+    > "$dir/migrate-1.out" 2> "$dir/migrate-1.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "the interrupted first migration unexpectedly succeeded"
+  [ -f "$pending" ] || fail "the interrupted migration left no pending canonical obligation"
+  [ ! -e "$state/task-a.check.sh" ] || fail "the interrupted migration left the legacy check runnable"
+
+  # The private artifacts are now repairable, so the only remaining blocker is
+  # the absent parser - and the recovery rebuild must say so.
+  rmdir "$state/task-a.pr-poll"
+  nojq=$(make_tool_free_path "$dir" nojq jq)
+
+  set +e
+  FM_HOME="$dir/home" PATH="$nojq" "$MIGRATE" > "$dir/migrate-2.out" 2> "$dir/migrate-2.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "the recovery rebuild succeeded with jq absent"
+  assert_grep 'GitLab merge request outcome requires jq on PATH' "$dir/migrate-2.err" \
+    "the recovery rebuild did not name the absent parser"
+  assert_poll_absent "$state" task-a
+  [ -f "$pending" ] || fail "the refused recovery rebuild dropped its pending obligation"
+
+  # Naming jq is actionable only if installing it is genuinely the fix.
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" \
+    > "$dir/migrate-3.out" 2> "$dir/migrate-3.err" \
+    || fail "the recovery rebuild did not succeed once jq was resolvable again"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "the recovered rebuild did not arm a valid poll pair"
+  [ ! -e "$pending" ] && [ ! -L "$pending" ] \
+    || fail "the recovered rebuild retained its pending obligation"
+
+  pass "a migration recovery rebuild names the absent provider tool instead of blaming task artifacts"
+}
+
 test_failed_outcomes_block_every_retry_until_repaired() {
   local classification dir state rc pending success failure
   for classification in canonical ambiguous; do
@@ -3658,6 +3734,7 @@ test_marker_and_diagnostic_rename_fail_closed
 test_postrename_marker_and_diagnostic_validation_retries
 test_quarantine_validation_and_retry_contract
 test_failed_outcomes_block_every_retry_until_repaired
+test_recovery_rebuild_names_the_missing_provider_tool
 test_ambiguous_failure_accepts_validated_replacement
 test_replacement_provenance_negative_matrix
 test_complete_single_link_validation

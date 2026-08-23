@@ -224,6 +224,7 @@ $ bin/fm-test-run.sh tests/fm-pr-check-security.test.sh
 ok - static poll is silent except for one qualified merged outcome and remains watcher-bounded
 ok - ready and merged outcomes distinguish default, integration, draft, closed, and unavailable evidence
 ok - GitLab merge requests are followed on any instance and never wake falsely
+ok - a migration recovery rebuild names the absent provider tool instead of blaming task artifacts
 
 $ bin/fm-test-run.sh tests/fm-pr-merge.test.sh
 ok - fm-pr-merge merges a GitLab merge request through glab instead of refusing it
