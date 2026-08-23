@@ -53,20 +53,13 @@ fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh" || 
 # Poll errors are silent by design, so every provider dependency is checked at
 # the visible arming boundary rather than allowed to become a permanent silent
 # lookup failure. GitHub's JSON selector is built into gh; GitLab JSON needs jq.
-MISSING_TOOLS=
-case "$PROVIDER" in
-  github)
-    command -v gh >/dev/null 2>&1 || MISSING_TOOLS=gh
-    ;;
-  gitlab)
-    command -v glab >/dev/null 2>&1 || MISSING_TOOLS=glab
-    if ! command -v jq >/dev/null 2>&1; then
-      MISSING_TOOLS="${MISSING_TOOLS:+$MISSING_TOOLS and }jq"
-    fi
-    ;;
-esac
-if [ -n "$MISSING_TOOLS" ]; then
-  echo "error: watching this $PROVIDER PR outcome requires $MISSING_TOOLS on PATH" >&2
+# fm_pr_poll_prepare enforces the same gate for every other arming path.
+if ! fm_pr_poll_provider_tools_present "$PROVIDER"; then
+  if [ -n "$FM_PR_POLL_MISSING_TOOLS" ]; then
+    echo "error: watching this $PROVIDER PR outcome requires $FM_PR_POLL_MISSING_TOOLS on PATH" >&2
+  else
+    echo "error: invalid PR check request" >&2
+  fi
   exit 1
 fi
 

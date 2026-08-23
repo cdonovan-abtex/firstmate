@@ -1060,6 +1060,14 @@ if migration_needed; then
           migration_failed=1
           continue
         fi
+        # fm_pr_poll_prepare refuses to rebuild a poll whose provider lookup
+        # dependency is absent, because such a poll could only ever fail
+        # silently. Name the tool here so the rebuild failure below is
+        # actionable rather than attributed to the private artifacts.
+        if ! fm_pr_poll_provider_tools_present "$provider" \
+          && [ -n "$FM_PR_POLL_MISSING_TOOLS" ]; then
+          echo "PR_CHECK_MIGRATION: task $id: watching this $provider PR outcome requires $FM_PR_POLL_MISSING_TOOLS on PATH" >&2
+        fi
         if quarantine_artifact "$check" "$prefix" check \
           && quarantine_artifact "$data" "$prefix" data \
           && quarantine_artifact "$registration" "$prefix" registration \

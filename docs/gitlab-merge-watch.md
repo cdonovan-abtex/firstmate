@@ -52,7 +52,7 @@ Two things about plain `glab` were established by running it, because assuming e
 
 First, plain `glab` has no field selector.
 `glab mr view -F json` exposes both `state` and `target_branch`, while `glab repo view -F json` exposes `default_branch`; the outcome path parses those fields with `jq`.
-Both `glab` and `jq` are checked at registration, so neither can become an unnamed permanently silent dependency.
+Both `glab` and `jq` are checked at every arming boundary - registration and the migration rebuild both go through `fm_pr_poll_prepare` - so neither can become an unnamed permanently silent dependency, and an upgrade cannot rebuild a poll into a parser that is not installed.
 Only an exact `merged` wakes firstmate, so malformed JSON, a changed field shape, or an unreadable merge request produces no merge outcome.
 
 Second, `glab` cannot take a merge request URL the way `gh pr view` can.
@@ -162,7 +162,8 @@ $ PATH="$noglab" fm-pr-poll.sh --validated $(tr '\n' ' ' < state/e1.pr-poll)
 $ PATH="$noglab" fm-pr-poll.sh --validated $(tr '\n' ' ' < state/e3.pr-poll)
 ```
 
-Registration is the visible point where that can be reported, so it refuses there instead of arming a watch that can never fire.
+Arming is the visible point where that can be reported, so it refuses there instead of arming a watch that can never fire.
+Registration names the missing tool directly; a migration rebuild names it too and leaves a repeating `failure-canonical` obligation until the tool is installed and bootstrap is rerun.
 The original missing-`glab` transcript used the earlier diagnostic; current tests assert named refusals for both tools:
 
 ```
@@ -210,13 +211,15 @@ No armed watch is lost by upgrading.
 ## Current destination-outcome verification
 
 The destination-qualified public interfaces were reverified on 2026-08-23 with GNU Bash 5.3.9, jq 1.7.1-apple, gh 2.96.0, and Git 2.50.1.
-The executable matrix covers a genuine default-branch merge, an integration-branch merge with an explicit not-default-delivery result, unavailable or invalid branch evidence that leaves default-branch delivery unverified, and a ready result that records its forge base without looking up the repository default.
+The executable matrix covers, for GitHub and GitLab alike, a genuine default-branch merge, an integration-branch merge with an explicit not-default-delivery result, unavailable or invalid base and default evidence that leaves default-branch delivery unverified, and a ready result that records its forge base without looking up the repository default.
+It also covers the non-review terminal states that must not be announced as ready - a closed-without-merging pull request or merge request, and a locked merge request - and a forge that cannot be read at all, where arming still records the canonical identity and arms the watch while reporting the state as unavailable rather than guessing it.
 The same suite exercises GitHub and GitLab extraction, canonical PR identity binding, static poll provenance, retirement, guarded merge recording, unavailable-forge silence, and named `glab`/`jq` registration refusals.
 
 ```sh
 $ bin/fm-test-run.sh tests/fm-pr-check-security.test.sh
 ok - static poll is silent except for one qualified merged outcome and remains watcher-bounded
-ok - ready and merged outcomes distinguish default, integration, and unavailable branch evidence
+ok - ready and merged outcomes distinguish default, integration, closed, and unavailable evidence
+ok - GitLab merge requests are followed on any instance and never wake falsely
 
 $ bin/fm-test-run.sh tests/fm-pr-merge.test.sh
 ok - fm-pr-merge merges a GitLab merge request through glab instead of refusing it

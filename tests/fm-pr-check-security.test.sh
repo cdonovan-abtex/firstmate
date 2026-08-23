@@ -30,6 +30,18 @@ REAL_BASENAME=$(command -v basename)
 # deliberately restricted, so a case that needs jq exposes this one rather than
 # depending on the host keeping jq in one of those four directories.
 REAL_JQ=$(command -v jq) || fail "these tests read glab's JSON with the real jq, which was not found"
+# Arming refuses to publish a poll whose provider CLI is absent, at both the
+# registration entrypoint and the migration rebuild. Inert stubs at the end of
+# the restricted search path keep the cases that only exercise poll mechanics
+# hermetic and independent of whatever the host happens to have installed. Each
+# case's own fakebin is always searched first, and the cases that deliberately
+# remove a tool rebuild their search path by name, so neither is affected.
+PROVIDER_BIN="$TMP_ROOT/provider-bin"
+mkdir -p "$PROVIDER_BIN"
+fm_fake_exit0 "$PROVIDER_BIN" gh glab
+BASE_PATH="$BASE_PATH:$PROVIDER_BIN"
+PATH="$PATH:$PROVIDER_BIN"
+export PATH
 
 ack_watcher_cycle() {  # <state>
   local state=$1 err sequence generation
@@ -110,8 +122,12 @@ printf '%s\n' "$*" >> "$FM_TEST_GLAB_LOG"
 [ "${FM_TEST_GLAB_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GLAB_SLEEP"
 case "${1:-} ${2:-}" in
   "mr view")
-    printf '{"state":"%s","target_branch":"%s"}\n' \
-      "${FM_TEST_GLAB_STATE:-opened}" "${FM_TEST_GLAB_BASE:-main}"
+    if [ "${FM_TEST_GLAB_BASE_ABSENT:-0}" = 0 ]; then
+      printf '{"state":"%s","target_branch":"%s"}\n' \
+        "${FM_TEST_GLAB_STATE:-opened}" "${FM_TEST_GLAB_BASE:-main}"
+    else
+      printf '{"state":"%s","target_branch":null}\n' "${FM_TEST_GLAB_STATE:-opened}"
+    fi
     ;;
   "repo view")
     [ "${FM_TEST_GLAB_DEFAULT_FAIL:-0}" = 0 ] || exit 1
@@ -845,7 +861,49 @@ test_pr_outcome_branch_reporting() {
   grep -qF 'Default-branch delivery is unverified.' "$dir/merged.out" \
     || fail "unavailable merged evidence implied default-branch delivery"
 
-  pass "ready and merged outcomes distinguish default, integration, and unavailable branch evidence"
+  # A closed-but-unmerged pull request is neither merged nor open for review,
+  # and must not be announced to the captain as ready.
+  dir=$(make_case closed-outcome)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  FM_TEST_GH_STATE=CLOSED FM_TEST_GH_BASE=main \
+    run_check_entry "$dir" task-a "$url" > "$dir/ready.out" 2> "$dir/ready.err" \
+    || fail "closed outcome could not be recorded"
+  grep -qF "PR $url is closed without merging; its destination branch is 'main'." "$dir/ready.out" \
+    || fail "a closed pull request was not reported as closed without merging"
+  ! grep -qF 'is ready for review' "$dir/ready.out" \
+    || fail "a closed pull request was announced as ready for review"
+  ! grep -q '^repo view ' "$dir/gh.log" \
+    || fail "a closed outcome looked up the repository default branch"
+
+  # An unreachable forge must not block recording the PR identity or arming the
+  # merge watch; the unread state is qualified instead of guessed.
+  dir=$(make_case unreadable-forge-outcome)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  FM_TEST_GH_FAIL=1 \
+    run_check_entry "$dir" task-a "$url" > "$dir/ready.out" 2> "$dir/ready.err" \
+    || fail "an unreadable forge blocked recording the PR identity"
+  grep -qF "PR $url is unavailable from the forge; neither its state nor its destination branch could be established." "$dir/ready.out" \
+    || fail "an unreadable forge outcome was not explicitly qualified"
+  grep -qF "armed: state/task-a.check.sh" "$dir/ready.out" \
+    || fail "an unreadable forge left the merge watch unarmed"
+  grep -qxF "pr=$url" "$state/task-a.meta" || fail "an unreadable forge lost the canonical PR identity"
+  ! grep -q '^pr_base=' "$state/task-a.meta" || fail "an unreadable forge invented base evidence"
+  ! grep -q '^pr_head=' "$state/task-a.meta" || fail "an unreadable forge invented head evidence"
+  [ -f "$state/task-a.check.sh" ] || fail "an unreadable forge published no merge poll"
+
+  # The armed poll still reports the merge once the forge answers again.
+  set +e
+  FM_TEST_GH_STATE=MERGED FM_TEST_GH_BASE=main FM_TEST_GH_DEFAULT=main \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/merged.out" 2> "$dir/merged.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "recovered merged outcome watcher failed"
+  grep -qF "PR $url merged into 'main', the repository default branch." "$dir/merged.out" \
+    || fail "a watch armed through an unreadable forge never reported its merge"
+
+  pass "ready and merged outcomes distinguish default, integration, closed, and unavailable evidence"
 }
 
 test_atomic_interruption_leaves_no_partial_artifact() {
@@ -2900,6 +2958,23 @@ group/subgroup/project
   out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE=release/2026 FM_TEST_GLAB_DEFAULT=main run_poll "$dir")
   [ "$out" = "PR $url merged into 'release/2026'; the repository default branch is 'main'. This is not default-branch delivery." ] \
     || fail "GitLab poll did not emit the qualified merged outcome"
+  out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE=main FM_TEST_GLAB_DEFAULT=main run_poll "$dir")
+  [ "$out" = "PR $url merged into 'main', the repository default branch." ] \
+    || fail "GitLab poll did not confirm a genuine default-branch merge"
+  # Unavailable or ambiguous GitLab evidence must be qualified, never inferred
+  # into default-branch delivery from the merged state alone.
+  out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE=main FM_TEST_GLAB_DEFAULT_FAIL=1 run_poll "$dir")
+  [ "$out" = "PR $url merged into 'main'; the repository default branch could not be established. Default-branch delivery is unverified." ] \
+    || fail "an unreadable GitLab default branch was reported as default-branch delivery"
+  out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_DEFAULT='invalid default' run_poll "$dir")
+  [ "$out" = "PR $url merged into 'main'; the repository default branch could not be established. Default-branch delivery is unverified." ] \
+    || fail "an invalid GitLab default branch was reported as default-branch delivery"
+  out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE_ABSENT=1 FM_TEST_GLAB_DEFAULT=main run_poll "$dir")
+  [ "$out" = "PR $url merged, but its destination branch is unavailable from the forge; the repository default branch is 'main'. Default-branch delivery is unverified." ] \
+    || fail "an absent GitLab target branch was not qualified as unavailable"
+  out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GLAB_BASE='invalid branch' FM_TEST_GLAB_DEFAULT_FAIL=1 run_poll "$dir")
+  [ "$out" = "PR $url merged, but its destination branch and the repository default branch are unavailable from the forge. Default-branch delivery is unverified." ] \
+    || fail "wholly unavailable GitLab branch evidence was not qualified"
   out=$(FM_TEST_GLAB_FAIL=1 run_poll "$dir")
   [ -z "$out" ] || fail "GitLab poll emitted after a glab failure"
 
@@ -2921,6 +2996,37 @@ group/subgroup/project
     || fail "GitLab ready outcome did not record its destination"
   ! grep -q '^pr_default=' "$state/task-d.meta" \
     || fail "GitLab ready outcome looked up default-branch evidence prematurely"
+
+  # The same closed and unreadable qualifications apply on the GitLab path.
+  write_task_meta "$dir" task-f
+  FM_TEST_GLAB_STATE=closed FM_TEST_GLAB_BASE=main \
+    run_check_entry "$dir" task-f "$url" > "$dir/gitlab-closed.out" 2> "$dir/gitlab-closed.err" \
+    || fail "GitLab closed outcome could not be recorded"
+  grep -qF "PR $url is closed without merging; its destination branch is 'main'." "$dir/gitlab-closed.out" \
+    || fail "a closed merge request was not reported as closed without merging"
+  ! grep -qF 'is ready for review' "$dir/gitlab-closed.out" \
+    || fail "a closed merge request was announced as ready for review"
+
+  write_task_meta "$dir" task-g
+  FM_TEST_GLAB_STATE=locked FM_TEST_GLAB_BASE=main \
+    run_check_entry "$dir" task-g "$url" > "$dir/gitlab-locked.out" 2> "$dir/gitlab-locked.err" \
+    || fail "GitLab locked outcome could not be recorded"
+  ! grep -qF 'is ready for review' "$dir/gitlab-locked.out" \
+    || fail "a locked merge request was announced as ready for review"
+  grep -qF 'not merged' "$dir/gitlab-locked.out" \
+    || fail "a locked merge request was not qualified as unmerged"
+
+  write_task_meta "$dir" task-h
+  FM_TEST_GLAB_FAIL=1 \
+    run_check_entry "$dir" task-h "$url" > "$dir/gitlab-unread.out" 2> "$dir/gitlab-unread.err" \
+    || fail "an unreadable GitLab forge blocked recording the merge request identity"
+  grep -qF "PR $url is unavailable from the forge; neither its state nor its destination branch could be established." "$dir/gitlab-unread.out" \
+    || fail "an unreadable GitLab outcome was not explicitly qualified"
+  grep -qxF "pr=$url" "$state/task-h.meta" \
+    || fail "an unreadable GitLab forge lost the canonical merge request identity"
+  ! grep -q '^pr_base=' "$state/task-h.meta" \
+    || fail "an unreadable GitLab forge invented base evidence"
+  [ -f "$state/task-h.check.sh" ] || fail "an unreadable GitLab forge published no merge poll"
 
   # An absent CLI must produce no wake rather than a false merge. The whole
   # search path is mirrored without glab, because a real glab anywhere on

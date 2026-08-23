@@ -9,8 +9,10 @@
 # Machine output is one control-character-delimited record consumed only by
 # trusted Firstmate scripts. Sidecar-driven and legacy --validated invocations
 # print only the human outcome. Every lookup error in poll mode stays silent, so
-# an unreadable PR can never be reported as merged. Missing destination/default
-# evidence is surfaced explicitly rather than inferred.
+# an unreadable PR can never be reported as merged; a ready caller instead gets
+# an explicitly unavailable outcome, so arming never depends on a reachable
+# forge. Missing destination/default evidence and non-review terminal states
+# are surfaced explicitly rather than inferred or folded into "ready".
 set -u
 LC_ALL=C
 export LC_ALL
@@ -53,13 +55,6 @@ else
   exit 0
 fi
 
-outcome_fail() {
-  if [ "$machine" -eq 1 ] && [ "$phase" = ready ]; then
-    exit 1
-  fi
-  exit 0
-}
-
 case "$number" in
   [1-9]*) ;;
   *) exit 0 ;;
@@ -86,7 +81,16 @@ state=
 base=
 default_branch=
 head=
-case "$provider" in
+project_url=
+
+# Every component is revalidated here rather than trusted from the sidecar, and
+# the stored URL must be exactly reconstructible from those components, so a
+# doctored sidecar cannot redirect this lookup at another host or project. Those
+# identity refusals exit outright and report nothing in either phase. A lookup
+# that merely could not establish the forge's answer returns non-zero instead,
+# so the caller can stay silent while polling and qualify while arming.
+extract_forge_state() {
+  case "$provider" in
   github)
     [ "$host" = github.com ] || exit 0
     owner=${path%%/*}
@@ -102,12 +106,13 @@ case "$provider" in
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
     pr_record=$(gh pr view "$url" --json state,baseRefName,headRefOid \
       --jq '[.state // "", .baseRefName // "", ((.headRefOid // "") | if test("^[0-9a-f]{40}$|^[0-9a-f]{64}$") then . else "" end)] | join("\u001f")' \
-      2>/dev/null) || outcome_fail
-    parse_forge_record "$pr_record" || outcome_fail
+      2>/dev/null) || return 1
+    parse_forge_record "$pr_record" || return 1
     case "$state" in
       MERGED) state=merged ;;
-      OPEN|CLOSED) state=ready ;;
-      *) outcome_fail ;;
+      OPEN) state=ready ;;
+      CLOSED) state=closed ;;
+      *) return 1 ;;
     esac
     ;;
   gitlab)
@@ -136,26 +141,40 @@ case "$provider" in
     done
     [ "$segments" -ge 2 ] || exit 0
     [ "$url" = "https://$host/$path/-/merge_requests/$number" ] || exit 0
-    command -v jq >/dev/null 2>&1 || outcome_fail
+    command -v jq >/dev/null 2>&1 || return 1
     project_url="https://$host/$path"
     mr_json=$(GITLAB_HOST="$host" glab mr view "$number" -R "$project_url" -F json 2>/dev/null) \
-      || outcome_fail
+      || return 1
     pr_record=$(printf '%s' "$mr_json" | jq -jr '
       if type == "object"
         and (.state | type == "string")
         and ((.target_branch | type) == "string" or (.target_branch | type) == "null")
       then [(.state), (.target_branch // ""), ""] | join("\u001f")
       else error("invalid merge request outcome")
-      end' 2>/dev/null) || outcome_fail
-    parse_forge_record "$pr_record" || outcome_fail
+      end' 2>/dev/null) || return 1
+    parse_forge_record "$pr_record" || return 1
     case "$state" in
       merged) ;;
-      opened|closed|locked) state=ready ;;
-      *) outcome_fail ;;
+      opened) state=ready ;;
+      closed) state=closed ;;
+      locked) state=locked ;;
+      *) return 1 ;;
     esac
     ;;
   *) exit 0 ;;
-esac
+  esac
+}
+
+# Poll mode stays silent on every lookup error, so an unreadable PR can never be
+# read as merged. Arming instead reports an explicitly unavailable outcome: the
+# PR identity and the merge watch must not depend on a reachable forge, and an
+# unread state is qualified as such rather than presented as a review outcome.
+if ! extract_forge_state; then
+  [ "$phase" = ready ] || exit 0
+  state=unavailable
+  base=
+  head=
+fi
 
 branch_valid "$base" || base=
 case "$head" in
@@ -167,16 +186,15 @@ esac
 
 if [ "$phase" = poll ]; then
   [ "$state" = merged ] || exit 0
-  outcome_state=merged
-  verb=merged
-else
-  outcome_state=$state
-  if [ "$state" = merged ]; then
-    verb=merged
-  else
-    verb="is ready for review"
-  fi
 fi
+outcome_state=$state
+case "$outcome_state" in
+  merged) verb=merged ;;
+  ready) verb="is ready for review" ;;
+  closed) verb="is closed without merging" ;;
+  locked) verb="is locked by the forge and not merged" ;;
+  *) verb= ;;
+esac
 
 # Default-branch evidence has no bearing on a ready outcome. Defer this second
 # forge lookup until an exact merge needs default-delivery classification.
@@ -202,11 +220,19 @@ if [ "$outcome_state" = merged ]; then
   branch_valid "$default_branch" || default_branch=
 fi
 
-if [ "$outcome_state" = ready ]; then
+if [ "$outcome_state" = unavailable ]; then
+  human="PR $url is unavailable from the forge; neither its state nor its destination branch could be established."
+elif [ "$outcome_state" = ready ]; then
   if [ -n "$base" ]; then
     human="PR $url $verb into '$base'."
   else
     human="PR $url $verb, but its destination branch is unavailable from the forge."
+  fi
+elif [ "$outcome_state" != merged ]; then
+  if [ -n "$base" ]; then
+    human="PR $url $verb; its destination branch is '$base'."
+  else
+    human="PR $url $verb, and its destination branch is unavailable from the forge."
   fi
 elif [ -n "$base" ] && [ -n "$default_branch" ] && [ "$base" = "$default_branch" ]; then
   human="PR $url $verb into '$base', the repository default branch."

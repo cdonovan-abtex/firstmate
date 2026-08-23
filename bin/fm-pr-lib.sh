@@ -34,6 +34,7 @@ FM_PR_META_URL=
 FM_PR_META_HOST=
 FM_PR_META_PATH=
 FM_PR_META_NUMBER=
+FM_PR_POLL_MISSING_TOOLS=
 FM_PR_OUTCOME_STATE=
 FM_PR_OUTCOME_URL=
 FM_PR_OUTCOME_BASE=
@@ -243,12 +244,36 @@ fm_pr_outcome_parse() {
   IFS="$separator" read -r version FM_PR_OUTCOME_STATE FM_PR_OUTCOME_URL \
     FM_PR_OUTCOME_BASE FM_PR_OUTCOME_DEFAULT FM_PR_OUTCOME_HEAD FM_PR_OUTCOME_HUMAN extra <<< "$record"
   [ "$version" = fm-pr-outcome-v1 ] && [ -z "$extra" ] || return 1
-  case "$FM_PR_OUTCOME_STATE" in ready|merged) ;; *) return 1 ;; esac
+  case "$FM_PR_OUTCOME_STATE" in ready|closed|locked|merged|unavailable) ;; *) return 1 ;; esac
   [ "$FM_PR_OUTCOME_URL" = "$expected_url" ] || return 1
   [ -z "$FM_PR_OUTCOME_BASE" ] || fm_pr_branch_valid "$FM_PR_OUTCOME_BASE" || return 1
   [ -z "$FM_PR_OUTCOME_DEFAULT" ] || fm_pr_branch_valid "$FM_PR_OUTCOME_DEFAULT" || return 1
   [ -z "$FM_PR_OUTCOME_HEAD" ] || fm_pr_head_valid "$FM_PR_OUTCOME_HEAD" || return 1
   [ -n "$FM_PR_OUTCOME_HUMAN" ]
+}
+
+# Provider lookup dependencies for bin/fm-pr-poll.sh. The poll is silent on
+# every error by design, so a missing CLI would be indistinguishable from a PR
+# that is never merged. Every arming boundary checks this instead, so an absent
+# tool refuses visibly rather than arming a watch that can never fire. Sets
+# FM_PR_POLL_MISSING_TOOLS to the human list and returns non-zero when any is
+# absent; an unknown provider is a refusal with no named tool.
+fm_pr_poll_provider_tools_present() {
+  local provider=${1-} missing=
+  FM_PR_POLL_MISSING_TOOLS=
+  case "$provider" in
+    github)
+      command -v gh >/dev/null 2>&1 || missing=gh
+      ;;
+    gitlab)
+      command -v glab >/dev/null 2>&1 || missing=glab
+      command -v jq >/dev/null 2>&1 || missing="${missing:+$missing and }jq"
+      ;;
+    *) return 1 ;;
+  esac
+  # shellcheck disable=SC2034
+  FM_PR_POLL_MISSING_TOOLS=$missing
+  [ -z "$missing" ]
 }
 
 fm_pr_file_mode() {
@@ -507,6 +532,10 @@ fm_pr_poll_prepare() {
   local state=$1 id=$2 provider=$3 url=$4 host=$5 path=$6 number=$7 template=$8
   fm_pr_task_id_valid "$id" || return 1
   fm_pr_url_parse "$url" || return 1
+  # Both arming paths - direct registration and migration rebuild - pass through
+  # here, so no poll is ever published for a provider whose lookup dependency is
+  # absent and would only ever fail silently.
+  fm_pr_poll_provider_tools_present "$provider" || return 1
   [ "$provider" = "$FM_PR_PROVIDER" ] || return 1
   [ "$host" = "$FM_PR_HOST" ] || return 1
   [ "$path" = "$FM_PR_PATH" ] || return 1
