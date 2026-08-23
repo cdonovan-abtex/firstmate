@@ -14,6 +14,7 @@
 #   $... to claude  -> 0.3  (NOT codex: `$` commonly starts plain text "$5", "$HOME")
 #   $... explicit   -> 0.3  (session:window target has no meta -> harness unknown
 #                            -> non-codex safe default)
+#   framed $... explicit + recorded codex meta -> 1.2
 #   plain text      -> 0.3  (fast path)
 #
 # The popup-settle is the FIRST sleep recorded: fm_tmux_submit_core types the text,
@@ -33,6 +34,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-marker-lib.sh
+. "$ROOT/bin/fm-marker-lib.sh"
 
 SEND="$ROOT/bin/fm-send.sh"
 
@@ -89,6 +92,11 @@ first_settle() {  # <expected> <label> <harness|--explicit> <message> [selector-
         target="popupcase"
         meta_id=popupcase
         ;;
+      explicit-meta)
+        target="sess:win"
+        meta_id=popupcase
+        msg="${FM_FROMFIRST_MARK}corr=0123456789abcdef $msg"
+        ;;
       legacy)
         target="fm-popupcase"
         meta_id=popupcase
@@ -126,6 +134,11 @@ first_settle 0.3 'claude "$5/month" -> fast path' claude '$5/month is cheap'
 # An explicit session:window target has no meta, so the harness is unknown and
 # treated as non-codex: the safe default keeps the fast path even for a `$` message.
 first_settle 0.3 'explicit target $message -> fast path (unknown harness)' --explicit '$no-mistakes'
+
+# A remote host-local leg receives an already-marked and correlated message,
+# but resolves its explicit endpoint against the private parent-route meta. The
+# recorded Codex identity still selects the long popup settle from the body.
+first_settle 1.2 'framed explicit target + codex meta -> long settle' codex '$no-mistakes' explicit-meta
 
 # The `/` slash case stays universal and unchanged: long settle regardless of
 # harness (here a non-codex claude target).

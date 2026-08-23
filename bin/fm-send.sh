@@ -49,8 +49,13 @@
 # Remote secondmate delivery: the send crosses fm-on.sh to a host-local leg
 # (bin/fm-remote-secondmate-control.sh cmd_send) that runs this same verified
 # submit against the recorded remote Herdr pane and relays its exit status
-# unchanged. A leg that delivered the text into the live verified pane but
-# could not synchronously confirm the submit (exit 3 - typically a busy mate
+# unchanged. That leg resolves the explicit endpoint against the private
+# parent-route metadata, while the already-applied marker and correlation stay
+# transport data rather than creating remote-home reply state. Popup settling
+# classifies the body inside that envelope, so supported harness behavior is
+# identical on local and remote routes.
+# A leg that delivered the text into the live verified pane but could not
+# synchronously confirm the submit (exit 3 - typically a busy mate
 # whose harness queues the steer and keeps rendering it) is reported here as
 # DELIVERED with confirmation pending: fm-send prints a non-error notice,
 # exits 0, marks the pending-reply expectation delivered, and closes any
@@ -561,9 +566,12 @@ else
   # invocation, so a `$...` message to a codex target gets the same settle. That
   # `$` case is scoped to codex on purpose: unlike `/`, a leading `$` commonly
   # starts ordinary text ("$5/month", "$HOME"), so a universal `$` rule would
-  # needlessly slow plain text to claude/opencode/pi. The target backend's
-  # verified submit retry still backs the settle up either way.
-  case "$*" in
+  # needlessly slow plain text to claude/opencode/pi. A remote host-local leg
+  # receives the parent's already-framed message, so classify the request body
+  # rather than mistaking its marker for the first user byte. The target
+  # backend's verified submit retry still backs the settle up either way.
+  fm_pending_reply_request_body "$MESSAGE" SETTLE_MESSAGE || SETTLE_MESSAGE=$MESSAGE
+  case "$SETTLE_MESSAGE" in
     /*) settle=1.2 ;;
     \$*)
       if [ "$TARGET_HARNESS" = codex ]; then settle=1.2; else settle=0.3; fi

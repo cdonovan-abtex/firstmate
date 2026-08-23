@@ -24,7 +24,9 @@
 #
 # Every invocation is appended verbatim to <log-file>, so a test reads back what
 # the remote pane received. Creating <send-fail-flag> makes every pane write
-# fail, which is how a test simulates an endpoint that cannot be reached.
+# fail, which is how a test simulates an endpoint that cannot be reached. The
+# optional <send-fail-flag>.popup-required flag keeps a `$`-bearing draft from
+# submitting until the caller publishes <send-fail-flag>.popup-settled.
 
 install_remote_herdr_fixture() { # <remote-root> <state> <log> <send-fail> <socket>
   local remote_root=$1 state=$2 log=$3 send_fail=$4 socket=$5 script="$1/bin/herdr"
@@ -35,6 +37,8 @@ set -u
 STATE='$state'
 LOG='$log'
 SEND_FAIL='$send_fail'
+POPUP_REQUIRED='$send_fail.popup-required'
+POPUP_SETTLED='$send_fail.popup-settled'
 SOCKET='$socket'
 SH
   cat >> "$script" <<'SH'
@@ -92,11 +96,32 @@ case "${1:-} ${2:-}" in
        | .working |= with_entries(select(.key != $p))' | save ;;
   "pane send-text")
     [ ! -f "$SEND_FAIL" ] || exit 1
-    jq_state --arg p "${3:-}" '.typed[$p] = true' | save ;;
+    jq_state --arg p "${3:-}" --arg text "${4:-}" '.typed[$p] = true | .draft[$p] = $text' | save ;;
   "pane send-keys")
     [ ! -f "$SEND_FAIL" ] || exit 1
-    jq_state --arg p "${3:-}" '.typed[$p] = true | .working[$p] = true' | save ;;
-  "pane read") printf '\n' ;;
+    pane=${3:-}
+    key=${4:-}
+    draft=$(jq_state -r --arg p "$pane" '.draft[$p] // ""')
+    if [ "$key" = enter ] && [ -f "$POPUP_REQUIRED" ] && [ ! -f "$POPUP_SETTLED" ]; then
+      case "$draft" in *\$*) exit 0 ;; esac
+    fi
+    jq_state --arg p "$pane" '
+      .typed[$p] = true
+      | .working[$p] = true
+      | .draft[$p] = ""
+      | .submissions[$p] = ((.submissions[$p] // 0) + 1)' | save ;;
+  "pane read")
+    pane=${3:-}
+    draft=$(jq_state -r --arg p "$pane" '.draft[$p] // ""')
+    if [ -f "$POPUP_REQUIRED" ] && [ ! -f "$POPUP_SETTLED" ]; then
+      case "$draft" in *\$*) exit 0 ;; esac
+    fi
+    if [ -n "$draft" ]; then
+      printf '❯ %s\n' "$draft"
+    else
+      printf '❯ \n'
+    fi
+    ;;
   "pane process-info") printf '{"result":{"process":{"name":"codex"}}}\n' ;;
   "agent get")
     pane=${3:-}
@@ -121,5 +146,5 @@ SH
 # reset_remote_herdr_fixture <state>: return the fake host to "no workspaces,
 # tabs, or panes", which is what a test means by "the previous endpoint is gone".
 reset_remote_herdr_fixture() { # <state>
-  printf '{"next":1,"workspaces":[],"tabs":[],"typed":{},"working":{}}\n' > "$1"
+  printf '{"next":1,"workspaces":[],"tabs":[],"typed":{},"working":{},"draft":{},"submissions":{}}\n' > "$1"
 }

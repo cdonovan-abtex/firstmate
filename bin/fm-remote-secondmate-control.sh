@@ -22,8 +22,9 @@
 # bin/fm-remote-doctor.sh owns that host's readiness for Herdr.
 # docs/remote-secondmates.md owns why.
 # A private parent-route state directory stores only the remote secondmate
-# agent's endpoint record; the home's own
-# state/*.meta remains reserved for workers the secondmate supervises.
+# agent's endpoint record. Host-local send and key operations resolve through
+# that record; the home's own state/*.meta remains reserved for workers the
+# secondmate supervises.
 # Retirement closes only this secondmate's panes or workspace and never
 # stops fm-remote or removes a sibling secondmate's workspace or panes.
 #
@@ -194,7 +195,7 @@ cmd_send() {
   # and ssh all preserve it, so no mapping may happen here: flattening exit 3
   # into a generic failure is exactly the false-negative the parent's remote
   # send path exists to avoid.
-  FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$TARGET_HOME/state" \
+  FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$CONTROL_STATE" \
     "$SCRIPT_DIR/fm-send.sh" "$REMOTE_ENDPOINT_TARGET" "$message"
 }
 
@@ -203,7 +204,7 @@ cmd_key() {
   validate_id "$id"
   validate_home "$id"
   remote_endpoint_require "$id"
-  FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$TARGET_HOME/state" \
+  FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$CONTROL_STATE" \
     "$SCRIPT_DIR/fm-send.sh" "$REMOTE_ENDPOINT_TARGET" --key "$key"
 }
 
