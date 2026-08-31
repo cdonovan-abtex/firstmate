@@ -169,5 +169,30 @@ state=$(fm_backend_agent_state tmux "$TARGET")
 fm_backend_tmux_kill "$TARGET" || fail "fm_backend_tmux_kill on an already-dead target must stay best-effort (never fail)"
 pass "real tmux: kill removes the window and the readable session inventory authoritatively classifies it missing"
 
+WID=$(fm_backend_tmux_recreate_missing_task "$TARGET" "$WINDOW" "$HOME") \
+  || fail "real tmux: missing-window recreation failed in an existing session"
+[ "$(fm_backend_agent_state tmux "$TARGET")" = dead ] \
+  || fail "the recreated tmux window is not positively agent-free"
+[ "$(fm_backend_tmux_current_path "$WID")" = "$HOME" ] \
+  || fail "the recreated tmux window did not start in the requested worktree"
+fm_backend_tmux_rollback_recreated_task "$WID" \
+  || fail "real tmux: exact recreated-window rollback failed"
+[ "$(fm_backend_agent_state tmux "$TARGET")" = missing ] \
+  || fail "the rolled-back tmux window did not return to missing"
+pass "real tmux: a missing task window is recreated agent-free in the requested directory and rolls back by stable id"
+
+tmux kill-session -t "$SESSION" || fail "could not remove the private tmux fixture session"
+[ "$(fm_backend_agent_state tmux "$TARGET")" = missing ] \
+  || fail "a missing private tmux session was not classified missing"
+WID=$(fm_backend_tmux_recreate_missing_task "$TARGET" "$WINDOW" "$HOME") \
+  || fail "real tmux: missing-session recreation failed"
+[ "$(fm_backend_agent_state tmux "$TARGET")" = dead ] \
+  || fail "the task window created with its missing session is not agent-free"
+fm_backend_tmux_rollback_recreated_task "$WID" \
+  || fail "real tmux: recreated missing-session rollback failed"
+[ "$(fm_backend_agent_state tmux "$TARGET")" = missing ] \
+  || fail "rolling back the only recreated window did not remove its private session"
+pass "real tmux: a wholly missing recorded session is recreated with the task as its first window and rolls back cleanly"
+
 cleanup_all
 trap - EXIT

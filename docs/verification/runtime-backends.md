@@ -30,6 +30,24 @@ zsh
 A persistent parent shell waiting for a child remained reported as the parent process, while a shell that directly execed a simple command changed identity with the process itself.
 Pi and pi-signed 0.82.0 were reverified on 2026-07-27 through real isolated `fm-spawn.sh` launches.
 
+### Missing endpoint creation
+
+Tmux 3.7b was verified on 2026-08-31 against a private socket.
+
+```sh
+tests/fm-backend-tmux-smoke.test.sh
+```
+
+Observed recovery-specific output:
+
+```text
+ok - real tmux: kill removes the window and the readable session inventory authoritatively classifies it missing
+ok - real tmux: a missing task window is recreated agent-free in the requested directory and rolls back by stable id
+ok - real tmux: a wholly missing recorded session is recreated with the task as its first window and rolls back cleanly
+```
+
+The hermetic public-interface transaction in `tests/fm-control-relaunch.test.sh` additionally proves the same task id, branch, dirty contents, worktree, progress note, and explicit launch profile survive, while creation, identity, metadata-publication, and launch failures remove the created endpoint and restore the prior record.
+
 ### Agent liveness name sources
 
 The earlier record that every harness is observed under its own `#{pane_current_command}` no longer holds and has been replaced by the per-harness evidence below.
@@ -635,10 +653,11 @@ Polling remained active and is covered as the fallback for capability, connect, 
 
 ### Agent lifecycle control
 
-Herdr is one of the two backends whose recovery-grade agent-state classifier the control plane may trust ([agent-control.md](../agent-control.md)), so its lifecycle gating is measured against the real binary; reverified 2026-08-08 on Herdr 0.8.0, and first measured 2026-08-02 on Herdr 0.7.5 with identical results:
+Herdr is one of the two backends whose recovery-grade agent-state classifier the control plane may trust ([agent-control.md](../agent-control.md)), so its lifecycle gating is measured against the real binary.
+The missing-endpoint path was verified on 2026-08-31 with Herdr 0.7.5, after the broader lifecycle checks were reverified on 2026-08-08 with Herdr 0.8.0.
 
 ```sh
-tests/fm-control-herdr-smoke.test.sh
+HERDR_LAB_HELPER=bin/fm-herdr-lab.sh tests/fm-control-herdr-smoke.test.sh
 ```
 
 Observed output:
@@ -649,10 +668,12 @@ ok - real herdr: interrupt refuses when herdr's own agent registry reports no ag
 ok - real herdr: interrupt delivers the harness's key and proves the agent survived it
 ok - real herdr: no control verb removed the endpoint or the task's local copy
 ok - real herdr: an agent that does not stop fails closed instead of being reported as stopped
+ok - real herdr: a positively missing worker endpoint is recreated around its exact dirty worktree and explicit profile
 ```
 
-The registry read through `herdr pane report-agent` is the same source `fm_backend_herdr_agent_state` classifies, so registering and not registering an agent on a plain shell pane exercises exactly the gate every lifecycle verb depends on, with no real agent launched.
-That command is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
+The registry read through `herdr pane report-agent` is the same source `fm_backend_herdr_agent_state` classifies, so registering and not registering an agent on a plain shell pane exercises exactly the gate every lifecycle verb depends on.
+The missing case removes the recorded pane, invokes the public `fm-control.sh relaunch` command with explicit harness, model, effort, and note values, and requires the replacement agent to register alive on a new response-verified pane while dirty contents and the exact worktree remain unchanged.
+The named-lab helper is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
 
 ### Away-mode transport
 

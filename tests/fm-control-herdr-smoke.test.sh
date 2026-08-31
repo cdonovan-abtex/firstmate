@@ -9,9 +9,12 @@
 # an agent is running, and therefore whether a lifecycle verb may act at all,
 # comes from herdr's own agent registry.
 #
-# No real agent is launched. herdr's `pane report-agent` is the same registry
-# the adapter reads, so registering and not registering an agent on a plain
-# shell pane exercises exactly the classification the control plane gates on.
+# The ordinary verb checks launch no agent: herdr's `pane report-agent` is the
+# same registry the adapter reads, so registering and not registering an agent
+# on a plain shell pane exercises exactly the classifier every verb gates on.
+# The missing-endpoint case launches a local fake Pi process that registers in
+# the lab pane and makes no provider call, proving the public relaunch reaches
+# an alive replacement without touching the default Herdr session.
 #
 # Always runs on a private, named, throwaway lab session, never the default
 # one (tests/herdr-test-safety.sh; the 2026-07-02 incident). Skips cleanly
@@ -26,19 +29,20 @@ pass() { printf 'ok - %s\n' "$1"; }
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the herdr adapter)"; exit 0; }
 
-# shellcheck source=tests/herdr-test-safety.sh
-. "$ROOT/tests/herdr-test-safety.sh"
-herdr_forget_inherited_pane
-
-SESSION="fm-lab-control-smoke-$$"
+HERDR_LAB_HELPER=${HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
+[ -x "$HERDR_LAB_HELPER" ] || fail "Herdr lab helper is not executable: $HERDR_LAB_HELPER"
+unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_SOCKET_PATH
+SESSION=$("$HERDR_LAB_HELPER" name firstmate-missing-endpoint-recovery-v1) \
+  || fail "could not generate an isolated Herdr lab name"
 export HERDR_SESSION="$SESSION"
+export HERDR_LAB_HELPER
 SCRATCH=
 cleanup_all() {
   [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"
-  herdr_safe_stop_and_delete "$SESSION"
+  "$HERDR_LAB_HELPER" teardown "$SESSION" >/dev/null 2>&1 || true
 }
 trap cleanup_all EXIT
-fm_herdr_lab_prepare "$SESSION" || fail "could not prepare isolated Herdr lab session"
+"$HERDR_LAB_HELPER" provision "$SESSION" || fail "could not provision isolated Herdr lab session"
 
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/fm-control-herdr.XXXXXX")
 SCRATCH=$(cd "$SCRATCH" && pwd)
@@ -90,8 +94,9 @@ EOF
 } > "$HOME_DIR/state/hsmoke.meta"
 
 run_control() {
-  env FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" \
-    FM_CONTROL_POLL=0.2 FM_CONTROL_EXIT_WAIT=2 \
+  env PATH="$SCRATCH/fakebin:$PATH" FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" \
+    HERDR_LAB_HELPER="$HERDR_LAB_HELPER" FM_SPAWN_NO_GUARD=1 \
+    FM_CONTROL_POLL=0.2 FM_CONTROL_EXIT_WAIT=2 FM_CONTROL_LAUNCH_WAIT=10 \
     "$ROOT/bin/fm-control.sh" "$@" 2>&1
 }
 
@@ -115,8 +120,8 @@ pass "real herdr: interrupt refuses when herdr's own agent registry reports no a
 
 # --- a registered agent: classification flips, and the verbs follow ---------
 
-herdr pane report-agent "$PANE_ID" --source fm-control-smoke --agent fm-control-smoke-agent \
-  --state idle --session "$SESSION" >/dev/null 2>&1 \
+"$HERDR_LAB_HELPER" run "$SESSION" pane report-agent "$PANE_ID" \
+  --source fm-control-smoke --agent fm-control-smoke-agent --state idle >/dev/null 2>&1 \
   || fail "could not register a live agent on the task pane"
 
 STATE=$(fm_backend_agent_state herdr "$SESSION:$PANE_ID")
@@ -129,7 +134,7 @@ case "$OUT" in
 esac
 pass "real herdr: interrupt delivers the harness's key and proves the agent survived it"
 
-herdr pane get "$PANE_ID" --session "$SESSION" >/dev/null 2>&1 \
+"$HERDR_LAB_HELPER" run "$SESSION" pane get "$PANE_ID" >/dev/null 2>&1 \
   || fail "the control plane must never remove the endpoint it was operating on"
 [ -d "$WT" ] || fail "the control plane must never remove the task's local copy"
 pass "real herdr: no control verb removed the endpoint or the task's local copy"
@@ -146,4 +151,45 @@ case "$OUT" in
 esac
 pass "real herdr: an agent that does not stop fails closed instead of being reported as stopped"
 
-fm_backend_herdr_kill "$SESSION:$PANE_ID" 2>/dev/null || true
+# --- positively missing endpoint: create, rebind, and launch transactionally -
+
+mkdir -p "$SCRATCH/fakebin"
+cat > "$SCRATCH/fakebin/pi" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --help ]; then
+  echo 'usage: pi [--tui-mode regular] [--model MODEL] [--thinking LEVEL]'
+  exit 0
+fi
+"$HERDR_LAB_HELPER" run "$HERDR_SESSION" pane report-agent "$HERDR_PANE_ID" \
+  --source fm-control-recovery-smoke --agent pi --state idle >/dev/null
+trap 'exit 0' TERM INT HUP
+while :; do sleep 1; done
+SH
+chmod +x "$SCRATCH/fakebin/pi"
+printf 'preserved dirty work\n' > "$WT/dirty.txt"
+if [ "$(fm_backend_agent_state herdr "$SESSION:$PANE_ID")" != missing ]; then
+  "$HERDR_LAB_HELPER" run "$SESSION" pane close "$PANE_ID" >/dev/null \
+    || fail "could not remove the fixture endpoint"
+fi
+[ "$(fm_backend_agent_state herdr "$SESSION:$PANE_ID")" = missing ] \
+  || fail "the removed fixture endpoint was not positively classified missing"
+
+OUT=$(run_control hsmoke relaunch --harness pi --model recovery-smoke-model \
+  --effort xhigh --note "continue after abrupt Herdr pane loss") \
+  || fail "missing Herdr endpoint relaunch should succeed: $OUT"
+NEW_PANE_ID=$(grep '^herdr_pane_id=' "$HOME_DIR/state/hsmoke.meta" | cut -d= -f2-)
+[ -n "$NEW_PANE_ID" ] && [ "$NEW_PANE_ID" != "$PANE_ID" ] \
+  || fail "missing Herdr recovery did not publish a replacement pane"
+[ "$(fm_backend_agent_state herdr "$SESSION:$NEW_PANE_ID")" = alive ] \
+  || fail "missing Herdr recovery did not launch a registered replacement agent"
+[ "$(grep '^worktree=' "$HOME_DIR/state/hsmoke.meta" | cut -d= -f2-)" = "$WT" ] \
+  || fail "missing Herdr recovery changed the recorded worktree"
+[ "$(grep '^model=' "$HOME_DIR/state/hsmoke.meta" | cut -d= -f2-)" = recovery-smoke-model ] \
+  || fail "missing Herdr recovery dropped the explicit model"
+[ "$(grep '^effort=' "$HOME_DIR/state/hsmoke.meta" | cut -d= -f2-)" = xhigh ] \
+  || fail "missing Herdr recovery dropped the explicit effort"
+[ "$(cat "$WT/dirty.txt")" = "preserved dirty work" ] \
+  || fail "missing Herdr recovery changed dirty worktree contents"
+grep -Fq "continue after abrupt Herdr pane loss" "$HOME_DIR/data/hsmoke/brief.md" \
+  || fail "missing Herdr recovery did not retain the required progress note"
+pass "real herdr: a positively missing worker endpoint is recreated around its exact dirty worktree and explicit profile"

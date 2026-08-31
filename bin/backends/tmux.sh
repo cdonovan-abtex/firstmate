@@ -98,6 +98,51 @@ fm_backend_tmux_create_task() {  # <session> <window-name> <proj-abs> -> prints 
   printf '%s\n' "$wid"
 }
 
+# fm_backend_tmux_recreate_missing_task: transactionally create the replacement
+# terminal surface for a task whose exact recorded window has already received
+# the recovery-grade `missing` verdict.
+# The existing-session path delegates to fm_backend_tmux_create_task unchanged.
+# If the whole recorded session is missing, the replacement task becomes the
+# first window in a newly created session with that exact recorded name.
+# The returned stable window id is both the launch-time target and the rollback
+# handle; a failed post-create identity check removes that exact id before this
+# function returns, so no unattributed window is left behind.
+fm_backend_tmux_recreate_missing_task() {  # <recorded-target> <window-name> <cwd> -> stable window id
+  local target=$1 wname=$2 cwd=$3 session windows wid identity
+  [ "$(fm_backend_tmux_agent_state "$target")" = missing ] || {
+    echo "error: tmux endpoint '$target' is no longer positively missing; refusing replacement creation" >&2
+    return 1
+  }
+  session=${target%%:*}
+  if windows=$(tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null); then
+    printf '%s\n' "$windows" | grep -Fqx "$wname" && {
+      echo "error: window $session:$wname appeared before replacement creation" >&2
+      return 1
+    }
+    wid=$(fm_backend_tmux_create_task "$session" "$wname" "$cwd") || return 1
+  else
+    wid=$(tmux new-session -dP -F '#{window_id}' -s "$session" -n "$wname" -c "$cwd") || return 1
+    tmux set-window-option -t "$wid" automatic-rename off 2>/dev/null || true
+    tmux set-window-option -t "$wid" allow-rename off 2>/dev/null || true
+  fi
+  identity=$(tmux list-windows -t "$session" -F '#{window_name}|#{window_id}' 2>/dev/null) || identity=
+  if [ "$(printf '%s\n' "$identity" | awk -F '|' -v name="$wname" -v id="$wid" '$1 == name && $2 == id { count++ } END { print count + 0 }')" != 1 ]; then
+    tmux kill-window -t "$wid" 2>/dev/null || true
+    echo "error: tmux could not verify the exact replacement window '$session:$wname'" >&2
+    return 1
+  fi
+  printf '%s\n' "$wid"
+}
+
+# fm_backend_tmux_rollback_recreated_task removes only the stable id returned
+# by fm_backend_tmux_recreate_missing_task and verifies that exact id is gone.
+fm_backend_tmux_rollback_recreated_task() {  # <stable-window-id>
+  local wid=$1
+  [ -n "$wid" ] || return 1
+  tmux kill-window -t "$wid" 2>/dev/null || true
+  ! tmux list-windows -a -F '#{window_id}' 2>/dev/null | grep -Fqx "$wid"
+}
+
 # fm_backend_tmux_current_path: the live pane's current working directory, or
 # empty on any tmux error. Mirrors fm-spawn.sh's worktree-discovery poll:
 # `tmux display-message -p -t "$T" '#{pane_current_path}'`.
