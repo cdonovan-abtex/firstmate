@@ -2047,6 +2047,88 @@ EOF
   printf '%s %s' "$tab_id" "$pane_id"
 }
 
+# fm_backend_herdr_rollback_recreated_task removes one exact pane returned by
+# fm_backend_herdr_recreate_missing_task and verifies that it is gone.
+# The pane id is response-derived and immutable within the named session, so
+# rollback never resolves a label that another task could have reused.
+fm_backend_herdr_rollback_recreated_task() {  # <session> <pane-id>
+  fm_backend_herdr_explicit_close_pane_confirmed "$1" "$2"
+}
+
+# fm_backend_herdr_recreate_missing_task: create a replacement terminal surface
+# after the recovery-grade classifier has positively proved the recorded pane
+# missing.
+# It prefers the recorded workspace when that exact workspace still exists.
+# If that workspace disappeared with its last pane, it uses the same exact
+# launcher-home workspace resolution as an ordinary worker spawn in this home.
+# Every response-derived tab/pane/workspace relationship is re-read before the
+# ids are returned, and a failed identity check removes the exact new pane.
+fm_backend_herdr_recreate_missing_task() {  # <recorded-target> <recorded-workspace> <label> <cwd> -> "workspace tab pane"
+  local target=$1 recorded_workspace=$2 label=$3 cwd=$4 session workspace_state seeded_tab_id ids tab pane info state seeded_pane
+  [ "$(fm_backend_herdr_agent_state "$target")" = missing ] || {
+    echo "error: herdr endpoint '$target' is no longer positively missing; refusing replacement creation" >&2
+    return 1
+  }
+  fm_backend_herdr_parse_target "$target" || return 1
+  session=$FM_BACKEND_HERDR_SESSION
+  workspace_state=$(fm_backend_herdr_workspace_presence_state "$session" "$recorded_workspace")
+  case "$workspace_state" in
+    present)
+      FM_BACKEND_HERDR_WS_ID=$recorded_workspace
+      FM_BACKEND_HERDR_WS_SEEDED_TAB_ID=
+      ;;
+    dead)
+      fm_backend_herdr_workspace_ensure "$session" "$cwd" launcher-home >/dev/null || return 1
+      ;;
+    *)
+      echo "error: herdr workspace '$recorded_workspace' is unreadable; refusing replacement creation" >&2
+      return 1
+      ;;
+  esac
+  seeded_tab_id=$FM_BACKEND_HERDR_WS_SEEDED_TAB_ID
+  if ! ids=$(fm_backend_herdr_create_task "$session:$FM_BACKEND_HERDR_WS_ID" "$label" "$cwd" "$seeded_tab_id"); then
+    if [ -n "$seeded_tab_id" ]; then
+      seeded_pane=$(fm_backend_herdr_pane_for_tab "$session" "$FM_BACKEND_HERDR_WS_ID" "$seeded_tab_id" 2>/dev/null || true)
+      [ -z "$seeded_pane" ] || fm_backend_herdr_rollback_recreated_task "$session" "$seeded_pane" >/dev/null 2>&1 || true
+    fi
+    return 1
+  fi
+  read -r tab pane <<EOF
+$ids
+EOF
+  if [ -z "$tab" ] || [ -z "$pane" ]; then
+    echo "error: herdr replacement creation returned incomplete endpoint ids" >&2
+    return 1
+  fi
+  info=$(fm_backend_herdr_cli "$session" tab get "$tab" 2>/dev/null) || info=
+  if ! printf '%s' "$info" | jq -e --arg tab "$tab" --arg workspace "$FM_BACKEND_HERDR_WS_ID" --arg label "$label" '
+    .result.tab.tab_id == $tab
+    and .result.tab.workspace_id == $workspace
+    and .result.tab.label == $label
+  ' >/dev/null 2>&1; then
+    fm_backend_herdr_rollback_recreated_task "$session" "$pane" >/dev/null 2>&1 || true
+    echo "error: herdr could not verify the replacement tab identity" >&2
+    return 1
+  fi
+  info=$(fm_backend_herdr_cli "$session" pane get "$pane" 2>/dev/null) || info=
+  if ! printf '%s' "$info" | jq -e --arg pane "$pane" --arg tab "$tab" --arg workspace "$FM_BACKEND_HERDR_WS_ID" '
+    .result.pane.pane_id == $pane
+    and .result.pane.tab_id == $tab
+    and .result.pane.workspace_id == $workspace
+  ' >/dev/null 2>&1; then
+    fm_backend_herdr_rollback_recreated_task "$session" "$pane" >/dev/null 2>&1 || true
+    echo "error: herdr could not verify the replacement pane identity" >&2
+    return 1
+  fi
+  state=$(fm_backend_herdr_pane_agent_state "$session" "$pane")
+  if [ "$state" != no-agent ]; then
+    fm_backend_herdr_rollback_recreated_task "$session" "$pane" >/dev/null 2>&1 || true
+    echo "error: herdr replacement pane is '$state' rather than positively agent-free" >&2
+    return 1
+  fi
+  printf '%s %s %s' "$FM_BACKEND_HERDR_WS_ID" "$tab" "$pane"
+}
+
 # fm_backend_herdr_projection_create_task: create one disposable presentation
 # workspace and its normal fm-<id> task tab without looking up, adopting, or
 # reusing any existing workspace.

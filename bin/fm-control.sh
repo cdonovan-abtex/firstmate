@@ -31,10 +31,16 @@
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
 #              Already-stopped is success (idempotent).
-#   relaunch   Transactionally replace the running agent with a new one, in the
-#              SAME endpoint and SAME worktree, on the same or a newly chosen
-#              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. With no explicit axis, a secondmate re-resolves its
+#   relaunch   Transactionally replace the running agent in the SAME task and
+#              SAME worktree, on the same or a newly chosen harness/model/effort
+#              - so switching harness is one ordinary use of this verb. A ship
+#              or scout whose tmux or Herdr endpoint is positively `missing`
+#              gets a replacement endpoint through that backend's supported
+#              creation path; `dead` keeps the existing endpoint unchanged.
+#              Missing recovery rechecks absence immediately before creation,
+#              verifies the new endpoint's exact identity and worktree before
+#              publication, and rolls creation back on any later failure.
+#              With no explicit axis, a secondmate re-resolves its
 #              durable config/secondmate-harness pin (harness plus its optional
 #              model and effort tokens) exactly as any other respawn does, while
 #              a ship or scout keeps the exact adapter already recorded for it.
@@ -81,7 +87,9 @@
 #     postcondition cannot be proven. zellij, orca, and cmux are refused rather
 #     than reported as successful blind.
 #   - An ambiguous or unreadable endpoint state refuses; only a positively
-#     classified state acts.
+#     classified state acts. Missing-endpoint creation is limited to ordinary
+#     tmux and Herdr workers because only those backends combine recovery-grade
+#     absence proof with a supported endpoint-creation path.
 #
 # Environment knobs (all bounded waits, seconds):
 #   FM_CONTROL_POLL              poll interval for postcondition waits (0.5)
@@ -128,6 +136,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
+# shellcheck source=bin/fm-backlog-transition-lib.sh
+. "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
@@ -511,6 +521,13 @@ RELAUNCH_META_PUBLISHED=0
 RELAUNCH_AGENT_CONFIRMED=0
 RELAUNCH_TX=
 RELAUNCH_BRIEF=
+RELAUNCH_MISSING_RECOVERY=0
+RELAUNCH_CREATED_ENDPOINT=0
+RELAUNCH_CREATED_TARGET=
+RELAUNCH_CREATED_HANDLE=
+RELAUNCH_RECOVERY_META_PUBLISHED=0
+RELAUNCH_META_LOCK=
+RELAUNCH_META_LOCK_HELD=0
 PRIOR_HARNESS=$HARNESS
 PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
 CONFIG_HARNESS=
@@ -551,11 +568,88 @@ journal_write() {  # <phase> [extra-line]...
   return 1
 }
 
+relaunch_meta_lock_release() {
+  [ "$RELAUNCH_META_LOCK_HELD" = 1 ] || return 0
+  RELAUNCH_META_LOCK_HELD=0
+  fm_lock_release "$RELAUNCH_META_LOCK" || true
+}
+
+relaunch_rollback_created_endpoint() {
+  [ "$RELAUNCH_CREATED_ENDPOINT" = 1 ] || return 0
+  case "$BACKEND" in
+    tmux) fm_backend_tmux_rollback_recreated_task "$RELAUNCH_CREATED_HANDLE" ;;
+    herdr)
+      fm_backend_herdr_parse_target "$RELAUNCH_CREATED_TARGET" || return 1
+      fm_backend_herdr_rollback_recreated_task "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE"
+      ;;
+    *) return 1 ;;
+  esac || return 1
+  RELAUNCH_CREATED_ENDPOINT=0
+  return 0
+}
+
+relaunch_meta_filter() {  # <owned|unowned> <meta-file>
+  local want=$1 meta=$2
+  awk -F= -v want="$want" '
+    BEGIN {
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      for (i in keys) owned[keys[i]] = 1
+    }
+    (want == "owned" && ($1 in owned)) || (want == "unowned" && !($1 in owned))
+  ' "$meta"
+}
+
+relaunch_restore_prior_meta() {
+  local current_unowned prior_unowned restore_tmp
+  [ "$RELAUNCH_RECOVERY_META_PUBLISHED" = 1 ] || return 0
+  RELAUNCH_META_LOCK=$(fm_meta_lock_path "$META") || return 1
+  fm_lock_acquire_wait "$RELAUNCH_META_LOCK"
+  RELAUNCH_META_LOCK_HELD=1
+  [ "$(fm_meta_get "$META" control_relaunch_tx)" = "$RELAUNCH_TX" ] || {
+    relaunch_meta_lock_release
+    return 1
+  }
+  current_unowned="$JOURNAL.meta-current-unowned"
+  prior_unowned="$JOURNAL.meta-prior-unowned"
+  restore_tmp="$JOURNAL.meta-restore"
+  relaunch_meta_filter unowned "$META" > "$current_unowned" \
+    || { relaunch_meta_lock_release; return 1; }
+  relaunch_meta_filter unowned "$META_PRIOR" > "$prior_unowned" \
+    || { relaunch_meta_lock_release; return 1; }
+  if cmp -s "$current_unowned" "$prior_unowned"; then
+    cp -p "$META_PRIOR" "$restore_tmp" || { relaunch_meta_lock_release; return 1; }
+  else
+    {
+      relaunch_meta_filter owned "$META_PRIOR"
+      cat "$current_unowned"
+    } > "$restore_tmp" || { relaunch_meta_lock_release; return 1; }
+  fi
+  if ! fm_backlog_atomic_transition publish "$restore_tmp" "$META" "task record" "$STATE"; then
+    relaunch_meta_lock_release
+    return 1
+  fi
+  RELAUNCH_RECOVERY_META_PUBLISHED=0
+  rm -f "$current_unowned" "$prior_unowned" "$restore_tmp" 2>/dev/null || true
+  relaunch_meta_lock_release
+  return 0
+}
+
 relaunch_rollback() {
   local state
   [ "$RELAUNCH_ACTIVE" = 1 ] || return 0
   [ "$RELAUNCH_PHASE" != complete ] || return 0
   RELAUNCH_ACTIVE=0
+  relaunch_meta_lock_release
+  if [ "$RELAUNCH_MISSING_RECOVERY" = 1 ]; then
+    if relaunch_rollback_created_endpoint && relaunch_restore_prior_meta; then
+      journal_write "failed:$RELAUNCH_PHASE" "rollback=created-endpoint-removed-prior-record-restored" || true
+      echo "error: missing-endpoint recovery for $ID failed; its replacement endpoint was removed, its prior durable record was restored, and its work plus progress note remain at $WT" >&2
+    else
+      journal_write "failed:$RELAUNCH_PHASE" "rollback=incomplete-created-endpoint-or-record" || true
+      echo "error: missing-endpoint recovery for $ID failed and rollback could not be verified; its work remains at $WT, but endpoint and durable-record reconciliation is required before retrying" >&2
+    fi
+    return 0
+  fi
   case "$RELAUNCH_PHASE" in
     checkpoint|noted)
       # The old agent was never touched. Restore the instructions byte-exact so
@@ -781,8 +875,91 @@ record_note() {
   esac
 }
 
+relaunch_endpoint_current_path() {
+  case "$BACKEND" in
+    tmux) fm_backend_tmux_current_path "$RELAUNCH_CREATED_HANDLE" ;;
+    herdr) fm_backend_herdr_current_path "$RELAUNCH_CREATED_TARGET" ;;
+    *) return 1 ;;
+  esac
+}
+
+relaunch_publish_created_endpoint() {
+  local workspace=$1 tab=$2 pane=$3 tmp
+  tmp="$JOURNAL.meta-created"
+  awk -F= '$1 != "window" && $1 != "herdr_workspace_id" && $1 != "herdr_tab_id" && $1 != "herdr_pane_id" && $1 != "control_relaunch_tx"' \
+    "$META" > "$tmp" || return 1
+  {
+    echo "window=$RELAUNCH_CREATED_TARGET"
+    if [ "$BACKEND" = herdr ]; then
+      echo "herdr_workspace_id=$workspace"
+      echo "herdr_tab_id=$tab"
+      echo "herdr_pane_id=$pane"
+    fi
+    echo "control_relaunch_tx=$RELAUNCH_TX"
+  } >> "$tmp" || return 1
+  fm_backlog_atomic_transition publish "$tmp" "$META" "task record" "$STATE" || return 1
+  RELAUNCH_RECOVERY_META_PUBLISHED=1
+  fm_backend_validate_task_endpoint "$META" "$ID" || return 1
+  [ "$FM_BACKEND_VALIDATED_BACKEND" = "$BACKEND" ] \
+    && [ "$FM_BACKEND_VALIDATED_TARGET" = "$RELAUNCH_CREATED_TARGET" ]
+}
+
+relaunch_create_missing_endpoint() {
+  local prior_target=$T workspace='' tab='' pane='' ids='' state seen seen_real wt_real
+  fm_backend_source "$BACKEND" \
+    || die "task $ID's $BACKEND endpoint-creation adapter could not be loaded"
+  RELAUNCH_META_LOCK=$(fm_meta_lock_path "$META") \
+    || die "could not resolve task $ID's durable-record lock before endpoint recovery"
+  fm_lock_acquire_wait "$RELAUNCH_META_LOCK"
+  RELAUNCH_META_LOCK_HELD=1
+  fm_backend_validate_task_endpoint "$META" "$ID" \
+    || die "task $ID's endpoint identity changed before missing-endpoint recovery"
+  [ "$FM_BACKEND_VALIDATED_BACKEND" = "$BACKEND" ] \
+    && [ "$FM_BACKEND_VALIDATED_TARGET" = "$prior_target" ] \
+    || die "task $ID's endpoint identity changed before missing-endpoint recovery"
+  cp -p "$META" "$META_PRIOR" \
+    || die "could not refresh task $ID's pre-recovery durable record"
+  case "$BACKEND" in
+    tmux)
+      RELAUNCH_CREATED_HANDLE=$(fm_backend_tmux_recreate_missing_task \
+        "$prior_target" "$LABEL" "$WT") \
+        || die "tmux could not create a verified replacement endpoint for task $ID"
+      RELAUNCH_CREATED_TARGET=$prior_target
+      ;;
+    herdr)
+      workspace=$(fm_meta_get "$META" herdr_workspace_id)
+      ids=$(FM_HOME="$FM_HOME" fm_backend_herdr_recreate_missing_task \
+        "$prior_target" "$workspace" "$LABEL" "$WT") \
+        || die "herdr could not create a verified replacement endpoint for task $ID"
+      read -r workspace tab pane <<EOF
+$ids
+EOF
+      [ -n "$workspace" ] && [ -n "$tab" ] && [ -n "$pane" ] \
+        || die "herdr returned an incomplete replacement identity for task $ID"
+      RELAUNCH_CREATED_HANDLE=$pane
+      RELAUNCH_CREATED_TARGET="${prior_target%%:*}:$pane"
+      ;;
+    *)
+      die "task $ID runs on $BACKEND, which has no supported missing-endpoint creation path"
+      ;;
+  esac
+  RELAUNCH_CREATED_ENDPOINT=1
+  state=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_CREATED_TARGET")
+  [ "$state" = dead ] \
+    || die "task $ID's replacement endpoint reads '$state' rather than positively agent-free"
+  seen=$(relaunch_endpoint_current_path || true)
+  wt_real=$(cd "$WT" 2>/dev/null && pwd -P) || wt_real=$WT
+  seen_real=$(cd "$seen" 2>/dev/null && pwd -P) || seen_real=$seen
+  [ -n "$seen" ] && [ "$seen_real" = "$wt_real" ] \
+    || die "task $ID's replacement endpoint is in '${seen:-unknown}', not its recorded worktree '$WT'"
+  relaunch_publish_created_endpoint "$workspace" "$tab" "$pane" \
+    || die "task $ID's replacement endpoint metadata could not be published and verified"
+  T=$RELAUNCH_CREATED_TARGET
+  relaunch_meta_lock_release
+}
+
 do_relaunch() {
-  local exit_result state note_line
+  local exit_result state note_line initial_state
   local -a spawn_args
 
   require_state_verified_backend relaunch
@@ -811,6 +988,24 @@ do_relaunch() {
   else
     note_line="note=none"
   fi
+  initial_state=$(agent_state)
+  case "$initial_state" in
+    alive|dead) ;;
+    missing)
+      case "$KIND:$BACKEND" in
+        ship:tmux|ship:herdr|scout:tmux|scout:herdr) RELAUNCH_MISSING_RECOVERY=1 ;;
+        secondmate:*)
+          die "secondmate $ID's endpoint is missing; reconcile it through secondmate provisioning rather than ordinary-worker recovery"
+          ;;
+        *)
+          die "task $ID runs on $BACKEND, which cannot both prove endpoint absence and create a replacement; refusing recovery"
+          ;;
+      esac
+      ;;
+    *)
+      die "task $ID's endpoint reads '$initial_state' rather than alive, dead, or positively missing; refusing before creating or launching anything"
+      ;;
+  esac
   safe_checkpoint
   cp -p "$META" "$META_PRIOR" || die "could not preserve task $ID's durable record before relaunching"
   RELAUNCH_ACTIVE=1
@@ -819,13 +1014,19 @@ do_relaunch() {
   record_note
   journal_write noted "${CHECKPOINT_LINES[@]}" "$note_line"
 
-  journal_write stopping "${CHECKPOINT_LINES[@]}" "$note_line"
-  exit_result=$(do_exit)
+  RELAUNCH_TX="${BASHPID:-$$}.$(date -u +%Y%m%dT%H%M%SZ).$RANDOM"
+  if [ "$RELAUNCH_MISSING_RECOVERY" = 1 ]; then
+    journal_write creating "${CHECKPOINT_LINES[@]}" "$note_line" "relaunch_tx=$RELAUNCH_TX"
+    relaunch_create_missing_endpoint
+    exit_result=missing-endpoint-replaced
+  else
+    journal_write stopping "${CHECKPOINT_LINES[@]}" "$note_line"
+    exit_result=$(do_exit)
+  fi
   journal_write exited "${CHECKPOINT_LINES[@]}" "$note_line" "exit_result=$exit_result"
 
   # The launch owner (fm-spawn --relaunch) clears the previous incarnation's
   # per-task harness wiring before arming the new one, so nothing to do here.
-  RELAUNCH_TX="${BASHPID:-$$}.$(date -u +%Y%m%dT%H%M%SZ).$RANDOM"
   journal_write launching "${CHECKPOINT_LINES[@]}" "$note_line" "relaunch_tx=$RELAUNCH_TX"
   spawn_args=("$ID" --relaunch --harness "$TARGET_HARNESS")
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")

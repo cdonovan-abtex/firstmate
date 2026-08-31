@@ -14,7 +14,10 @@
 #   4. A refusal before the agent is stopped changes nothing.
 #   5. A launch failure after the agent is stopped keeps the prior record,
 #      reports the concrete state, and preserves the work.
-#   6. fm-spawn --relaunch refuses on its own: a live agent, a contradicting
+#   6. A positively missing tmux endpoint is recreated around the same dirty
+#      worktree for ships and scouts, while state races and every material
+#      recovery failure roll back the created endpoint and durable record.
+#   7. fm-spawn --relaunch refuses on its own: a live agent, a contradicting
 #      flag, an extra positional, or a backend that cannot prove the previous
 #      agent exited.
 set -u
@@ -49,6 +52,8 @@ trap relaunch_cleanup EXIT
 # The same lifecycle-modelling tmux stub as tests/fm-control.test.sh: the
 # harness's exit command stops the agent, and a launch-brief literal starts the
 # harness named in `becomes`.
+# It also models public new-window/new-session/kill-window operations so missing
+# endpoint recovery is exercised through fm-control rather than private helpers.
 make_tmux_stub() {  # <dir>
   local fb="$1/fakebin"
   mkdir -p "$fb"
@@ -96,6 +101,11 @@ case "${1:-}" in
     fi
     exit 0 ;;
   display-message)
+    if [ ! -s "$D/windows" ]; then
+      for a in "$@"; do
+        [ "$a" != @recovered ] || exit 1
+      done
+    fi
     for a in "$@"; do
       case "$a" in
         *cursor_y*) printf '1\n'; exit 0 ;;
@@ -110,7 +120,70 @@ case "${1:-}" in
     done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
-  list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  list-windows)
+    reads="$D/list-window-reads"
+    count=$(cat "$reads" 2>/dev/null || printf 0)
+    count=$((count + 1))
+    printf '%s' "$count" > "$reads"
+    if [ "$count" -gt 1 ] && [ -n "${FM_FAKE_RECOVERY_RECHECK:-}" ]; then
+      case "$FM_FAKE_RECOVERY_RECHECK" in
+        alive)
+          printf 'fm-%s\n' "$FM_FAKE_TASK_ID"
+          printf 'claude' > "$D/command"
+          exit 0
+          ;;
+        ambiguous)
+          printf 'fm-%s\n' "$FM_FAKE_TASK_ID"
+          printf 'python' > "$D/command"
+          exit 0
+          ;;
+        unreadable)
+          echo 'tmux inventory transport failed' >&2
+          exit 1
+          ;;
+      esac
+    fi
+    format='#{window_name}'
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -F) format=$2; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    while IFS='|' read -r name wid; do
+      [ -n "$name" ] || continue
+      case "$format" in
+        *'#{window_id}'*) printf '%s|%s\n' "$name" "${wid:-@1}" ;;
+        *) printf '%s\n' "$name" ;;
+      esac
+    done < "$D/windows"
+    exit 0 ;;
+  new-window|new-session)
+    verb=$1
+    [ -z "${FM_FAKE_CREATE_FAIL:-}" ] || exit 1
+    name= cwd= wid=@recovered
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -n) name=$2; shift 2 ;;
+        -c) cwd=$2; shift 2 ;;
+        -F|-s|-t) shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    [ -z "${FM_FAKE_CREATE_WRONG_CWD:-}" ] || cwd=$D/wrong-cwd
+    mkdir -p "$cwd"
+    printf '%s|%s\n' "$name" "$wid" > "$D/windows"
+    printf '%s' "$cwd" > "$D/cwd"
+    printf 'zsh' > "$D/command"
+    printf '%s %s\n' "$verb" "$name" >> "$D/endpoint-ops"
+    printf '%s\n' "$wid"
+    exit 0 ;;
+  set-window-option) exit 0 ;;
+  kill-window)
+    : > "$D/windows"
+    printf 'kill-window\n' >> "$D/endpoint-ops"
+    exit 0 ;;
 esac
 exit 0
 SH
@@ -169,6 +242,9 @@ run_control() {  # <case-dir> <args...>
     FM_REAL_GIT="${FM_REAL_GIT:-}" FM_FAKE_GIT_FAILURE="${FM_FAKE_GIT_FAILURE:-}" \
     FM_REAL_MV="${FM_REAL_MV:-}" FM_FAKE_COMPLETE_JOURNAL_MV_FAIL="${FM_FAKE_COMPLETE_JOURNAL_MV_FAIL:-}" \
     FM_FAKE_META_PUBLISH_MV_FAIL="${FM_FAKE_META_PUBLISH_MV_FAIL:-}" \
+    FM_FAKE_CREATE_FAIL="${FM_FAKE_CREATE_FAIL:-}" \
+    FM_FAKE_CREATE_WRONG_CWD="${FM_FAKE_CREATE_WRONG_CWD:-}" \
+    FM_FAKE_RECOVERY_RECHECK="${FM_FAKE_RECOVERY_RECHECK:-}" FM_FAKE_TASK_ID="${FM_FAKE_TASK_ID:-}" \
     FM_FAKE_TRACE_PREPARE="${FM_FAKE_TRACE_PREPARE:-}" \
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
@@ -181,6 +257,11 @@ run_spawn() {  # <case-dir> <args...>
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     "$SPAWN" "$@" 2>&1
+}
+
+mark_endpoint_missing() {  # <case-dir>
+  : > "$1/fake/windows"
+  rm -f "$1/fake/list-window-reads" "$1/fake/endpoint-ops"
 }
 
 meta_field() {  # <case-dir> <id> <key>
@@ -304,7 +385,137 @@ test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint() {
     || fail "the transaction journal should end complete"
   assert_grep "/exit" "$dir/fake/literal" "the previous agent should have been exited"
   assert_grep "encode launch-brief" "$dir/fake/literal" "the replacement should have been launched"
+  assert_absent "$dir/fake/endpoint-ops" "the proven dead-endpoint path must not create a replacement endpoint"
   pass "fm-control relaunch: a same-harness relaunch replaces the agent in the same endpoint and worktree"
+}
+
+test_missing_tmux_endpoint_is_recreated_in_the_preserved_dirty_worktree() {
+  local dir out rc branch
+  dir=$(new_case missing-tmux rl36)
+  add_ship_task "$dir" rl36 claude
+  printf 'preserved dirty work\n' > "$dir/wt/dirty.txt"
+  branch=$(git -C "$dir/wt" branch --show-current)
+  mark_endpoint_missing "$dir"
+  printf 'codex' > "$dir/fake/becomes"
+
+  out=$(run_control "$dir" rl36 relaunch --harness codex --model recovery-model \
+    --effort xhigh --note "resume after terminal loss"); rc=$?
+  expect_code 0 "$rc" "a positively missing tmux endpoint should be recreated"$'\n'"$out"
+  assert_contains "$out" "relaunched rl36 harness=codex" "the recovery should report the explicit replacement harness"
+  assert_grep "new-window fm-rl36" "$dir/fake/endpoint-ops" "missing recovery should create one replacement endpoint"
+  [ "$(meta_field "$dir" rl36 window)" = "fmses:fm-rl36" ] || fail "tmux recovery changed the task's logical endpoint identity"
+  [ "$(meta_field "$dir" rl36 worktree)" = "$dir/wt" ] || fail "tmux recovery changed the recorded worktree"
+  [ "$(meta_field "$dir" rl36 harness)" = codex ] || fail "the explicit harness did not survive missing recovery"
+  [ "$(meta_field "$dir" rl36 model)" = recovery-model ] || fail "the explicit model did not survive missing recovery"
+  [ "$(meta_field "$dir" rl36 effort)" = xhigh ] || fail "the explicit effort did not survive missing recovery"
+  [ "$(git -C "$dir/wt" branch --show-current)" = "$branch" ] || fail "missing recovery changed the preserved branch"
+  [ "$(cat "$dir/wt/dirty.txt")" = "preserved dirty work" ] || fail "missing recovery changed dirty worktree contents"
+  assert_grep "resume after terminal loss" "$dir/home/data/rl36/brief.md" "the replacement did not receive the required progress note"
+  pass "fm-control relaunch: a missing tmux endpoint is recreated around the exact dirty worktree and explicit profile"
+}
+
+test_missing_tmux_scout_endpoint_is_recreated() {
+  local dir out rc
+  dir=$(new_case missing-scout rl37)
+  add_ship_task "$dir" rl37 claude
+  awk '$0 != "kind=ship" { print } END { print "kind=scout" }' "$dir/home/state/rl37.meta" > "$dir/home/state/rl37.meta.tmp"
+  mv "$dir/home/state/rl37.meta.tmp" "$dir/home/state/rl37.meta"
+  mark_endpoint_missing "$dir"
+
+  out=$(run_control "$dir" rl37 relaunch --note "continue the investigation"); rc=$?
+  expect_code 0 "$rc" "a missing scout endpoint should be recreated"$'\n'"$out"
+  [ "$(meta_field "$dir" rl37 kind)" = scout ] || fail "scout recovery changed the task kind"
+  assert_grep "continue the investigation" "$dir/home/data/rl37/brief.md" "the scout replacement did not receive its progress note"
+  pass "fm-control relaunch: missing endpoint recovery covers scouts without changing their identity"
+}
+
+test_missing_recovery_rechecks_absence_before_creation() {
+  local verdict dir out rc
+  for verdict in alive ambiguous unreadable; do
+    dir=$(new_case "missing-race-$verdict" "rl38-$verdict")
+    add_ship_task "$dir" "rl38-$verdict" claude
+    mark_endpoint_missing "$dir"
+    out=$(FM_FAKE_RECOVERY_RECHECK="$verdict" FM_FAKE_TASK_ID="rl38-$verdict" \
+      run_control "$dir" "rl38-$verdict" relaunch --note "retry after loss"); rc=$?
+    expect_code 1 "$rc" "a $verdict endpoint recheck must refuse missing recovery"
+    assert_absent "$dir/fake/endpoint-ops" "a $verdict recheck created or removed an endpoint"
+    [ ! -s "$dir/fake/literal" ] || fail "a $verdict recheck launched an agent"
+  done
+  pass "fm-control relaunch: alive, ambiguous, and unreadable rechecks refuse before endpoint creation"
+}
+
+test_missing_recovery_rolls_back_creation_failure() {
+  local dir out rc prior
+  dir=$(new_case missing-create-fail rl39)
+  add_ship_task "$dir" rl39 claude
+  printf 'dirty\n' > "$dir/wt/dirty.txt"
+  prior="$dir/prior.meta"
+  cp "$dir/home/state/rl39.meta" "$prior"
+  mark_endpoint_missing "$dir"
+
+  out=$(FM_FAKE_CREATE_FAIL=1 run_control "$dir" rl39 relaunch --note "retained recovery note"); rc=$?
+  expect_code 1 "$rc" "endpoint creation failure should fail the recovery"
+  cmp -s "$prior" "$dir/home/state/rl39.meta" || fail "creation failure changed the prior durable record"
+  [ ! -s "$dir/fake/windows" ] || fail "creation failure left a replacement endpoint"
+  [ "$(cat "$dir/wt/dirty.txt")" = dirty ] || fail "creation failure changed dirty worktree contents"
+  assert_grep "retained recovery note" "$dir/home/data/rl39/brief.md" "creation failure discarded the required recovery note"
+  pass "fm-control relaunch: missing-endpoint creation failure restores the record and retains work plus note"
+}
+
+test_missing_recovery_rolls_back_identity_validation_failure() {
+  local dir out rc prior
+  dir=$(new_case missing-identity-fail rl40)
+  add_ship_task "$dir" rl40 claude
+  prior="$dir/prior.meta"
+  cp "$dir/home/state/rl40.meta" "$prior"
+  mark_endpoint_missing "$dir"
+
+  out=$(FM_FAKE_CREATE_WRONG_CWD=1 run_control "$dir" rl40 relaunch --note "identity failure note"); rc=$?
+  expect_code 1 "$rc" "replacement identity failure should fail the recovery"
+  cmp -s "$prior" "$dir/home/state/rl40.meta" || fail "identity failure changed the prior durable record"
+  [ ! -s "$dir/fake/windows" ] || fail "identity failure left a replacement endpoint"
+  assert_grep "kill-window" "$dir/fake/endpoint-ops" "identity failure did not roll back the created endpoint"
+  assert_grep "identity failure note" "$dir/home/data/rl40/brief.md" "identity failure discarded the required recovery note"
+  pass "fm-control relaunch: replacement identity failure removes the endpoint and restores the record"
+}
+
+test_missing_recovery_rolls_back_metadata_publication_failure() {
+  local dir out rc prior
+  dir=$(new_case missing-meta-fail rl41)
+  add_ship_task "$dir" rl41 claude
+  prior="$dir/prior.meta"
+  cp "$dir/home/state/rl41.meta" "$prior"
+  mark_endpoint_missing "$dir"
+  make_mv_failure_stub "$dir"
+
+  out=$(FM_REAL_MV=$(command -v mv) FM_FAKE_META_PUBLISH_MV_FAIL="$dir/home/state/rl41.meta" \
+    run_control "$dir" rl41 relaunch --note "metadata failure note"); rc=$?
+  expect_code 1 "$rc" "replacement metadata publication failure should fail the recovery"
+  cmp -s "$prior" "$dir/home/state/rl41.meta" || fail "metadata publication failure changed the prior durable record"
+  [ ! -s "$dir/fake/windows" ] || fail "metadata publication failure left a replacement endpoint"
+  assert_grep "kill-window" "$dir/fake/endpoint-ops" "metadata publication failure did not remove the created endpoint"
+  assert_grep "metadata failure note" "$dir/home/data/rl41/brief.md" "metadata publication failure discarded the recovery note"
+  pass "fm-control relaunch: metadata publication failure removes the endpoint and restores the record"
+}
+
+test_missing_recovery_rolls_back_launch_failure() {
+  local dir out rc prior
+  dir=$(new_case missing-launch-fail rl42)
+  add_ship_task "$dir" rl42 claude
+  printf 'dirty launch work\n' > "$dir/wt/dirty.txt"
+  prior="$dir/prior.meta"
+  cp "$dir/home/state/rl42.meta" "$prior"
+  mark_endpoint_missing "$dir"
+
+  out=$(FM_FAKE_LAUNCH_TRANSPORT_FAIL_AFTER_START=1 \
+    run_control "$dir" rl42 relaunch --note "launch failure note"); rc=$?
+  expect_code 1 "$rc" "replacement launch failure should fail the recovery"
+  cmp -s "$prior" "$dir/home/state/rl42.meta" || fail "launch failure did not restore the prior durable record"
+  [ ! -s "$dir/fake/windows" ] || fail "launch failure left a replacement endpoint or agent"
+  [ "$(cat "$dir/wt/dirty.txt")" = "dirty launch work" ] || fail "launch failure changed dirty worktree contents"
+  assert_grep "kill-window" "$dir/fake/endpoint-ops" "launch failure did not remove the created endpoint"
+  assert_grep "launch failure note" "$dir/home/data/rl42/brief.md" "launch failure discarded the recovery note"
+  pass "fm-control relaunch: launch failure removes the replacement endpoint and restores the prior record"
 }
 
 test_relaunch_preserves_durable_task_metadata() {
@@ -1478,6 +1689,13 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 }
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
+test_missing_tmux_endpoint_is_recreated_in_the_preserved_dirty_worktree
+test_missing_tmux_scout_endpoint_is_recreated
+test_missing_recovery_rechecks_absence_before_creation
+test_missing_recovery_rolls_back_creation_failure
+test_missing_recovery_rolls_back_identity_validation_failure
+test_missing_recovery_rolls_back_metadata_publication_failure
+test_missing_recovery_rolls_back_launch_failure
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication
 test_disabled_relaunch_clears_prior_trace_context

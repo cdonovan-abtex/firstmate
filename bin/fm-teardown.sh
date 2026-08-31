@@ -2878,6 +2878,9 @@ rm -f "$STATE/$ID.turn-ended" \
   "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
   "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note" \
+  "$STATE/$ID.control-relaunch.meta-created" "$STATE/$ID.control-relaunch.meta-restore" \
+  "$STATE/$ID.control-relaunch.meta-current-unowned" \
+  "$STATE/$ID.control-relaunch.meta-prior-unowned" \
   "$STATE/$ID.reconcile-nudged"
 # The steering inbox (bin/fm-task-inbox-lib.sh) is runtime state for the
 # retired endpoint; teardown only runs after landing is confirmed, so any
