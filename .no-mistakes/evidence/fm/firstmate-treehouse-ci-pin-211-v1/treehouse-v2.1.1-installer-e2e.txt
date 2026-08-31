@@ -1,0 +1,15 @@
+Treehouse v2.1.1 CI installer end-to-end evidence
+Host: Darwin 25.6.0 arm64
+
+Authoritative GitHub release identity and supported CI asset digests:
+tag=v2.1.1 draft=false prerelease=false published_at=2026-07-31T05:20:26Z
+treehouse-v2.1.1-darwin-amd64.tar.gz size=7322981 sha256:f6f6bd71fe8279826aa35f201e79f34106c1c4056179e3e8141942027dd992a6 url=https://github.com/kunchenguid/treehouse/releases/download/v2.1.1/treehouse-v2.1.1-darwin-amd64.tar.gz
+treehouse-v2.1.1-darwin-arm64.tar.gz size=6886014 sha256:deabeb7153bad14659e98da78de5334afecaeaac7e05988b106a4888646747d3 url=https://github.com/kunchenguid/treehouse/releases/download/v2.1.1/treehouse-v2.1.1-darwin-arm64.tar.gz
+treehouse-v2.1.1-linux-amd64.tar.gz size=7160979 sha256:2fe3e01220ae51a967c3e5ba6ccf10ec83bdbae8e420368d194285a8d04c9ef8 url=https://github.com/kunchenguid/treehouse/releases/download/v2.1.1/treehouse-v2.1.1-linux-amd64.tar.gz
+treehouse-v2.1.1-linux-arm64.tar.gz size=6532152 sha256:980367c0233274eb3181a19a2ca8ec69d09b4a588ba27367937d336f9a2c938e url=https://github.com/kunchenguid/treehouse/releases/download/v2.1.1/treehouse-v2.1.1-linux-arm64.tar.gz
+
+Executing the same public installer invoked by the real-Herdr CI lane:
+fm-install-treehouse.sh: downloading treehouse-v2.1.1-darwin-arm64.tar.gz from https://github.com/kunchenguid/treehouse/releases/download/v2.1.1/treehouse-v2.1.1-darwin-arm64.tar.gz
+fm-install-treehouse.sh: installed treehouse v2.1.1 to /var/folders/l8/htqy6t0j6hd9y084y1jqmqbr0000gn/T//fm-treehouse-e2e.Lss8oR/bin/treehouse
+v2.1.1
+Installed executable reports: v2.1.1
