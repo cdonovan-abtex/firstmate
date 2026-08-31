@@ -9,7 +9,9 @@
 # runtime-backend default for future spawns, primary config/startup-memory-budget
 # bounds that home's startup-memory curation, and primary
 # config/herdr-presentation-spaces carries the same Herdr presentation-projection
-# preference - an absent primary file and an absent destination file both mean
+# preference, and config/no-mistakes-policy.json carries the same optional
+# mechanically enforced validation-agent allowlist and service concurrency ceiling,
+# while an absent primary file and an absent destination file both mean
 # the same unconfigured default, so the generic absence mirror below converges
 # a secondmate without deciding the release-dependent floor; explicit "on" and
 # "off" preferences propagate as files. Primary
@@ -63,7 +65,7 @@ FM_SHARED_CAPTAIN_MODE="444"
 # The declared inheritable set (space-separated, config-dir-relative item paths).
 # Extend here to inherit more of the primary's local config; override via the
 # environment only in tests. Items must not contain whitespace.
-FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context}"
+FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces no-mistakes-policy.json startup-memory-budget trace-context}"
 
 # Items whose value is a home-SESSION enablement decision rather than durable
 # local configuration. They are inherited at the launch convergence point, where
@@ -547,9 +549,10 @@ FM_CONFIG_REREAD_MAX_PENDING=16
 FM_CONFIG_REREAD_MAX_QUARANTINE=16
 FM_CONFIG_INHERIT_LOCK_REL="state/.fm-inherited-config.lock"
 
-# Framing lines for the config-reread instruction. Defaults/rules only - never
-# an enforcement claim, and never a parsed summary of file contents.
-FM_CONFIG_REREAD_FRAMING='These inherited config files changed. Re-read and apply their exact contents at every future intake. They are defaults/rules and do not remove your judgment to choose differently when warranted.'
+# Framing lines for the config-reread instruction. Most items are defaults or
+# rules, while the no-mistakes policy is explicitly identified as mechanical;
+# this is never a parsed summary of file contents.
+FM_CONFIG_REREAD_FRAMING='These inherited config files changed. Re-read and apply their exact contents at every future intake. Most are defaults/rules; config/no-mistakes-policy.json is a mechanically enforced worker boundary and must not be treated as an overridable preference.'
 
 # fm_config_reread_is_allowlisted_item <item>
 # True only for the declared inheritable config allowlist (bare item name as

@@ -205,6 +205,10 @@
 # success line and state/<id>.meta omit them.
 # Every fresh spawn or relaunch records a new spawn_gen= incarnation token so durable
 # consumers can distinguish a replacement worker that reuses the same task id.
+# Every local worker launch also prepends the tracked bin/ directory to that worker's
+# PATH and records the already-resolved native no-mistakes binary plus original PATH.
+# The bin/no-mistakes symlink then routes every supported worker's bare command through
+# bin/fm-no-mistakes.mjs, whose header owns validation policy and slot accounting.
 # When the home session's frozen trace-context decision is enabled (see
 # docs/configuration.md and bin/fm-trace-context-lib.sh), the meta also records
 # one W3C traceparent= carrier, the same value injected into the pane as
@@ -2948,6 +2952,45 @@ fi
 "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
+# Resolve the native binary before Firstmate prepends its tracked bin/ shim.
+# A secondmate agent inherits the original pair and passes it to its own workers,
+# so nested Firstmate homes cannot resolve this wrapper as the native binary.
+# A fresh remote secondmate resolves the same pair on its host.
+NM_NATIVE_PATH=${FM_NO_MISTAKES_NATIVE_PATH:-$PATH}
+NM_NATIVE_BIN=${FM_NO_MISTAKES_NATIVE_BIN:-}
+if [ -n "$NM_NATIVE_BIN" ]; then
+  case "$NM_NATIVE_BIN" in /*) ;; *) NM_NATIVE_BIN= ;; esac
+fi
+if [ -n "$NM_NATIVE_BIN" ]; then
+  [ -f "$NM_NATIVE_BIN" ] && [ -x "$NM_NATIVE_BIN" ] || NM_NATIVE_BIN=
+fi
+if [ -n "$NM_NATIVE_BIN" ] \
+  && [ "$NM_NATIVE_BIN" -ef "$FM_ROOT/bin/fm-no-mistakes.mjs" ]; then
+  NM_NATIVE_BIN=
+fi
+if [ -z "$NM_NATIVE_BIN" ]; then
+  old_ifs=$IFS
+  IFS=:
+  for nm_path_dir in $NM_NATIVE_PATH; do
+    [ -n "$nm_path_dir" ] || nm_path_dir=.
+    nm_candidate="$nm_path_dir/no-mistakes"
+    [ -f "$nm_candidate" ] && [ -x "$nm_candidate" ] || continue
+    if [ "$nm_candidate" -ef "$FM_ROOT/bin/fm-no-mistakes.mjs" ]; then
+      continue
+    fi
+    NM_NATIVE_BIN=$(real_path_or_raw "$nm_candidate")
+    break
+  done
+  IFS=$old_ifs
+fi
+[ -n "$NM_NATIVE_BIN" ] || {
+  echo "error: native no-mistakes binary is unavailable outside Firstmate's worker command shim; install it or repair PATH before spawning" >&2
+  exit 1
+}
+NM_POLICY_HOME=$FM_HOME
+[ "$KIND" != secondmate ] || NM_POLICY_HOME=$PROJ_ABS
+NM_WORKER_PATH="$FM_ROOT/bin:$NM_NATIVE_PATH"
+
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
 sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
@@ -3004,6 +3047,11 @@ if [ "$KIND" = secondmate ]; then
   # injected carrier and this on/off snapshot are guaranteed to agree.
   LAUNCH="FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_PUBLIC_FOLLOWUP_PRIMARY_HOME=$sq_primary_home FM_HOME=$sq_home FM_TRACE_CONTEXT=$SPAWN_TRACE_EFFECTIVE FM_SUPERVISION_MODEL=$supervision_model $LAUNCH"
 fi
+# One structural prefix covers every supported harness template and backend:
+# all adapters receive this same LAUNCH string through spawn_send_literal below.
+# The wrapper gets the original PATH separately so it can invoke the native CLI
+# without recursively resolving bin/no-mistakes or changing agent lookup.
+LAUNCH="FM_NO_MISTAKES_POLICY_HOME=$(shell_quote "$NM_POLICY_HOME") FM_NO_MISTAKES_NATIVE_BIN=$(shell_quote "$NM_NATIVE_BIN") FM_NO_MISTAKES_NATIVE_PATH=$(shell_quote "$NM_NATIVE_PATH") PATH=$(shell_quote "$NM_WORKER_PATH") $LAUNCH"
 if [ -z "$SPAWN_TRACEPARENT" ] && [ "$RELAUNCH" -eq 1 ]; then
   LAUNCH="unset TRACEPARENT; $LAUNCH"
 fi

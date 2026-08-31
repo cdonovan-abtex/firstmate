@@ -131,7 +131,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" treehouse gh-axi gh
+  fm_fake_exit0 "$fakebin" treehouse gh-axi gh no-mistakes
   fm_fake_exit0 "$fakebin" kimi
   ln -s "$JQ_BIN" "$fakebin/jq"
   printf '%s\n' "$fakebin"
@@ -198,8 +198,14 @@ test_kimi_launch_then_send_is_verified() {
   assert_contains "$out" "spawned $id harness=kimi" "kimi spawn did not report success"
 
   launch=$(cat "$CASE_DIR/launch.log")
-  [ "$launch" = "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS '$FAKEBIN_DIR/kimi' --model 'kimi-code/k3' --auto" ] \
-    || fail "kimi launch did not use the absolute binary, model, and --auto only: $launch"
+  case "$launch" in
+    *" env -u CURSOR_AGENT -u CURSOR_INVOKED_AS '$FAKEBIN_DIR/kimi' --model 'kimi-code/k3' --auto") ;;
+    *) fail "kimi harness command did not retain the absolute binary, model, and --auto only: $launch" ;;
+  esac
+  assert_contains "$launch" "FM_NO_MISTAKES_POLICY_HOME='$HOME_DIR'" \
+    "kimi launch bypassed the common no-mistakes policy home"
+  assert_contains "$launch" "FM_NO_MISTAKES_NATIVE_BIN='$FAKEBIN_DIR/no-mistakes'" \
+    "kimi launch did not preserve its native no-mistakes route"
   assert_not_contains "$launch" "--effort" "kimi launch emitted a nonexistent effort flag"
   assert_not_contains "$launch" "turn-ended" "kimi launch embedded a turn-end path"
   assert_not_contains "$launch" "__TURNEND__" "kimi launch retained a turn-end placeholder"
@@ -455,8 +461,10 @@ test_kimi_falls_back_to_expanded_home_binary() {
   rc=$?
   expect_code 0 "$rc" "Kimi HOME fallback spawn should succeed"
   launch=$(cat "$CASE_DIR/launch.log")
-  [ "$launch" = "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS '$fallback' --auto" ] \
-    || fail "Kimi fallback did not expand HOME into an absolute executable: $launch"
+  case "$launch" in
+    *" env -u CURSOR_AGENT -u CURSOR_INVOKED_AS '$fallback' --auto") ;;
+    *) fail "Kimi fallback did not expand HOME into an absolute executable: $launch" ;;
+  esac
   pass "fm-spawn: Kimi fallback expands the active HOME"
 }
 

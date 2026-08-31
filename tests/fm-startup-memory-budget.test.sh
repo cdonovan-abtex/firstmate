@@ -269,7 +269,7 @@ test_primary_budget_converges_with_exact_reread_and_safe_failures() {
     || fail "secondmate did not receive the primary budget bytes"
   instruction=$(latest_reread_instruction "$sm") || fail "budget propagation did not publish a reread instruction"
   expected=$(printf '%s\n\n%s\n%s\n321\n%s' \
-    'These inherited config files changed. Re-read and apply their exact contents at every future intake. They are defaults/rules and do not remove your judgment to choose differently when warranted.' \
+    'These inherited config files changed. Re-read and apply their exact contents at every future intake. Most are defaults/rules; config/no-mistakes-policy.json is a mechanically enforced worker boundary and must not be treated as an overridable preference.' \
     'config/startup-memory-budget' \
     '-----BEGIN config/startup-memory-budget-----' \
     '-----END config/startup-memory-budget-----')

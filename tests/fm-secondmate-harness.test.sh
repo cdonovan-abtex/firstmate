@@ -15,10 +15,11 @@
 #   B) Inheritance. The primary pushes a declared, extensible set of LOCAL
 #      (gitignored) config items - config/crew-dispatch.json, config/crew-harness,
 #      config/backlog-backend, config/backend, config/herdr-presentation-spaces,
-#      config/startup-memory-budget, and config/trace-context -
-#      down into each secondmate home's config/, so the secondmate's OWN crewmates,
-#      dispatch profiles, backlog backend, runtime-backend default, Herdr
-#      presentation choice, startup-memory budget, and trace context inherit the
+#      config/no-mistakes-policy.json, config/startup-memory-budget, and
+#      config/trace-context - down into each secondmate home's config/, so the
+#      secondmate's OWN crewmates, dispatch profiles, backlog backend,
+#      runtime-backend default, Herdr presentation choice, validation-agent
+#      policy, startup-memory budget, and trace context inherit the
 #      primary's settings. For config/herdr-presentation-spaces, an absent
 #      primary file and an absent destination file both mean the same
 #      unconfigured default, so the generic absence mirror converges that item
@@ -292,6 +293,7 @@ test_propagate_lib() {
   printf 'manual\n' > "$src/backlog-backend"
   printf 'tmux\n' > "$src/backend"
   : > "$src/herdr-presentation-spaces"
+  printf '%s\n' '{"version":1,"allowedAgents":["work-agent-a"],"maxConcurrent":3}' > "$src/no-mistakes-policy.json"
   : > "$src/trace-context"
   stdout="$d/clean-copy.out"
   stderr="$d/clean-copy.err"
@@ -303,6 +305,8 @@ test_propagate_lib() {
   [ "$(cat "$dest/backlog-backend")" = manual ] || fail "backlog-backend not propagated"
   [ "$(cat "$dest/backend")" = tmux ] || fail "backend not propagated"
   [ -f "$dest/herdr-presentation-spaces" ] || fail "herdr-presentation-spaces not propagated"
+  [ "$(cat "$dest/no-mistakes-policy.json")" = '{"version":1,"allowedAgents":["work-agent-a"],"maxConcurrent":3}' ] \
+    || fail "no-mistakes-policy.json not propagated byte-exact"
   printf 'herdr\n' > "$dest/backend"
   propagate_inheritable_config "$src" "$dest"
   [ "$(cat "$dest/backend")" = tmux ] || fail "primary backend did not overwrite a divergent destination"
@@ -343,13 +347,14 @@ test_propagate_lib() {
   # 4. removing the source mirrors absence downstream (primary-authoritative)
   printf 'herdr\n' > "$dest/backend"
   rm -f "$src/crew-dispatch.json" "$src/crew-harness" "$src/backlog-backend" \
-    "$src/backend" "$src/herdr-presentation-spaces" "$src/trace-context"
+    "$src/backend" "$src/herdr-presentation-spaces" "$src/no-mistakes-policy.json" "$src/trace-context"
   propagate_inheritable_config "$src" "$dest"
   [ -e "$dest/crew-dispatch.json" ] && fail "dispatch profile absence not mirrored downstream"
   [ -e "$dest/crew-harness" ] && fail "absence not mirrored downstream"
   [ -e "$dest/backlog-backend" ] && fail "backlog-backend absence not mirrored downstream"
   [ -e "$dest/backend" ] && fail "backend absence not mirrored downstream"
   [ -e "$dest/herdr-presentation-spaces" ] && fail "herdr-presentation-spaces absence not mirrored downstream"
+  [ -e "$dest/no-mistakes-policy.json" ] && fail "no-mistakes-policy absence not mirrored downstream"
   [ -e "$dest/trace-context" ] && fail "trace-context absence not mirrored downstream"
 
   rm -f "$dest/crew-harness"
@@ -426,6 +431,7 @@ make_noop_tmux() {
 exit 0
 SH
   chmod +x "$fakebin/tmux"
+  fm_fake_exit0 "$fakebin" no-mistakes
   printf '%s\n' "$fakebin"
 }
 
@@ -477,6 +483,7 @@ test_spawn_split_and_inherit() {
   printf 'codex\n' > "$w/home/config/secondmate-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
   printf 'zellij\n' > "$w/home/config/backend"
+  printf '%s\n' '{"version":1,"allowedAgents":["work-agent-a"],"maxConcurrent":3}' > "$w/home/config/no-mistakes-policy.json"
   make_seeded_home "$sm" sm
 
   spawn_secondmate "$w" sm "$sm"
@@ -493,6 +500,8 @@ test_spawn_split_and_inherit() {
     || fail "split: home backlog-backend not inherited as manual"
   [ "$(cat "$sm/config/backend" 2>/dev/null)" = zellij ] \
     || fail "split: home backend not inherited as zellij"
+  [ "$(cat "$sm/config/no-mistakes-policy.json" 2>/dev/null)" = '{"version":1,"allowedAgents":["work-agent-a"],"maxConcurrent":3}' ] \
+    || fail "split: home no-mistakes policy not inherited byte-exact"
   [ -e "$sm/config/secondmate-harness" ] \
     && fail "split: secondmate-harness leaked into the secondmate home"
   pass "B2 spawn: secondmate runs the secondmate harness; its home inherits declared config"
@@ -660,7 +669,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" pi
+  fm_fake_exit0 "$fakebin" no-mistakes pi
   printf '%s\n' "$fakebin"
 }
 
@@ -890,7 +899,7 @@ test_spawn_explicit_harness_uses_explicit_profile_axes() {
 }
 
 test_spawned_secondmate_uses_its_harness_supervision_model() {
-  local harness expected w sm launchlog launch fakebin out
+  local harness expected w sm sm_real launchlog launch fakebin out
   for harness in codex claude; do
     w="$TMP_ROOT/spawn-supervision-model-$harness"
     sm="$w/sm"
@@ -898,6 +907,7 @@ test_spawned_secondmate_uses_its_harness_supervision_model() {
     mkdir -p "$w/home/config"
     printf '%s\n' "$harness" > "$w/home/config/secondmate-harness"
     make_seeded_home "$sm" sm
+    sm_real=$(cd "$sm" && pwd -P)
     spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1
     fm_write_meta "$sm/state/task.meta" "window=firstmate:fm-task" "kind=ship"
     touch "$sm/state/.last-watcher-beat"
@@ -912,6 +922,10 @@ FM_ROOT_OVERRIDE="$sm" "$ROOT/bin/fm-guard.sh"
 SH
     chmod +x "$fakebin/$harness"
     launch=$(cat "$launchlog")
+    assert_contains "$launch" "FM_NO_MISTAKES_POLICY_HOME='$sm_real'" \
+      "secondmate launch did not bind validation policy to its inherited home"
+    assert_contains "$launch" "PATH='$ROOT/bin:" \
+      "secondmate launch did not prepend the tracked no-mistakes command boundary"
     out=$(PATH="$fakebin:$BASE_PATH" CLAUDECODE=1 bash -c "$launch" 2>&1)
     case "$harness" in
       codex)
@@ -975,6 +989,12 @@ test_spawn_fallback_chain_and_crew_scout_unaffected() {
   launch=$(cat "$launchlog")
   assert_not_contains "$launch" "--model" "crew-unaffected: crew launch must not carry a --model flag"
   assert_not_contains "$launch" "--effort" "crew-unaffected: crew launch must not carry an --effort flag"
+  assert_contains "$launch" "FM_NO_MISTAKES_POLICY_HOME='$home'" \
+    "ordinary crew launch did not bind validation policy to the spawning home"
+  assert_contains "$launch" "FM_NO_MISTAKES_NATIVE_BIN='$fakebin/no-mistakes'" \
+    "ordinary crew launch did not preserve the native command outside the shim"
+  assert_contains "$launch" "PATH='$ROOT/bin:$fakebin:$BASE_PATH'" \
+    "ordinary crew launch did not prepend the tracked no-mistakes command boundary"
   pass "C9 spawn: the harness fallback chain still resolves with no tokens; crew/scout launches are unaffected by this feature"
 }
 
@@ -997,7 +1017,7 @@ new_world() {
     printf 'projects/\nstate/\ndata/\n.no-mistakes/\n'
     [ "$dispatch_ignore" = no ] || printf 'config/crew-dispatch.json\n'
     printf 'config/crew-harness\nconfig/secondmate-harness\nconfig/backlog-backend\n'
-    printf 'config/backend\nconfig/herdr-presentation-spaces\nconfig/startup-memory-budget\n'
+    printf 'config/backend\nconfig/herdr-presentation-spaces\nconfig/no-mistakes-policy.json\nconfig/startup-memory-budget\n'
   } > "$w/main/.gitignore"
   printf 'v1\n' > "$w/main/AGENTS.md"
   printf 'r1\n' > "$w/main/README.md"

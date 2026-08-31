@@ -49,6 +49,7 @@ SH
   chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
+  fm_fake_exit0 "$fakebin" no-mistakes
   printf '%s\n' "$fakebin"
 }
 
@@ -132,7 +133,16 @@ test_no_profile_keeps_claude_profile_defaults() {
 
   launch=$(cat "$LAUNCH_LOG")
   expected="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
-  [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
+  case "$launch" in
+    *" $expected") ;;
+    *) fail "no-profile claude launch did not preserve the canonical harness launch kind"$'\n'"expected suffix: $expected"$'\n'"actual:          $launch" ;;
+  esac
+  assert_contains "$launch" "FM_NO_MISTAKES_POLICY_HOME='$HOME_DIR'" \
+    "no-profile launch did not bind no-mistakes policy to its home"
+  assert_contains "$launch" "FM_NO_MISTAKES_NATIVE_BIN='$FAKEBIN_DIR/no-mistakes'" \
+    "no-profile launch did not preserve the native no-mistakes command"
+  assert_contains "$launch" "PATH='$ROOT/bin:$FAKEBIN_DIR:" \
+    "no-profile launch did not prepend Firstmate's command boundary"
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
 
@@ -380,7 +390,12 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   assert_contains "$out" "spawned $id harness=custom-agent" "spawn did not report raw command harness"
   assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default default
   launch=$(cat "$LAUNCH_LOG")
-  [ "$launch" = "custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
+  case "$launch" in
+    *" custom-agent --flag") ;;
+    *) fail "raw harness command changed after the common validation boundary"$'\n'"actual: $launch" ;;
+  esac
+  assert_contains "$launch" "FM_NO_MISTAKES_POLICY_HOME='$HOME_DIR'" \
+    "raw harness launch bypassed the common no-mistakes policy home"
   pass "active crew-dispatch profile allows the raw launch-command escape hatch"
 }
 

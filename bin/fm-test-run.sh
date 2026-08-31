@@ -206,7 +206,7 @@ family_for_basename() {
     fm-kimi-harness.test.sh|fm-muse-harness.test.sh|fm-herdr-lab.test.sh|fm-lint.test.sh|\
     fm-lint-workflows.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|\
-    fm-harness-adapter-references.test.sh|\
+    fm-harness-adapter-references.test.sh|fm-no-mistakes-policy.test.sh|\
     fm-send-popup-settle.test.sh|fm-send-settle.test.sh|\
     fm-subagent-pretool-check.test.sh|\
     fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|\
@@ -550,6 +550,7 @@ tests/fm-kimi-harness.test.sh 15092
 tests/fm-lint-workflows.test.sh 744
 tests/fm-muse-harness.test.sh 27414
 tests/fm-muse-signals-live-e2e.test.sh 21
+tests/fm-no-mistakes-policy.test.sh 1500
 tests/fm-on.test.sh 8602
 tests/fm-opencode-primary-live-e2e.test.sh 22
 tests/fm-operational-input.test.sh 246
@@ -1180,6 +1181,11 @@ families_for_changed_path() {
     bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
     bin/fm-x-*|bin/fm-check*)
       printf '%s\n' pr-forge
+      ;;
+    bin/fm-no-mistakes.mjs|bin/no-mistakes)
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' backend-dispatch
+      printf '%s\n' secondmate
       ;;
     bin/fm-nm-run-lib.sh)
       # Shared no-mistakes run-attribution primitives, sourced by both

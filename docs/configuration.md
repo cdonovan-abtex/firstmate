@@ -198,6 +198,56 @@ The bound is required rather than cosmetic because churn and pane staleness read
 The flag is a home-local supervision-noise preference and is not inherited by secondmate homes, which run their own crew mix.
 [`architecture.md`](architecture.md) owns the triage contract and `bin/fm-watch.sh`'s `signal_turnend_panes_churned` owns the exact evidence and fail-closed boundaries.
 
+## No-mistakes worker policy (config/no-mistakes-policy.json)
+
+`config/no-mistakes-policy.json` is an optional, local, gitignored policy for Firstmate-managed no-mistakes validation work.
+When no home registered against a no-mistakes service has this file, the worker command boundary passes every native command through with existing behavior.
+Tracked defaults contain no vendor choice.
+
+The complete version 1 schema is:
+
+```json
+{
+  "version": 1,
+  "allowedAgents": ["<explicit-work-agent-identity>"],
+  "maxConcurrent": 4
+}
+```
+
+`allowedAgents` is a non-empty positive allowlist of exact no-mistakes work-agent identities.
+`auto` is not a positive identity and is invalid in the allowlist, so an effective global `agent: auto` setting is denied whenever the policy is active.
+Any effective identity outside the combined allowlist is denied before `axi run` or `axi respond` reaches the native no-mistakes command.
+`maxConcurrent` accepts integers from 1 through 256, so an operator can admit a monitored parallel cohort instead of serializing validation.
+Malformed, unsafe, or unsupported policy stops guarded validation with one diagnostic that names the file and correction, while read-only commands such as `doctor`, `status`, `runs`, `axi status`, logs, and help remain pass-through inspection paths.
+
+`bin/fm-spawn.sh` prepends Firstmate's tracked `bin/no-mistakes` command to every local worker PATH and preserves the native binary plus original PATH separately.
+The wrapper re-reads the effective policy and the shared service's global `config.yaml` agent at every `axi run` and `axi respond` boundary, including workers launched before either file changed.
+Only the bare `no-mistakes` command supplied to a Firstmate worker is supported for validation; an explicit absolute native-binary invocation is a deliberate bypass outside Firstmate's ownership boundary.
+Direct operator calls and non-Firstmate tools that do not use the worker PATH are likewise outside this policy because Firstmate does not modify no-mistakes upstream.
+
+The policy file belongs to one Firstmate home and is primary-authoritative inherited local material for its secondmate homes.
+A local secondmate therefore receives the same bytes, and a remote secondmate receives them on its own host through the existing authenticated inheritance path.
+Each policy-enabled home registers against the canonical `NM_HOME` used by its machine's shared no-mistakes service.
+Every Firstmate wrapper sharing that service refreshes registered policy files, intersects their allowlists, applies the smallest registered ceiling, and uses one machine-private slot pool keyed by that service home.
+This makes independent Firstmate homes and local secondmate homes share one real service ceiling rather than separate per-home locks.
+Removing a registered policy file unregisters that home on the next wrapper boundary, while an invalid registered file stops guarded calls rather than silently retaining stale settings.
+A remote host has a different no-mistakes service and therefore a separate machine-local pool; Firstmate does not claim one cross-machine ceiling over independent services.
+
+A slot covers one complete blocking native `axi run` or `axi respond` call, conservatively including non-agent steps until that call returns at a gate, CI-ready point, or outcome.
+Normal completion, gate returns, and handled interruption release immediately.
+If a wrapper or worker dies, its native CLI child keeps the lease while alive; after both disappear, a bounded read-only `axi status` check reaps a gate-returned, terminal, or absent run and keeps an apparently active run charged.
+This recovery is independent of the primary session and never deletes a manual lock, enumerates agent processes, or stops or restarts the shared no-mistakes service.
+
+Inspect the effective service policy without prompts, command arguments, credentials, or policy paths:
+
+```sh
+bin/no-mistakes fm-policy-status
+```
+
+The output reports enabled or disabled policy, effective work-agent identity, whether that identity is allowed, registered participant count, and active, available, and ceiling slots.
+`bin/fm-no-mistakes.mjs`'s header owns exact parsing, registration, lease, stale-recovery, exit-code, and native pass-through mechanics.
+Current harness, runtime-backend, secondmate, and cross-home evidence is recorded in [`verification/no-mistakes-policy.md`](verification/no-mistakes-policy.md).
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh` so local lint matches CI.
@@ -411,7 +461,7 @@ When a running home advances and its loaded instruction surface (`AGENTS.md`, `b
 If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_SECONDMATES:` with the failure reason.
 The same bootstrap run emits `SECONDMATE_LIVENESS:` only when a registered secondmate is skipped or its relaunch fails; already-live and successfully relaunched secondmates are handled silently.
 For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/fm-config-push.sh`.
-It uses the same live secondmate discovery and propagation helper as bootstrap, prints each live home's `crew-dispatch.json`, `crew-harness`, `backlog-backend`, `backend`, `herdr-presentation-spaces`, `startup-memory-budget`, `trace-context`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
+It uses the same live secondmate discovery and propagation helper as bootstrap, prints each live home's `crew-dispatch.json`, `crew-harness`, `backlog-backend`, `backend`, `herdr-presentation-spaces`, `no-mistakes-policy.json`, `startup-memory-budget`, `trace-context`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
 When an allowlisted config item changes for an already-running local home, it sends the literal-content reread pointer described in [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
 A changed remote home instead receives one durably recorded marked re-read instruction after the allowlisted bytes have transferred because primary-local generation paths are not meaningful on another host.
 The locked bootstrap inheritance pass uses the same placement-specific behavior; see `secondmate-provisioning` for the single contract owner.
