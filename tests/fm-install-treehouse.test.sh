@@ -36,9 +36,9 @@ printf '%s  %s\n' "${FAKE_TREEHOUSE_SHA:?}" "$1"
 SH
   cat > "$fakebin/shasum" <<'SH'
 #!/usr/bin/env bash
-printf 'shasum\n' >> "${CHECKSUM_TOOL_LOG:?}"
-while [ "$#" -gt 1 ]; do shift; done
-printf '%s  %s\n' "${FAKE_TREEHOUSE_SHA:?}" "$1"
+[ "$#" -eq 3 ] && [ "$1" = -a ] && [ "$2" = 256 ] || exit 2
+printf 'shasum -a 256\n' >> "${CHECKSUM_TOOL_LOG:?}"
+printf '%s  %s\n' "${FAKE_TREEHOUSE_SHA:?}" "$3"
 SH
   cat > "$fakebin/tar" <<'SH'
 #!/usr/bin/env bash
@@ -136,7 +136,8 @@ SH
     Darwin arm64 deabeb7153bad14659e98da78de5334afecaeaac7e05988b106a4888646747d3 \
     v2.1.1 env BASH_ENV="$bash_env") \
     || fail "Treehouse shasum fallback failed: $out"
-  [ "$(cat "$tmp/tool")" = shasum ] || fail "installer did not use the shasum fallback"
+  [ "$(cat "$tmp/tool")" = "shasum -a 256" ] \
+    || fail "installer did not use the SHA-256 shasum fallback"
   assert_contains "$out" "installed treehouse v2.1.1" \
     "shasum fallback did not install the exact pinned version"
   pass "Treehouse CI installer preserves the shasum fallback"
