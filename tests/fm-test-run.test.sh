@@ -103,6 +103,7 @@ init_changed_fixture_repo() {
     fm-daemon.test.sh \
     fm-harness-adapter-instructions-live-e2e.test.sh \
     fm-harness-adapter-references.test.sh \
+    fm-install-treehouse.test.sh \
     fm-backend-herdr-smoke.test.sh \
     fm-secondmate-safety.test.sh \
     fm-session-start.test.sh \
@@ -129,6 +130,7 @@ init_changed_fixture_repo() {
   : >"$repo/bin/fm-procevent-quota.sh"
   : >"$repo/bin/fm-quota-axi-lib.sh"
   : >"$repo/bin/fm-quota-choose.sh"
+  : >"$repo/bin/fm-install-treehouse.sh"
   : >"$repo/bin/unmapped-source.sh"
   # A shared helper with no curated family of its own, named by exactly ONE
   # script of the expensive real-Herdr family and consumed by one curated
@@ -295,6 +297,15 @@ test_changed_dependency_selection_and_unmapped_failure() {
     "timeout library selects quota polling coverage"
   git -C "$repo" add bin/fm-timeout-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm timeout-lib-change
+
+  printf '\n' >>"$repo/bin/fm-install-treehouse.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-install-treehouse.test.sh" \
+    "Treehouse installer changes select focused pin coverage"
+  assert_contains "$listed" "tests/fm-backend-herdr-smoke.test.sh" \
+    "Treehouse installer changes retain real-Herdr coverage"
+  git -C "$repo" add bin/fm-install-treehouse.sh
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm treehouse-installer-change
 
   printf '\n' >>"$repo/src/unmapped.ts"
   set +e
