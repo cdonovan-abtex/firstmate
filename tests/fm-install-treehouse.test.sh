@@ -86,6 +86,7 @@ test_ci_treehouse_platform_pins() {
   done <<'CASES'
 Linux x86_64 treehouse-v2.1.1-linux-amd64.tar.gz 2fe3e01220ae51a967c3e5ba6ccf10ec83bdbae8e420368d194285a8d04c9ef8
 Linux aarch64 treehouse-v2.1.1-linux-arm64.tar.gz 980367c0233274eb3181a19a2ca8ec69d09b4a588ba27367937d336f9a2c938e
+Linux arm64 treehouse-v2.1.1-linux-arm64.tar.gz 980367c0233274eb3181a19a2ca8ec69d09b4a588ba27367937d336f9a2c938e
 Darwin arm64 treehouse-v2.1.1-darwin-arm64.tar.gz deabeb7153bad14659e98da78de5334afecaeaac7e05988b106a4888646747d3
 Darwin x86_64 treehouse-v2.1.1-darwin-amd64.tar.gz f6f6bd71fe8279826aa35f201e79f34106c1c4056179e3e8141942027dd992a6
 CASES
