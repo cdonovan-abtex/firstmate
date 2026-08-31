@@ -1,0 +1,33 @@
+Treehouse 2.1.1 authoritative release identity
+Source: https://api.github.com/repos/kunchenguid/treehouse/releases/tags/v2.1.1
+Release page: https://github.com/kunchenguid/treehouse/releases/tag/v2.1.1
+Verified: 2026-08-31
+
+tag_name: v2.1.1
+draft: false
+prerelease: false
+target_commitish: 939cb59ba0bd69036ae52fc19b5b41e0a3f167d3
+published_at: 2026-07-31T05:20:26Z
+
+macOS amd64
+  asset: treehouse-v2.1.1-darwin-amd64.tar.gz
+  bytes: 7322981
+  sha256: f6f6bd71fe8279826aa35f201e79f34106c1c4056179e3e8141942027dd992a6
+
+macOS arm64
+  asset: treehouse-v2.1.1-darwin-arm64.tar.gz
+  bytes: 6886014
+  sha256: deabeb7153bad14659e98da78de5334afecaeaac7e05988b106a4888646747d3
+
+Linux amd64
+  asset: treehouse-v2.1.1-linux-amd64.tar.gz
+  bytes: 7160979
+  sha256: 2fe3e01220ae51a967c3e5ba6ccf10ec83bdbae8e420368d194285a8d04c9ef8
+
+Linux arm64
+  asset: treehouse-v2.1.1-linux-arm64.tar.gz
+  bytes: 6532152
+  sha256: 980367c0233274eb3181a19a2ca8ec69d09b4a588ba27367937d336f9a2c938e
+
+All URLs returned by the release API are immutable v2.1.1 download URLs under:
+https://github.com/kunchenguid/treehouse/releases/download/v2.1.1/

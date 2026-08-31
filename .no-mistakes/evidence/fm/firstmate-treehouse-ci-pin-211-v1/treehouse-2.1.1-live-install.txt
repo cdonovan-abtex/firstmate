@@ -1,0 +1,20 @@
+Treehouse 2.1.1 CI installer live verification
+Date: 2026-08-31
+Platform: Darwin arm64
+
+$ bin/fm-install-treehouse.sh <temporary-bin-dir>
+fm-install-treehouse.sh: downloading treehouse-v2.1.1-darwin-arm64.tar.gz from https://github.com/kunchenguid/treehouse/releases/download/v2.1.1/treehouse-v2.1.1-darwin-arm64.tar.gz
+fm-install-treehouse.sh: installed treehouse v2.1.1 to <temporary-bin-dir>/treehouse
+v2.1.1
+
+$ <temporary-bin-dir>/treehouse --version
+v2.1.1
+
+$ <temporary-bin-dir>/treehouse get --help | verify --lease is present
+lease interface: present
+
+The installer downloaded the immutable v2.1.1 Darwin arm64 release asset,
+verified its pinned SHA-256 internally, installed it only into an ephemeral
+test directory, verified the exact installed version, and exposed the lease
+interface required by Firstmate's CI runtime path. The temporary installation
+was removed after this transcript was captured.
