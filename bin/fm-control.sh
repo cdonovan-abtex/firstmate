@@ -40,6 +40,10 @@
 #              Missing recovery rechecks absence immediately before creation,
 #              verifies the new endpoint's exact identity and worktree before
 #              publication, and rolls creation back on any later failure.
+#              Response-derived replacement and seeded-pane handles are stored
+#              in the transaction record before a failure can unwind; cleanup
+#              must be confirmed, or that exact record remains quarantined for
+#              reconciliation instead of reporting a successful rollback.
 #              With no explicit axis, a secondmate re-resolves its
 #              durable config/secondmate-harness pin (harness plus its optional
 #              model and effort tokens) exactly as any other respawn does, while
@@ -525,6 +529,8 @@ RELAUNCH_MISSING_RECOVERY=0
 RELAUNCH_CREATED_ENDPOINT=0
 RELAUNCH_CREATED_TARGET=
 RELAUNCH_CREATED_HANDLE=
+RELAUNCH_CREATED_SESSION=
+RELAUNCH_CREATED_SEEDED_HANDLE=
 RELAUNCH_RECOVERY_META_PUBLISHED=0
 RELAUNCH_META_LOCK=
 RELAUNCH_META_LOCK_HELD=0
@@ -549,6 +555,11 @@ journal_write() {  # <phase> [extra-line]...
     echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "backend=$BACKEND"
     echo "endpoint=$T"
+    [ -z "$RELAUNCH_CREATED_TARGET" ] || echo "created_endpoint=$RELAUNCH_CREATED_TARGET"
+    [ -z "$RELAUNCH_CREATED_HANDLE" ] || echo "created_handle=$RELAUNCH_CREATED_HANDLE"
+    [ -z "$RELAUNCH_CREATED_SESSION" ] || echo "created_session=$RELAUNCH_CREATED_SESSION"
+    [ -z "$RELAUNCH_CREATED_SEEDED_HANDLE" ] \
+      || echo "created_seeded_endpoint=$RELAUNCH_CREATED_SESSION:$RELAUNCH_CREATED_SEEDED_HANDLE"
     echo "worktree=$WT"
     echo "kind=$KIND"
     echo "from_harness=$PRIOR_RECORDED_HARNESS"
@@ -575,15 +586,35 @@ relaunch_meta_lock_release() {
 }
 
 relaunch_rollback_created_endpoint() {
+  local failed=0 session
   [ "$RELAUNCH_CREATED_ENDPOINT" = 1 ] || return 0
   case "$BACKEND" in
-    tmux) fm_backend_tmux_rollback_recreated_task "$RELAUNCH_CREATED_HANDLE" ;;
+    tmux)
+      fm_backend_tmux_rollback_recreated_task "$RELAUNCH_CREATED_HANDLE" \
+        || failed=1
+      ;;
     herdr)
-      fm_backend_herdr_parse_target "$RELAUNCH_CREATED_TARGET" || return 1
-      fm_backend_herdr_rollback_recreated_task "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE"
+      session=$RELAUNCH_CREATED_SESSION
+      if [ -z "$session" ] && [ -n "$RELAUNCH_CREATED_TARGET" ]; then
+        fm_backend_herdr_parse_target "$RELAUNCH_CREATED_TARGET" || return 1
+        session=$FM_BACKEND_HERDR_SESSION
+      fi
+      [ -n "$session" ] || return 1
+      if [ -n "$RELAUNCH_CREATED_HANDLE" ] \
+         && ! fm_backend_herdr_rollback_recreated_task \
+           "$session" "$RELAUNCH_CREATED_HANDLE"; then
+        failed=1
+      fi
+      if [ -n "$RELAUNCH_CREATED_SEEDED_HANDLE" ] \
+         && [ "$RELAUNCH_CREATED_SEEDED_HANDLE" != "$RELAUNCH_CREATED_HANDLE" ] \
+         && ! fm_backend_herdr_rollback_recreated_task \
+           "$session" "$RELAUNCH_CREATED_SEEDED_HANDLE"; then
+        failed=1
+      fi
       ;;
     *) return 1 ;;
-  esac || return 1
+  esac
+  [ "$failed" = 0 ] || return 1
   RELAUNCH_CREATED_ENDPOINT=0
   return 0
 }
@@ -905,7 +936,7 @@ relaunch_publish_created_endpoint() {
 }
 
 relaunch_create_missing_endpoint() {
-  local prior_target=$T workspace='' tab='' pane='' ids='' state seen seen_real wt_real
+  local prior_target=$T workspace='' tab='' pane='' state seen seen_real wt_real create_status=0
   fm_backend_source "$BACKEND" \
     || die "task $ID's $BACKEND endpoint-creation adapter could not be loaded"
   RELAUNCH_META_LOCK=$(fm_meta_lock_path "$META") \
@@ -928,16 +959,34 @@ relaunch_create_missing_endpoint() {
       ;;
     herdr)
       workspace=$(fm_meta_get "$META" herdr_workspace_id)
-      ids=$(FM_HOME="$FM_HOME" fm_backend_herdr_recreate_missing_task \
-        "$prior_target" "$workspace" "$LABEL" "$WT") \
-        || die "herdr could not create a verified replacement endpoint for task $ID"
-      read -r workspace tab pane <<EOF
-$ids
-EOF
-      [ -n "$workspace" ] && [ -n "$tab" ] && [ -n "$pane" ] \
-        || die "herdr returned an incomplete replacement identity for task $ID"
+      # Plain-statement invocation is load-bearing: the adapter publishes every
+      # response-derived handle in this shell even when a post-create check
+      # fails. Command substitution would discard the only safe cleanup keys.
+      fm_backend_herdr_recreate_missing_task \
+        "$prior_target" "$workspace" "$LABEL" "$WT" >/dev/null \
+        || create_status=$?
+      RELAUNCH_CREATED_SESSION=${FM_BACKEND_HERDR_RECREATE_SESSION:-}
+      workspace=${FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID:-}
+      tab=${FM_BACKEND_HERDR_RECREATE_TAB_ID:-}
+      pane=${FM_BACKEND_HERDR_RECREATE_PANE_ID:-}
       RELAUNCH_CREATED_HANDLE=$pane
-      RELAUNCH_CREATED_TARGET="${prior_target%%:*}:$pane"
+      RELAUNCH_CREATED_SEEDED_HANDLE=${FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID:-}
+      if [ -n "$pane" ]; then
+        RELAUNCH_CREATED_TARGET="$RELAUNCH_CREATED_SESSION:$pane"
+      fi
+      if [ -n "$RELAUNCH_CREATED_HANDLE" ] \
+         || [ -n "$RELAUNCH_CREATED_SEEDED_HANDLE" ]; then
+        RELAUNCH_CREATED_ENDPOINT=1
+      fi
+      journal_write creating "${CHECKPOINT_LINES[@]}" \
+        "relaunch_tx=$RELAUNCH_TX" \
+        "adapter_cleanup_unconfirmed=${FM_BACKEND_HERDR_RECREATE_CLEANUP_UNCONFIRMED:-0}" \
+        || die "could not persist task $ID's response-derived Herdr recovery handles"
+      [ "$create_status" = 0 ] \
+        || die "herdr could not create a verified replacement endpoint for task $ID"
+      [ -n "$RELAUNCH_CREATED_SESSION" ] \
+        && [ -n "$workspace" ] && [ -n "$tab" ] && [ -n "$pane" ] \
+        || die "herdr returned an incomplete replacement identity for task $ID"
       ;;
     *)
       die "task $ID runs on $BACKEND, which has no supported missing-endpoint creation path"

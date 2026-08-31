@@ -83,7 +83,9 @@ Switching harness and recovering a missing supported endpoint are therefore ordi
 - If the launch owner already published the new record for an existing endpoint but no running agent can be confirmed, the new record is kept: the task is recorded on the new harness with no agent confirmed, which is exactly what recovery reconciles.
   Rewriting it back to the old harness would be a second, worse inaccuracy.
 - Missing-endpoint recovery has stronger rollback because the transaction created the replacement surface.
-  A creation, identity validation, metadata publication, or launch failure removes that exact created endpoint, restores the prior durable record, retains the progress note, and leaves the recorded worktree untouched.
+  A creation, identity validation, metadata publication, or launch failure removes every exact replacement or seeded pane the transaction created, restores the prior durable record, retains the progress note, and leaves the recorded worktree untouched.
+  Herdr response handles are retained before post-create checks run and recorded as `created_endpoint=`, `created_handle=`, and (when applicable) `created_seeded_endpoint=` in the transaction journal.
+  Cleanup is successful only after structured absence is confirmed; an unconfirmed close leaves that exact journal quarantined for reconciliation rather than reporting rollback success.
 
 ## Fail-closed boundaries
 
@@ -125,5 +127,6 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 ## Verification
 
 - `tests/fm-control.test.sh` - the adapter contract for every verified harness, the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
-- `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, and rollback after a failed launch.
+- `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, missing tmux creation, and rollback across creation, identity, publication, and launch failures.
+- `tests/fm-backend-herdr.test.sh` - Herdr's response-handle retention and confirmed cleanup or exact quarantine across post-create failures.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.

@@ -196,6 +196,47 @@ SH
   chmod +x "$fb/sleep"
 }
 
+# A stateful Herdr stub for the public post-create rollback boundary. It proves
+# the old pane missing, creates one exact replacement, fails tab identity
+# validation, then refuses every close while keeping the replacement present.
+make_herdr_postcreate_failure_stub() {  # <case-dir>
+  local dir=$1
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+D=$FM_FAKE_DIR
+printf '%s\n' "$*" >> "$D/herdr-ops"
+case "${1:-} ${2:-}" in
+  'workspace list')
+    printf '{"result":{"workspaces":[{"workspace_id":"w1"}]}}\n'
+    ;;
+  'tab list')
+    printf '{"result":{"tabs":[]}}\n'
+    ;;
+  'tab create')
+    printf '{"result":{"tab":{"tab_id":"w1:t-new"},"root_pane":{"pane_id":"w1:p-new"}}}\n'
+    ;;
+  'tab get')
+    printf '{"result":{}}\n'
+    ;;
+  'pane get')
+    case "${3:-}" in
+      w1:p-old) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+      w1:p-new) printf '{"result":{"pane":{"pane_id":"w1:p-new"}}}\n' ;;
+      *) printf '{"error":{"code":"internal_error"}}\n' ;;
+    esac
+    ;;
+  'pane close')
+    exit 1
+    ;;
+  'agent get')
+    printf '{"error":{"code":"agent_not_found"}}\n'
+    ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+}
+
 # new_case <name> [id] -> echoes a case dir with a live claude ship task.
 new_case() {
   local id=${2:-t1} dir="$TMP_ROOT/$1-$RANDOM"
@@ -477,6 +518,46 @@ test_missing_recovery_rolls_back_identity_validation_failure() {
   assert_grep "kill-window" "$dir/fake/endpoint-ops" "identity failure did not roll back the created endpoint"
   assert_grep "identity failure note" "$dir/home/data/rl40/brief.md" "identity failure discarded the required recovery note"
   pass "fm-control relaunch: replacement identity failure removes the endpoint and restores the record"
+}
+
+test_missing_herdr_postcreate_cleanup_failure_quarantines_exact_handles() {
+  local dir out rc prior
+  dir=$(new_case missing-herdr-quarantine rl43)
+  add_ship_task "$dir" rl43 claude
+  prior="$dir/prior.meta"
+  awk -F= '
+    $1 != "window" && $1 != "backend" && $1 != "herdr_session" \
+      && $1 != "herdr_workspace_id" && $1 != "herdr_tab_id" && $1 != "herdr_pane_id"
+    END {
+      print "window=lab:w1:p-old"
+      print "backend=herdr"
+      print "herdr_session=lab"
+      print "herdr_workspace_id=w1"
+      print "herdr_tab_id=w1:t-old"
+      print "herdr_pane_id=w1:p-old"
+    }
+  ' "$dir/home/state/rl43.meta" > "$dir/home/state/rl43.meta.tmp"
+  mv "$dir/home/state/rl43.meta.tmp" "$dir/home/state/rl43.meta"
+  cp "$dir/home/state/rl43.meta" "$prior"
+  make_herdr_postcreate_failure_stub "$dir"
+
+  out=$(run_control "$dir" rl43 relaunch --note "retain exact Herdr cleanup identity"); rc=$?
+  expect_code 1 "$rc" "unconfirmed Herdr post-create cleanup should fail recovery"
+  cmp -s "$prior" "$dir/home/state/rl43.meta" \
+    || fail "unconfirmed Herdr cleanup changed the prior durable task record"
+  [ "$(journal_field "$dir" rl43 rollback)" = incomplete-created-endpoint-or-record ] \
+    || fail "unconfirmed Herdr cleanup did not remain quarantined in the transaction journal"
+  [ "$(journal_field "$dir" rl43 created_endpoint)" = "lab:w1:p-new" ] \
+    || fail "the journal lost the exact replacement endpoint"
+  [ "$(journal_field "$dir" rl43 created_handle)" = "w1:p-new" ] \
+    || fail "the journal lost the response-derived replacement handle"
+  [ "$(journal_field "$dir" rl43 created_session)" = lab ] \
+    || fail "the journal lost the response-derived replacement session"
+  [ "$(grep -c '^pane close w1:p-new' "$dir/fake/herdr-ops")" -ge 2 ] \
+    || fail "backend and lifecycle rollback did not both retry exact-pane cleanup"
+  assert_grep "retain exact Herdr cleanup identity" "$dir/home/data/rl43/brief.md" \
+    "unconfirmed Herdr cleanup discarded the required progress note"
+  pass "fm-control relaunch: unconfirmed Herdr post-create cleanup quarantines the exact response handles"
 }
 
 test_missing_recovery_rolls_back_metadata_publication_failure() {
@@ -1694,6 +1775,7 @@ test_missing_tmux_scout_endpoint_is_recreated
 test_missing_recovery_rechecks_absence_before_creation
 test_missing_recovery_rolls_back_creation_failure
 test_missing_recovery_rolls_back_identity_validation_failure
+test_missing_herdr_postcreate_cleanup_failure_quarantines_exact_handles
 test_missing_recovery_rolls_back_metadata_publication_failure
 test_missing_recovery_rolls_back_launch_failure
 test_relaunch_preserves_durable_task_metadata

@@ -717,6 +717,88 @@ test_create_task_refuses_when_preexisting_husk_tab_remains() {
   pass "fm_backend_herdr_create_task: refuses success when a preexisting husk tab remains after replacement"
 }
 
+test_recreate_missing_cleans_every_response_handle_after_create_postcheck_failure() {
+  local dir log out
+  dir="$TMP_ROOT/recreate-postcheck-cleanup"; mkdir -p "$dir"; log="$dir/cleanup.log"; : > "$log"
+  out=$(bash -c '
+    . "$0/bin/backends/herdr.sh"
+    cleanup_log=$1
+    fm_backend_herdr_agent_state() { printf missing; }
+    fm_backend_herdr_parse_target() {
+      FM_BACKEND_HERDR_SESSION=lab
+      FM_BACKEND_HERDR_PANE=old-pane
+    }
+    fm_backend_herdr_workspace_presence_state() { printf dead; }
+    fm_backend_herdr_workspace_ensure() {
+      FM_BACKEND_HERDR_WS_ID=w-new
+      FM_BACKEND_HERDR_WS_SEEDED_TAB_ID=t-seed
+      FM_BACKEND_HERDR_WS_SEEDED_PANE_ID=p-seed
+    }
+    fm_backend_herdr_create_task() {
+      FM_BACKEND_HERDR_CREATED_TAB_ID=t-new
+      FM_BACKEND_HERDR_CREATED_PANE_ID=p-new
+      return 1
+    }
+    fm_backend_herdr_rollback_recreated_task() {
+      printf "%s:%s\n" "$1" "$2" >> "$cleanup_log"
+    }
+    if fm_backend_herdr_recreate_missing_task lab:old-pane w-old fm-r1 /work; then
+      exit 9
+    fi
+    printf "session=%s workspace=%s tab=%s pane=%s seed=%s cleanup=%s" \
+      "$FM_BACKEND_HERDR_RECREATE_SESSION" \
+      "$FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID" \
+      "$FM_BACKEND_HERDR_RECREATE_TAB_ID" \
+      "$FM_BACKEND_HERDR_RECREATE_PANE_ID" \
+      "$FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID" \
+      "$FM_BACKEND_HERDR_RECREATE_CLEANUP_UNCONFIRMED"
+  ' "$ROOT" "$log") || fail "post-create cleanup fixture failed: $out"
+  [ "$out" = "session=lab workspace=w-new tab=t-new pane=p-new seed=p-seed cleanup=0" ] \
+    || fail "post-create failure did not retain every exact response identity: $out"
+  assert_grep 'lab:p-new' "$log" "post-create failure did not confirm replacement-pane cleanup"
+  assert_grep 'lab:p-seed' "$log" "post-create failure did not confirm seeded-pane cleanup"
+  pass "fm_backend_herdr_recreate_missing_task: post-create failure confirms cleanup of replacement and seeded response handles"
+}
+
+test_recreate_missing_retains_exact_handle_when_identity_cleanup_is_unconfirmed() {
+  local dir log out
+  dir="$TMP_ROOT/recreate-identity-quarantine"; mkdir -p "$dir"; log="$dir/cleanup.log"; : > "$log"
+  out=$(bash -c '
+    . "$0/bin/backends/herdr.sh"
+    cleanup_log=$1
+    fm_backend_herdr_agent_state() { printf missing; }
+    fm_backend_herdr_parse_target() {
+      FM_BACKEND_HERDR_SESSION=lab
+      FM_BACKEND_HERDR_PANE=old-pane
+    }
+    fm_backend_herdr_workspace_presence_state() { printf present; }
+    fm_backend_herdr_create_task() {
+      FM_BACKEND_HERDR_CREATED_TAB_ID=t-new
+      FM_BACKEND_HERDR_CREATED_PANE_ID=p-new
+      printf "t-new p-new"
+    }
+    fm_backend_herdr_cli() { printf "{\"result\":{}}"; }
+    fm_backend_herdr_rollback_recreated_task() {
+      printf "%s:%s\n" "$1" "$2" >> "$cleanup_log"
+      return 1
+    }
+    if fm_backend_herdr_recreate_missing_task lab:old-pane w-old fm-r2 /work 2>/dev/null; then
+      exit 9
+    fi
+    printf "session=%s workspace=%s tab=%s pane=%s seed=%s cleanup=%s" \
+      "$FM_BACKEND_HERDR_RECREATE_SESSION" \
+      "$FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID" \
+      "$FM_BACKEND_HERDR_RECREATE_TAB_ID" \
+      "$FM_BACKEND_HERDR_RECREATE_PANE_ID" \
+      "$FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID" \
+      "$FM_BACKEND_HERDR_RECREATE_CLEANUP_UNCONFIRMED"
+  ' "$ROOT" "$log") || fail "identity-cleanup fixture failed: $out"
+  [ "$out" = "session=lab workspace=w-old tab=t-new pane=p-new seed= cleanup=1" ] \
+    || fail "unconfirmed identity cleanup lost its exact quarantine identity: $out"
+  assert_grep 'lab:p-new' "$log" "identity failure did not attempt exact replacement-pane cleanup"
+  pass "fm_backend_herdr_recreate_missing_task: unconfirmed identity cleanup retains the exact pane for durable quarantine"
+}
+
 test_create_task_refuses_when_agent_state_ambiguous() {
   # An unexpected error code from agent get (neither agent_not_found nor a
   # successful read) must not be misread as a husk - fail-safe toward
@@ -815,6 +897,34 @@ test_container_ensure_uses_secondmate_home_label() {
   assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''2ndmate-sshhip-h7' \
     "container_ensure did not create the workspace under this secondmate home's own label"
   pass "fm_backend_herdr_container_ensure: creates the workspace under the SECONDMATE home's own label, not 'firstmate'"
+}
+
+test_create_task_retains_response_handles_on_nonzero_create() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/create-task-nonzero"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  fb=$(make_herdr_fakebin "$dir")
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  'tab list') printf '{"result":{"tabs":[]}}\n' ;;
+  'tab create')
+    printf '{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w1:p2"}}}\n'
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$fb/herdr"
+  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '
+      . "$0/bin/backends/herdr.sh"
+      if fm_backend_herdr_create_task fmtest:w1 fm-newtask /tmp/proj >/dev/null; then
+        exit 9
+      fi
+      printf "%s %s" "$FM_BACKEND_HERDR_CREATED_TAB_ID" "$FM_BACKEND_HERDR_CREATED_PANE_ID"
+    ' "$ROOT") || fail "nonzero create response fixture failed: $out"
+  [ "$out" = "w1:t2 w1:p2" ] \
+    || fail "a nonzero create response lost its response-derived cleanup handles: $out"
+  pass "fm_backend_herdr_create_task: response-derived handles survive a nonzero create return"
 }
 
 test_create_task_creates_with_no_focus_flag() {
@@ -4461,9 +4571,12 @@ test_create_task_closes_and_replaces_dead_pane_husk
 test_create_task_closes_and_replaces_no_agent_husk
 test_create_task_closes_all_duplicate_husks_after_replacement
 test_create_task_refuses_when_preexisting_husk_tab_remains
+test_recreate_missing_cleans_every_response_handle_after_create_postcheck_failure
+test_recreate_missing_retains_exact_handle_when_identity_cleanup_is_unconfirmed
 test_create_task_refuses_when_agent_state_ambiguous
 test_create_task_husk_replacement_creates_before_closing
 test_create_task_creates_and_parses_ids
+test_create_task_retains_response_handles_on_nonzero_create
 test_create_task_creates_with_no_focus_flag
 test_presentation_defaults_on_at_or_above_the_floor
 test_presentation_default_falls_back_below_the_floor

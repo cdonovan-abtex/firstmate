@@ -1702,7 +1702,11 @@ fm_backend_herdr_workspace_prune_seeded_default_tab() {  # <session> <workspace_
 #                                      `.result.tab.tab_id` (verified
 #                                      empirically against the real binary -
 #                                      no follow-up tab-list call needed).
-#                                      Empty whenever this call instead
+#   FM_BACKEND_HERDR_WS_SEEDED_PANE_ID - that same response's exact root pane
+#                                      id, retained immediately for a caller
+#                                      that must transactionally undo the
+#                                      workspace creation.
+#                                      Both are empty whenever this call instead
 #                                      ADOPTED a pre-existing workspace -
 #                                      either the launcher's own
 #                                      (fm_backend_herdr_launcher_identity) or
@@ -1748,9 +1752,10 @@ fm_backend_herdr_workspace_prune_seeded_default_tab() {  # <session> <workspace_
 # Returns 0 on success, 3 for a refusal whose exact reason is already on
 # stderr, and 1 for a failed or unparseable herdr call.
 fm_backend_herdr_workspace_ensure() {  # <session> <cwd> [<launcher-relationship>]
-  local session=$1 cwd=$2 relationship=${3:-launcher-home} wsid out label matches count status
+  local session=$1 cwd=$2 relationship=${3:-launcher-home} wsid out label matches count status create_status=0
   FM_BACKEND_HERDR_WS_ID=""
   FM_BACKEND_HERDR_WS_SEEDED_TAB_ID=""
+  FM_BACKEND_HERDR_WS_SEEDED_PANE_ID=""
   if [ "$relationship" = launcher-home ]; then
     fm_backend_herdr_launcher_identity "$session" && status=0 || status=$?
     case "$status" in
@@ -1776,10 +1781,17 @@ fm_backend_herdr_workspace_ensure() {  # <session> <cwd> [<launcher-relationship
     printf '%s' "$wsid"
     return 0
   fi
-  out=$(fm_backend_herdr_cli "$session" workspace create --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
-  wsid=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
+  out=$(fm_backend_herdr_cli "$session" workspace create --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) \
+    || create_status=$?
+  # Preserve every response-derived identity before validating the response.
+  # A recovery caller can therefore close or quarantine the exact seeded pane
+  # even when a later field is malformed.
+  FM_BACKEND_HERDR_WS_ID=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
+  FM_BACKEND_HERDR_WS_SEEDED_TAB_ID=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
+  FM_BACKEND_HERDR_WS_SEEDED_PANE_ID=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+  wsid=$FM_BACKEND_HERDR_WS_ID
+  [ "$create_status" = 0 ] || return "$create_status"
   [ -n "$wsid" ] || return 1
-  FM_BACKEND_HERDR_WS_ID=$wsid
   # Herdr seeds a new workspace with one auto-created default tab firstmate
   # never uses. It is NOT pruned here: at this instant it is the workspace's
   # ONLY tab, and closing a workspace's last tab deletes the workspace itself
@@ -1787,7 +1799,6 @@ fm_backend_herdr_workspace_ensure() {  # <session> <cwd> [<launcher-relationship
   # workspace we just created. fm_backend_herdr_create_task prunes it instead,
   # once the first real task tab exists alongside it, and only ever targets
   # this exact captured tab_id.
-  FM_BACKEND_HERDR_WS_SEEDED_TAB_ID=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
   printf '%s' "$wsid"
 }
 
@@ -1991,7 +2002,12 @@ fm_backend_herdr_agent_alive() {  # <target>
 # 4th arg, so this function never even queries for a prune candidate in that
 # case. Echoes "<tab_id> <pane_id>" on success.
 fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_tab_id>
-  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs
+  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs create_status=0
+  # Same-process transactional callers consume these globals even when a
+  # post-create check returns failure. Existing command-substitution callers
+  # continue to consume the successful stdout pair as before.
+  FM_BACKEND_HERDR_CREATED_TAB_ID=""
+  FM_BACKEND_HERDR_CREATED_PANE_ID=""
   session=${container%%:*}
   wsid=${container#*:}
   list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
@@ -2013,9 +2029,16 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
 $dup_tabs
 EOF
   fi
-  out=$(fm_backend_herdr_cli "$session" tab create --workspace "$wsid" --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
-  tab_id=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
-  pane_id=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+  out=$(fm_backend_herdr_cli "$session" tab create --workspace "$wsid" --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) \
+    || create_status=$?
+  # Capture the immutable response handles before pruning or duplicate-husk
+  # verification can fail. Never make a later caller rediscover this pane by
+  # label.
+  FM_BACKEND_HERDR_CREATED_TAB_ID=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
+  FM_BACKEND_HERDR_CREATED_PANE_ID=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+  tab_id=$FM_BACKEND_HERDR_CREATED_TAB_ID
+  pane_id=$FM_BACKEND_HERDR_CREATED_PANE_ID
+  [ "$create_status" = 0 ] || return "$create_status"
   if [ -z "$tab_id" ] || [ -z "$pane_id" ]; then
     echo "error: could not parse tab/pane id from herdr tab create output" >&2
     return 1
@@ -2050,9 +2073,36 @@ EOF
 # fm_backend_herdr_rollback_recreated_task removes one exact pane returned by
 # fm_backend_herdr_recreate_missing_task and verifies that it is gone.
 # The pane id is response-derived and immutable within the named session, so
-# rollback never resolves a label that another task could have reused.
+# rollback never resolves a label that another task could have reused. It is
+# idempotent: an exact pane already proved absent is successful cleanup.
 fm_backend_herdr_rollback_recreated_task() {  # <session> <pane-id>
-  fm_backend_herdr_explicit_close_pane_confirmed "$1" "$2"
+  local session=$1 pane=$2 presence
+  presence=$(fm_backend_herdr_pane_presence_state "$session" "$pane")
+  case "$presence" in
+    dead) return 0 ;;
+    present)
+      fm_backend_herdr_explicit_close_pane_confirmed "$session" "$pane" && return 0
+      [ "$(fm_backend_herdr_pane_presence_state "$session" "$pane")" = dead ]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# Close every exact pane this missing-endpoint transaction created. The globals
+# remain populated regardless of cleanup so the lifecycle owner can retry and,
+# if cleanup still cannot be confirmed, durably quarantine the exact handles.
+fm_backend_herdr_recreate_cleanup_created() {  # <session> <replacement-pane> <seeded-pane>
+  local session=$1 replacement=$2 seeded=$3 failed=0
+  if [ -n "$replacement" ] \
+     && ! fm_backend_herdr_rollback_recreated_task "$session" "$replacement"; then
+    failed=1
+  fi
+  if [ -n "$seeded" ] && [ "$seeded" != "$replacement" ] \
+     && ! fm_backend_herdr_rollback_recreated_task "$session" "$seeded"; then
+    failed=1
+  fi
+  FM_BACKEND_HERDR_RECREATE_CLEANUP_UNCONFIRMED=$failed
+  [ "$failed" = 0 ]
 }
 
 # fm_backend_herdr_recreate_missing_task: create a replacement terminal surface
@@ -2061,72 +2111,100 @@ fm_backend_herdr_rollback_recreated_task() {  # <session> <pane-id>
 # It prefers the recorded workspace when that exact workspace still exists.
 # If that workspace disappeared with its last pane, it uses the same exact
 # launcher-home workspace resolution as an ordinary worker spawn in this home.
-# Every response-derived tab/pane/workspace relationship is re-read before the
-# ids are returned, and a failed identity check removes the exact new pane.
+# This MUST be called as a plain statement, never through command substitution:
+# every response-derived identity is published immediately through the globals
+# below, including on failure, so the lifecycle owner can confirm cleanup or
+# retain an exact durable quarantine record. Successful stdout remains
+# "<workspace> <tab> <pane>" for diagnostic callers.
 fm_backend_herdr_recreate_missing_task() {  # <recorded-target> <recorded-workspace> <label> <cwd> -> "workspace tab pane"
-  local target=$1 recorded_workspace=$2 label=$3 cwd=$4 session workspace_state seeded_tab_id ids tab pane info state seeded_pane
+  local target=$1 recorded_workspace=$2 label=$3 cwd=$4 session workspace_state seeded_tab_id tab pane info state create_status=0
+  FM_BACKEND_HERDR_RECREATE_SESSION=""
+  FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID=""
+  FM_BACKEND_HERDR_RECREATE_TAB_ID=""
+  FM_BACKEND_HERDR_RECREATE_PANE_ID=""
+  FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID=""
+  # shellcheck disable=SC2034  # lifecycle owner consumes this failure proof
+  FM_BACKEND_HERDR_RECREATE_CLEANUP_UNCONFIRMED=0
   [ "$(fm_backend_herdr_agent_state "$target")" = missing ] || {
     echo "error: herdr endpoint '$target' is no longer positively missing; refusing replacement creation" >&2
     return 1
   }
   fm_backend_herdr_parse_target "$target" || return 1
   session=$FM_BACKEND_HERDR_SESSION
+  # shellcheck disable=SC2034  # lifecycle owner consumes this exact session
+  FM_BACKEND_HERDR_RECREATE_SESSION=$session
   workspace_state=$(fm_backend_herdr_workspace_presence_state "$session" "$recorded_workspace")
   case "$workspace_state" in
     present)
       FM_BACKEND_HERDR_WS_ID=$recorded_workspace
-      FM_BACKEND_HERDR_WS_SEEDED_TAB_ID=
+      FM_BACKEND_HERDR_WS_SEEDED_TAB_ID=""
+      FM_BACKEND_HERDR_WS_SEEDED_PANE_ID=""
       ;;
     dead)
-      fm_backend_herdr_workspace_ensure "$session" "$cwd" launcher-home >/dev/null || return 1
+      if ! fm_backend_herdr_workspace_ensure "$session" "$cwd" launcher-home >/dev/null; then
+        FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID=${FM_BACKEND_HERDR_WS_ID:-}
+        FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID=${FM_BACKEND_HERDR_WS_SEEDED_PANE_ID:-}
+        fm_backend_herdr_recreate_cleanup_created \
+          "$session" "" "$FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID" || :
+        return 1
+      fi
       ;;
     *)
       echo "error: herdr workspace '$recorded_workspace' is unreadable; refusing replacement creation" >&2
       return 1
       ;;
   esac
+  FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID=$FM_BACKEND_HERDR_WS_ID
+  FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID=${FM_BACKEND_HERDR_WS_SEEDED_PANE_ID:-}
   seeded_tab_id=$FM_BACKEND_HERDR_WS_SEEDED_TAB_ID
-  if ! ids=$(fm_backend_herdr_create_task "$session:$FM_BACKEND_HERDR_WS_ID" "$label" "$cwd" "$seeded_tab_id"); then
-    if [ -n "$seeded_tab_id" ]; then
-      seeded_pane=$(fm_backend_herdr_pane_for_tab "$session" "$FM_BACKEND_HERDR_WS_ID" "$seeded_tab_id" 2>/dev/null || true)
-      [ -z "$seeded_pane" ] || fm_backend_herdr_rollback_recreated_task "$session" "$seeded_pane" >/dev/null 2>&1 || true
-    fi
+  fm_backend_herdr_create_task \
+    "$session:$FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID" \
+    "$label" "$cwd" "$seeded_tab_id" >/dev/null || create_status=$?
+  FM_BACKEND_HERDR_RECREATE_TAB_ID=${FM_BACKEND_HERDR_CREATED_TAB_ID:-}
+  FM_BACKEND_HERDR_RECREATE_PANE_ID=${FM_BACKEND_HERDR_CREATED_PANE_ID:-}
+  tab=$FM_BACKEND_HERDR_RECREATE_TAB_ID
+  pane=$FM_BACKEND_HERDR_RECREATE_PANE_ID
+  if [ "$create_status" -ne 0 ]; then
+    fm_backend_herdr_recreate_cleanup_created \
+      "$session" "$pane" "$FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID" || :
     return 1
   fi
-  read -r tab pane <<EOF
-$ids
-EOF
   if [ -z "$tab" ] || [ -z "$pane" ]; then
+    fm_backend_herdr_recreate_cleanup_created \
+      "$session" "$pane" "$FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID" || :
     echo "error: herdr replacement creation returned incomplete endpoint ids" >&2
     return 1
   fi
   info=$(fm_backend_herdr_cli "$session" tab get "$tab" 2>/dev/null) || info=
-  if ! printf '%s' "$info" | jq -e --arg tab "$tab" --arg workspace "$FM_BACKEND_HERDR_WS_ID" --arg label "$label" '
+  if ! printf '%s' "$info" | jq -e --arg tab "$tab" --arg workspace "$FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID" --arg label "$label" '
     .result.tab.tab_id == $tab
     and .result.tab.workspace_id == $workspace
     and .result.tab.label == $label
   ' >/dev/null 2>&1; then
-    fm_backend_herdr_rollback_recreated_task "$session" "$pane" >/dev/null 2>&1 || true
+    fm_backend_herdr_recreate_cleanup_created \
+      "$session" "$pane" "$FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID" || :
     echo "error: herdr could not verify the replacement tab identity" >&2
     return 1
   fi
   info=$(fm_backend_herdr_cli "$session" pane get "$pane" 2>/dev/null) || info=
-  if ! printf '%s' "$info" | jq -e --arg pane "$pane" --arg tab "$tab" --arg workspace "$FM_BACKEND_HERDR_WS_ID" '
+  if ! printf '%s' "$info" | jq -e --arg pane "$pane" --arg tab "$tab" --arg workspace "$FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID" '
     .result.pane.pane_id == $pane
     and .result.pane.tab_id == $tab
     and .result.pane.workspace_id == $workspace
   ' >/dev/null 2>&1; then
-    fm_backend_herdr_rollback_recreated_task "$session" "$pane" >/dev/null 2>&1 || true
+    fm_backend_herdr_recreate_cleanup_created \
+      "$session" "$pane" "$FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID" || :
     echo "error: herdr could not verify the replacement pane identity" >&2
     return 1
   fi
   state=$(fm_backend_herdr_pane_agent_state "$session" "$pane")
   if [ "$state" != no-agent ]; then
-    fm_backend_herdr_rollback_recreated_task "$session" "$pane" >/dev/null 2>&1 || true
+    fm_backend_herdr_recreate_cleanup_created \
+      "$session" "$pane" "$FM_BACKEND_HERDR_RECREATE_SEEDED_PANE_ID" || :
     echo "error: herdr replacement pane is '$state' rather than positively agent-free" >&2
     return 1
   fi
-  printf '%s %s %s' "$FM_BACKEND_HERDR_WS_ID" "$tab" "$pane"
+  printf '%s %s %s' "$FM_BACKEND_HERDR_RECREATE_WORKSPACE_ID" "$tab" "$pane"
 }
 
 # fm_backend_herdr_projection_create_task: create one disposable presentation

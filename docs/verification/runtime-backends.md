@@ -673,6 +673,7 @@ ok - real herdr: a positively missing worker endpoint is recreated around its ex
 
 The registry read through `herdr pane report-agent` is the same source `fm_backend_herdr_agent_state` classifies, so registering and not registering an agent on a plain shell pane exercises exactly the gate every lifecycle verb depends on.
 The missing case removes the recorded pane, invokes the public `fm-control.sh relaunch` command with explicit harness, model, effort, and note values, and requires the replacement agent to register alive on a new response-verified pane while dirty contents and the exact worktree remain unchanged.
+The hermetic post-create cases in `tests/fm-backend-herdr.test.sh` additionally prove that a nonzero create response retains its exact tab/pane handles, a later failure confirms cleanup of both replacement and seeded panes, and an unconfirmed close retains the exact identity for the lifecycle journal rather than reporting successful rollback.
 The named-lab helper is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
 
 ### Away-mode transport

@@ -40,6 +40,7 @@ Preserve its uncommitted changes and commits, keep the same task identity, and r
 The missing path rechecks absence immediately before creation and refuses alive, ambiguous, unreadable, malformed, foreign, or unverified ownership evidence without creating or launching anything.
 Do not hand-edit endpoint metadata, use a fresh generic spawn, or allocate another worktree while the recorded worktree is unaccounted for, because any of those can split one task across two copies.
 If endpoint creation, validation, publication, or replacement launch fails, leave the worktree and its progress note intact and follow the command's rollback result rather than improvising cleanup.
+A reported incomplete Herdr rollback leaves its exact replacement or seeded-pane identities quarantined in the relaunch journal; reconcile that record before retrying, never rediscover a cleanup target by label.
 If the worktree or ownership cannot be reconciled safely, leave all state intact and report the task failed or blocked with the conflicting evidence.
 
 ## Live-endpoint escalation
