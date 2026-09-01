@@ -80,15 +80,24 @@ if [ "$fm_fake_guarded" = 1 ]; then
   mkdir -p "$FM_FAKE_CHILD_DIR"
   printf '%s\n' "$$" > "$FM_FAKE_CHILD_DIR/native.$$"
   (
-    trap 'exit 143' TERM INT HUP
+    if [ "${FM_FAKE_DETACH_AGENT:-}" = 1 ]; then
+      trap '' TERM INT HUP
+    else
+      trap 'exit 143' TERM INT HUP
+    fi
     printf '%s\n' "${BASHPID:-$$}" > "$FM_FAKE_CHILD_DIR/agent.$$"
     touch "$FM_FAKE_CHILD_DIR/started.$$"
     if [ -n "${FM_FAKE_BLOCK_DIR:-}" ]; then
       while [ ! -e "$FM_FAKE_BLOCK_DIR/release" ]; do sleep 0.03; done
     fi
+    touch "$FM_FAKE_CHILD_DIR/completed.$$"
   ) &
   child=$!
-  trap 'kill -TERM "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; exit 143' TERM INT HUP
+  if [ "${FM_FAKE_DETACH_AGENT:-}" = 1 ]; then
+    trap 'exit 143' TERM INT HUP
+  else
+    trap 'kill -TERM "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; exit 143' TERM INT HUP
+  fi
   wait "$child"
   exit $?
 fi
@@ -157,6 +166,7 @@ wrapper_env() { # <case-dir> <home> <args...>
       FM_FAKE_NATIVE_LOG="$dir/native.log" \
       FM_FAKE_CHILD_DIR="$dir/children" \
       FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
+      FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
       FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
       "$WRAPPER" "$@"
   )
@@ -177,6 +187,45 @@ exec_wrapper_env() { # <case-dir> <home> <args...>
     FM_FAKE_NATIVE_LOG="$dir/native.log" \
     FM_FAKE_CHILD_DIR="$dir/children" \
     FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
+    FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
+    FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+    "$WRAPPER" "$@"
+}
+
+wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
+  local dir=$1 home=$2 xdg=$3
+  shift 3
+  (
+    cd "$dir/repo" || exit 1
+    exec env -u FM_NO_MISTAKES_SLOT_ROOT \
+      XDG_STATE_HOME="$xdg" \
+      FM_NO_MISTAKES_POLICY_HOME="$home" \
+      FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
+      FM_NO_MISTAKES_NATIVE_PATH="$PATH" \
+      NM_HOME="$dir/nm" \
+      FM_FAKE_NATIVE_LOG="$dir/native.log" \
+      FM_FAKE_CHILD_DIR="$dir/children" \
+      FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
+      FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
+      FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+      "$WRAPPER" "$@"
+  )
+}
+
+exec_wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
+  local dir=$1 home=$2 xdg=$3
+  shift 3
+  cd "$dir/repo" || exit 1
+  exec env -u FM_NO_MISTAKES_SLOT_ROOT \
+    XDG_STATE_HOME="$xdg" \
+    FM_NO_MISTAKES_POLICY_HOME="$home" \
+    FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
+    FM_NO_MISTAKES_NATIVE_PATH="$PATH" \
+    NM_HOME="$dir/nm" \
+    FM_FAKE_NATIVE_LOG="$dir/native.log" \
+    FM_FAKE_CHILD_DIR="$dir/children" \
+    FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
+    FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
     FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
     "$WRAPPER" "$@"
 }
@@ -326,6 +375,26 @@ wrapper_env "$d" "$d/home" axi run --intent quoted-unrelated >/dev/null 2>&1
 [ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
   || fail "an unrelated quoted key changed the effective global selector"
 pass "quoted YAML selector keys are decoded without false matches"
+
+d=$(make_case indented-selector-key codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" ' agent: claude'
+set +e
+out=$(wrapper_env "$d" "$d/home" axi run --intent indented-selector 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "uniformly indented selector exited $rc instead of 78"
+assert_contains "$out" 'denied effective agent "claude"' \
+  "uniform root indentation hid the disallowed repository selector"
+[ ! -s "$d/native.log" ] || fail "uniformly indented selector bypass reached native no-mistakes"
+
+d=$(make_case indented-unrelated-key codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" ' agent_note: claude'
+wrapper_env "$d" "$d/home" axi run --intent indented-unrelated >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "an unrelated uniformly indented key changed the effective global selector"
+pass "uniform YAML root indentation preserves selector semantics"
 
 d=$(make_case registered-default-branch codex)
 write_policy "$d/home" '["codex"]' 2
@@ -543,6 +612,30 @@ status=$(wrapper_env "$d" "$d/home-unconfigured" fm-policy-status)
   || fail "removed home policies remained registered: $status"
 pass "independent homes sharing one service use one conservative slot pool"
 
+d=$(make_case xdg-shared-service codex)
+d2=$(make_case xdg-distinct-service codex)
+write_policy "$d/home" '["codex"]' 1
+write_policy "$d2/home" '["codex"]' 1
+mkdir -p "$d/block" "$d/xdg-one" "$d/xdg-two"
+FM_FAKE_BLOCK_DIR="$d/block" exec_wrapper_env_stable_root "$d" "$d/home" "$d/xdg-one" axi run --intent xdg-one \
+  > "$d/xdg-one.out" 2>&1 &
+xdg_wrapper=$!
+BG_PIDS+=("$xdg_wrapper")
+wait_for_count "$d/children" started 1 || fail "first XDG cohort member did not start"
+wrapper_env_stable_root "$d2" "$d2/home" "$d/xdg-one" axi run --intent distinct-service >/dev/null 2>&1
+[ "$(find "$d2/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "a distinct no-mistakes service collided in the stable accounting root"
+set +e
+out=$(wrapper_env_stable_root "$d" "$d/home" "$d/xdg-two" axi run --intent xdg-two 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 75 ] || fail "different XDG_STATE_HOME bypassed the shared service ceiling (exit $rc)"
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "different XDG_STATE_HOME started an over-limit native child"
+touch "$d/block/release"
+wait "$xdg_wrapper"
+pass "service accounting ignores XDG drift without merging distinct services"
+
 # Killing the wrapper in the widened spawn-to-identity handoff cannot free the
 # slot or let the pipe-gated native command start. The conservative transitional
 # lease later self-recovers after the exact gate child has exited.
@@ -626,25 +719,37 @@ wrapper_env "$d" "$d/home" axi run --intent after-prelaunch-interrupt >/dev/null
   || fail "pre-launch interruption left capacity unavailable"
 pass "an interrupt observed before spawn prevents native launch"
 
-# A normal interruption is relayed only to the exact native boundary and releases.
 d=$(make_case interruption codex)
 write_policy "$d/home" '["codex"]' 1
 mkdir -p "$d/block"
-FM_FAKE_BLOCK_DIR="$d/block" exec_wrapper_env "$d" "$d/home" axi run --intent interrupt \
+FM_FAKE_BLOCK_DIR="$d/block" FM_FAKE_DETACH_AGENT=1 FM_FAKE_STATUS=active \
+  exec_wrapper_env "$d" "$d/home" axi run --intent interrupt \
   > "$d/interrupt.out" 2>&1 &
 interrupt_wrapper=$!
 BG_PIDS+=("$interrupt_wrapper")
 wait_for_count "$d/children" started 1 || fail "interruption fixture did not start"
+interrupted_agent=$(cat "$d/children"/agent.*)
+BG_PIDS+=("$interrupted_agent")
 kill -TERM "$interrupt_wrapper"
 set +e
 wait "$interrupt_wrapper"
 rc=$?
 set -e
 [ "$rc" -eq 143 ] || fail "interrupted boundary exited $rc instead of 143"
-wrapper_env "$d" "$d/home" axi run --intent after-interrupt >/dev/null 2>&1
+kill -0 "$interrupted_agent" 2>/dev/null || fail "daemon-owned agent did not survive its interrupted CLI"
+set +e
+out=$(FM_FAKE_STATUS=active wrapper_env "$d" "$d/home" axi run --intent while-daemon-active 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 75 ] || fail "interrupted CLI released an active daemon run lease (exit $rc)"
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "interrupted active daemon run admitted a second native child"
+touch "$d/block/release"
+wait_for_count "$d/children" completed 1 || fail "daemon-owned agent did not complete after release"
+FM_FAKE_STATUS=terminal wrapper_env "$d" "$d/home" axi run --intent after-interrupt >/dev/null 2>&1
 [ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 2 ] \
-  || fail "handled interruption did not release its slot"
-pass "handled interruption relays to one native child and restores capacity"
+  || fail "terminal daemon status did not recover the interrupted lease"
+pass "interrupted CLI leases wait for daemon-status-proven recovery"
 
 # A dead wrapper retains a live native child, then recovers without manual files.
 d=$(make_case abnormal-exit codex)

@@ -232,14 +232,15 @@ The policy file belongs to one Firstmate home and is primary-authoritative inher
 A local secondmate therefore receives the same bytes, and its launch refuses before endpoint or task-record publication when policy propagation was skipped, failed, remained stale, or left unsafe source or destination artifacts; other inherited local-material failures retain their existing warning behavior.
 A remote secondmate receives the policy on its own host through the existing authenticated inheritance path.
 Each policy-enabled home registers against the canonical `NM_HOME` used by its machine's shared no-mistakes service.
-Every Firstmate wrapper sharing that service refreshes registered policy files, intersects their allowlists, applies the smallest registered ceiling, and uses one machine-private slot pool keyed by that service home.
+Every Firstmate wrapper sharing that service refreshes registered policy files, intersects their allowlists, applies the smallest registered ceiling, and uses one machine-private slot pool beneath the canonical service home, independent of ambient `XDG_STATE_HOME` values.
 This makes independent Firstmate homes and local secondmate homes share one real service ceiling rather than separate per-home locks.
 Removing a registered policy file unregisters that home on the next wrapper boundary, while an invalid registered file stops guarded calls rather than silently retaining stale settings.
 A remote host has a different no-mistakes service and therefore a separate machine-local pool; Firstmate does not claim one cross-machine ceiling over independent services.
 
 A slot covers one complete blocking native guarded call, conservatively including non-agent steps until that call returns at a gate, CI-ready point, or outcome.
 The wrapper starts an exact child behind a pipe gate, records that stable process identity in the lease, yields for any already-delivered interrupt, and only then lets the child exec native no-mistakes, so no native agent can outrun durable accounting.
-Normal completion, gate returns, and handled interruption release immediately.
+Normal completion and gate returns release immediately.
+An interruption after native launch leaves the lease charged because the CLI client can exit while its daemon-owned validation remains active.
 If a wrapper dies before identity publication, the still-closed pipe prevents native launch and the transitional lease remains conservatively charged for a bounded recovery window; if it dies after publication, the exact native CLI child keeps the lease while alive.
 After both disappear, a bounded read-only `axi status` check reaps a gate-returned, terminal, or absent run and keeps an apparently active run charged.
 This recovery is independent of the primary session and never deletes a manual lock, enumerates agent processes, or stops or restarts the shared no-mistakes service.

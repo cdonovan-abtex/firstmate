@@ -158,10 +158,7 @@ function stateRootForService(home) {
   if (process.env.FM_NO_MISTAKES_SLOT_ROOT) {
     return path.resolve(process.env.FM_NO_MISTAKES_SLOT_ROOT, serviceKey(home));
   }
-  const stateBase = process.env.XDG_STATE_HOME
-    ? path.resolve(process.env.XDG_STATE_HOME)
-    : path.join(os.homedir(), ".local", "state");
-  return path.join(stateBase, "firstmate", "no-mistakes-services", serviceKey(home));
+  return path.join(home, ".firstmate-policy");
 }
 
 function assertPlainDirectory(dir, create = false) {
@@ -289,8 +286,21 @@ function parseYamlScalar(raw) {
   return value;
 }
 
-function readTopLevelYamlField(text, key, file) {
+function normalizeYamlRootIndent(text, file) {
   const lines = text.split(/\r?\n/);
+  let rootIndent = null;
+  for (const line of lines) {
+    if (/^\s*(?:#.*)?$/.test(line)) continue;
+    if (/^ *\t/.test(line)) throw new Error(`${file} uses unsupported tab indentation`);
+    const indent = line.match(/^ */)[0].length;
+    rootIndent = rootIndent === null ? indent : Math.min(rootIndent, indent);
+  }
+  if (!rootIndent) return lines;
+  return lines.map((line) => (/^\s*(?:#.*)?$/.test(line) ? line : line.slice(rootIndent)));
+}
+
+function readTopLevelYamlField(text, key, file) {
+  const lines = normalizeYamlRootIndent(text, file);
   let found = null;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
@@ -1081,6 +1091,7 @@ async function invokeGuarded() {
     `Firstmate no-mistakes policy: agent=${state.agent} active=${state.active} available=${state.available} ceiling=${state.policy.maxConcurrent}; slot acquired.\n`,
   );
   let observed = null;
+  let nativeLaunched = false;
   try {
     throwIfInterrupted();
     nativeChild = spawnNativeBehindGate(state.native, args, state.env);
@@ -1092,10 +1103,16 @@ async function invokeGuarded() {
     // observed interruption rather than a native launch race.
     await new Promise((resolve) => setImmediate(resolve));
     throwIfInterrupted();
+    nativeLaunched = true;
     nativeChild.stdin.end("launch\n");
     const outcome = await observed.exited;
     if (outcome.error) throw outcome.error;
     nativeChild = null;
+    if (relayedSignal || outcome.signal) {
+      heldLease = null;
+      process.exitCode = relayedSignal ? signalExitCode(relayedSignal) : signalExitCode(outcome.signal);
+      return;
+    }
     await releaseLease(heldLease);
     heldLease = null;
     process.exitCode = outcome.code ?? signalExitCode(outcome.signal);
@@ -1116,8 +1133,12 @@ async function invokeGuarded() {
       if (observed) await observed.exited;
       nativeChild = null;
     }
-    await releaseLease(heldLease);
-    heldLease = null;
+    if (nativeLaunched) {
+      heldLease = null;
+    } else {
+      await releaseLease(heldLease);
+      heldLease = null;
+    }
     if (relayedSignal || error.interrupted) process.exitCode = signalExitCode(relayedSignal);
     else diagnostic(`native launch failed (${error.message})`);
   }
