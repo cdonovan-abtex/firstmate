@@ -123,6 +123,8 @@ chmod +x "$FAKEBIN/fake-ssh"
 printf 'codex\n' > "$PARENT/config/secondmate-harness"
 printf 'tmux\n' > "$PARENT/config/backend"
 printf 'codex\n' > "$PARENT/config/crew-harness"
+printf '%s\n' '{"version":1,"allowedAgents":["codex"],"maxConcurrent":2}' \
+  > "$PARENT/config/no-mistakes-policy.json"
 printf '## In flight\n\n## Queued\n\n## Done\n' > "$PARENT/data/backlog.md"
 
 remote_env() {
@@ -178,8 +180,55 @@ assert_present "$PARENT/state/ios.meta" "default-off remote spawn published no p
 [ "$(remote_launch_snapshot)" = off ] \
   || fail "default-off remote spawn must deliver FM_TRACE_CONTEXT=off (got '$(remote_launch_snapshot)')"
 assert_absent "$REMOTE_HOME/config/trace-context" "default-off remote spawn inherited an enablement flag"
+assert_present "$REMOTE_HOME/config/no-mistakes-policy.json" \
+  "default-off remote spawn did not inherit the validation-agent policy"
 grep -q 'export GOTMPDIR=' "$HERDR_LOG" || fail "the remote spawn should still run (GOTMPDIR is always exported)"
 pass "disabled: a remote-routed second mate records and receives no carrier and stays enabled-off end to end"
+
+REMOTE_VALIDATION="$TMP_ROOT/remote-validation"
+mkdir -p "$REMOTE_VALIDATION/nm" "$REMOTE_VALIDATION/fakebin"
+git init -q --bare "$REMOTE_VALIDATION/origin.git"
+git --git-dir="$REMOTE_VALIDATION/origin.git" symbolic-ref HEAD refs/heads/main
+git init -q -b main "$REMOTE_VALIDATION/repo"
+git -C "$REMOTE_VALIDATION/repo" config user.name fm-test
+git -C "$REMOTE_VALIDATION/repo" config user.email fm-test@example.com
+git -C "$REMOTE_VALIDATION/repo" commit -q --allow-empty -m seed
+git -C "$REMOTE_VALIDATION/repo" remote add origin "$REMOTE_VALIDATION/origin.git"
+git -C "$REMOTE_VALIDATION/repo" push -q -u origin main
+printf 'agent: claude\n' > "$REMOTE_VALIDATION/nm/config.yaml"
+: > "$REMOTE_VALIDATION/native.log"
+cat > "$REMOTE_VALIDATION/fakebin/no-mistakes-native" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_REMOTE_NATIVE_LOG"
+exit 0
+SH
+chmod +x "$REMOTE_VALIDATION/fakebin/no-mistakes-native"
+node --no-warnings - "$REMOTE_VALIDATION/nm/state.sqlite" "$REMOTE_VALIDATION/repo" "$REMOTE_VALIDATION/origin.git" <<'JS'
+const fs = require("node:fs");
+const { DatabaseSync } = require("node:sqlite");
+const database = new DatabaseSync(process.argv[2]);
+database.exec("CREATE TABLE repos (id TEXT PRIMARY KEY, working_path TEXT NOT NULL UNIQUE, upstream_url TEXT NOT NULL, fork_url TEXT, default_branch TEXT NOT NULL, created_at INTEGER NOT NULL)");
+database.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, repo_id TEXT NOT NULL, branch TEXT NOT NULL, head_sha TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL)");
+database.prepare("INSERT INTO repos (id, working_path, upstream_url, default_branch, created_at) VALUES (?, ?, ?, ?, ?)")
+  .run("remote-test-repo", fs.realpathSync(process.argv[3]), process.argv[4], "main", 1);
+database.close();
+JS
+set +e
+REMOTE_DENIAL=$(cd "$REMOTE_VALIDATION/repo" && \
+  FM_NO_MISTAKES_POLICY_HOME="$REMOTE_HOME" \
+  FM_NO_MISTAKES_NATIVE_BIN="$REMOTE_VALIDATION/fakebin/no-mistakes-native" \
+  FM_FAKE_REMOTE_NATIVE_LOG="$REMOTE_VALIDATION/native.log" \
+  NM_HOME="$REMOTE_VALIDATION/nm" \
+  "$REMOTE_HOME/bin/no-mistakes" axi run --intent remote-policy-denial 2>&1)
+REMOTE_DENIAL_STATUS=$?
+set -u
+[ "$REMOTE_DENIAL_STATUS" -eq 78 ] \
+  || fail "remote inherited policy denial exited $REMOTE_DENIAL_STATUS instead of 78: $REMOTE_DENIAL"
+assert_contains "$REMOTE_DENIAL" 'denied effective agent "claude"' \
+  "remote inherited policy did not deny the disallowed effective agent"
+[ ! -s "$REMOTE_VALIDATION/native.log" ] \
+  || fail "remote inherited policy denial started a native validation child"
+pass "policy: a remote inherited allowlist denies a disallowed agent before native launch"
 
 # --- enabled: one carrier is recorded by the parent and received remotely ----
 : > "$PARENT/config/trace-context"

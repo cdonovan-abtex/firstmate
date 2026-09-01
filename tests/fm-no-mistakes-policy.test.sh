@@ -37,7 +37,7 @@ printf '%s\t%s\n' "$$" "$*" >> "$FM_FAKE_NATIVE_LOG"
 if [ "${1:-}" = axi ] && [ "${2:-}" = status ]; then
   case "${FM_FAKE_STATUS:-absent}" in
     active)
-      printf '%s\n' 'run:' '  status: running' '  steps[1]{step,status}:' '    review,running'
+      printf '%s\n' 'run:' "  id: ${FM_FAKE_RUN_ID:-test-run}" "  branch: ${FM_FAKE_RUN_BRANCH:-main}" "  head: ${FM_FAKE_RUN_HEAD:-unknown}" '  status: running' '  steps[1]{step,status}:' '    review,running'
       ;;
     parked)
       printf '%s\n' 'run:' '  status: awaiting_approval' '  awaiting_agent: parked 1s' 'gate: review'
@@ -77,6 +77,10 @@ case " $* " in
   *) fm_fake_guarded=0 ;;
 esac
 if [ "$fm_fake_guarded" = 1 ]; then
+  if [ -n "${FM_FAKE_RUN_ID:-}" ] && [ "${1:-}" = axi ] && [ "${2:-}" = run ]; then
+    node --no-warnings -e 'const {DatabaseSync}=require("node:sqlite");const d=new DatabaseSync(process.argv[1]);d.prepare("INSERT OR REPLACE INTO runs (id,repo_id,branch,head_sha,status,created_at) VALUES (?,?,?,?,?,?)").run(process.argv[2],"test-repo",process.argv[3],process.argv[4],"running",Date.now());d.close()' \
+      "$FM_FAKE_STATE_DB" "$FM_FAKE_RUN_ID" "${FM_FAKE_RUN_BRANCH:-main}" "$FM_FAKE_RUN_HEAD"
+  fi
   mkdir -p "$FM_FAKE_CHILD_DIR"
   printf '%s\n' "$$" > "$FM_FAKE_CHILD_DIR/native.$$"
   (
@@ -130,6 +134,7 @@ const fs = require("node:fs");
 const { DatabaseSync } = require("node:sqlite");
 const database = new DatabaseSync(process.argv[2]);
 database.exec("CREATE TABLE repos (id TEXT PRIMARY KEY, working_path TEXT NOT NULL UNIQUE, upstream_url TEXT NOT NULL, fork_url TEXT, default_branch TEXT NOT NULL DEFAULT 'main', created_at INTEGER NOT NULL)");
+database.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, repo_id TEXT NOT NULL, branch TEXT NOT NULL, head_sha TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL)");
 database.prepare("INSERT INTO repos (id, working_path, upstream_url, default_branch, created_at) VALUES (?, ?, ?, ?, ?)")
   .run("test-repo", fs.realpathSync(process.argv[3]), "test-origin", "main", 1);
 database.close();
@@ -170,6 +175,7 @@ wrapper_env() { # <case-dir> <home> <args...>
       FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
       FM_NO_MISTAKES_NATIVE_PATH="$PATH" \
       FM_NO_MISTAKES_SLOT_ROOT="$dir/slots" \
+      FM_NO_MISTAKES_TEST_MODE=1 \
       NM_HOME="$dir/nm" \
       FM_FAKE_NATIVE_LOG="$dir/native.log" \
       FM_FAKE_CHILD_DIR="$dir/children" \
@@ -177,6 +183,10 @@ wrapper_env() { # <case-dir> <home> <args...>
       FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
       FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
       FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+      FM_FAKE_RUN_ID="${FM_FAKE_RUN_ID:-}" \
+      FM_FAKE_RUN_BRANCH="${FM_FAKE_RUN_BRANCH:-main}" \
+      FM_FAKE_RUN_HEAD="$(git -C "$dir/repo" rev-parse HEAD)" \
+      FM_FAKE_STATE_DB="$dir/nm/state.sqlite" \
       "$WRAPPER" "$@"
   )
 }
@@ -192,6 +202,7 @@ exec_wrapper_env() { # <case-dir> <home> <args...>
     FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
     FM_NO_MISTAKES_NATIVE_PATH="$PATH" \
     FM_NO_MISTAKES_SLOT_ROOT="$dir/slots" \
+    FM_NO_MISTAKES_TEST_MODE=1 \
     NM_HOME="$dir/nm" \
     FM_FAKE_NATIVE_LOG="$dir/native.log" \
     FM_FAKE_CHILD_DIR="$dir/children" \
@@ -199,6 +210,10 @@ exec_wrapper_env() { # <case-dir> <home> <args...>
     FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
     FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
     FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+    FM_FAKE_RUN_ID="${FM_FAKE_RUN_ID:-}" \
+    FM_FAKE_RUN_BRANCH="${FM_FAKE_RUN_BRANCH:-main}" \
+    FM_FAKE_RUN_HEAD="$(git -C "$dir/repo" rev-parse HEAD)" \
+    FM_FAKE_STATE_DB="$dir/nm/state.sqlite" \
     "$WRAPPER" "$@"
 }
 
@@ -212,6 +227,7 @@ wrapper_env_at() { # <case-dir> <home> <repository> <args...>
       FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
       FM_NO_MISTAKES_NATIVE_PATH="$PATH" \
       FM_NO_MISTAKES_SLOT_ROOT="$dir/slots" \
+      FM_NO_MISTAKES_TEST_MODE=1 \
       NM_HOME="$dir/nm" \
       FM_FAKE_NATIVE_LOG="$dir/native.log" \
       FM_FAKE_CHILD_DIR="$dir/children" \
@@ -219,8 +235,34 @@ wrapper_env_at() { # <case-dir> <home> <repository> <args...>
       FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
       FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
       FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+      FM_FAKE_RUN_ID="${FM_FAKE_RUN_ID:-}" \
+      FM_FAKE_RUN_BRANCH="${FM_FAKE_RUN_BRANCH:-main}" \
+      FM_FAKE_RUN_HEAD="$(git -C "$repo" rev-parse HEAD)" \
+      FM_FAKE_STATE_DB="$dir/nm/state.sqlite" \
       "$WRAPPER" "$@"
   )
+}
+
+exec_wrapper_env_at() { # <case-dir> <home> <repository> <args...>
+  local dir=$1 home=$2 repo=$3
+  shift 3
+  cd "$repo" || exit 1
+  exec env \
+    FM_NO_MISTAKES_POLICY_HOME="$home" \
+    FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
+    FM_NO_MISTAKES_SLOT_ROOT="$dir/slots" \
+    NM_HOME="$dir/nm" \
+    FM_FAKE_NATIVE_LOG="$dir/native.log" \
+    FM_FAKE_CHILD_DIR="$dir/children" \
+    FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
+    FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
+    FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
+    FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+    FM_FAKE_RUN_ID="${FM_FAKE_RUN_ID:-}" \
+    FM_FAKE_RUN_BRANCH="${FM_FAKE_RUN_BRANCH:-main}" \
+    FM_FAKE_RUN_HEAD="$(git -C "$repo" rev-parse HEAD)" \
+    FM_FAKE_STATE_DB="$dir/nm/state.sqlite" \
+    "$WRAPPER" "$@"
 }
 
 wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
@@ -228,7 +270,7 @@ wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
   shift 3
   (
     cd "$dir/repo" || exit 1
-    exec env -u FM_NO_MISTAKES_SLOT_ROOT \
+    exec env -u FM_NO_MISTAKES_TEST_MODE \
       XDG_STATE_HOME="$xdg" \
       FM_NO_MISTAKES_POLICY_HOME="$home" \
       FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
@@ -240,6 +282,10 @@ wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
       FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
       FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
       FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+      FM_FAKE_RUN_ID="${FM_FAKE_RUN_ID:-}" \
+      FM_FAKE_RUN_BRANCH="${FM_FAKE_RUN_BRANCH:-main}" \
+      FM_FAKE_RUN_HEAD="$(git -C "$dir/repo" rev-parse HEAD)" \
+      FM_FAKE_STATE_DB="$dir/nm/state.sqlite" \
       "$WRAPPER" "$@"
   )
 }
@@ -248,7 +294,7 @@ exec_wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
   local dir=$1 home=$2 xdg=$3
   shift 3
   cd "$dir/repo" || exit 1
-  exec env -u FM_NO_MISTAKES_SLOT_ROOT \
+  exec env -u FM_NO_MISTAKES_TEST_MODE \
     XDG_STATE_HOME="$xdg" \
     FM_NO_MISTAKES_POLICY_HOME="$home" \
     FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
@@ -260,6 +306,10 @@ exec_wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
     FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
     FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
     FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+    FM_FAKE_RUN_ID="${FM_FAKE_RUN_ID:-}" \
+    FM_FAKE_RUN_BRANCH="${FM_FAKE_RUN_BRANCH:-main}" \
+    FM_FAKE_RUN_HEAD="$(git -C "$dir/repo" rev-parse HEAD)" \
+    FM_FAKE_STATE_DB="$dir/nm/state.sqlite" \
     "$WRAPPER" "$@"
 }
 
@@ -275,8 +325,7 @@ wait_for_count() { # <glob-parent> <prefix> <count>
 }
 
 service_state_root() { # <case-dir>
-  node -e 'const c=require("node:crypto"),f=require("node:fs"); process.stdout.write(process.argv[1]+"/"+c.createHash("sha256").update(f.realpathSync(process.argv[2])).digest("hex"))' \
-    "$1/slots" "$1/nm"
+  printf '%s\n' "$1/nm/.firstmate-policy"
 }
 
 # Explicit identity is admitted and the native child starts.
@@ -582,6 +631,7 @@ FM_NO_MISTAKES_POLICY_HOME="$d/home" \
 FM_NO_MISTAKES_NATIVE_BIN="$d/fakebin/no-mistakes-native" \
 FM_NO_MISTAKES_NATIVE_PATH="$drift_native_path" \
 FM_NO_MISTAKES_SLOT_ROOT="$d/slots" \
+FM_NO_MISTAKES_TEST_MODE=1 \
 NM_HOME="$d/nm" FM_FAKE_NATIVE_LOG="$d/native.log" FM_FAKE_CHILD_DIR="$d/children" \
 FM_DRIFT_READY="$d/ready" FM_DRIFT_GO="$d/go" FM_DRIFT_REPO="$d/repo" \
   "$d/launched-worker.sh" > "$d/drift.out" 2>&1 &
@@ -601,21 +651,28 @@ assert_contains "$(cat "$d/drift.out")" 'denied effective agent "auto"' \
 [ ! -s "$d/native.log" ] || fail "post-launch drift reached native no-mistakes"
 pass "worker launch does not cache a safe agent across later config drift"
 
-# Continuation is an equal policy boundary.
+# Continuation is bound to its run-start selector and freshly authorized.
 d=$(make_case continuation-drift codex)
 write_policy "$d/home" '["codex"]' 2
-wrapper_env "$d" "$d/home" axi run --intent initial >/dev/null 2>&1
-printf 'agent: auto\n' > "$d/nm/config.yaml"
+FM_FAKE_RUN_ID=bound-run wrapper_env "$d" "$d/home" axi run --intent initial >/dev/null 2>&1
+started_before=$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')
+printf 'agent: claude\n' > "$d/nm/config.yaml"
+write_policy "$d/home" '["claude"]' 2
 set +e
 out=$(wrapper_env "$d" "$d/home" axi respond --action approve 2>&1)
 rc=$?
 set -e
 [ "$rc" -eq 78 ] || fail "drifted continuation exited $rc instead of 78"
-[ "$(grep -c $'\taxi respond ' "$d/native.log" || true)" -eq 0 ] \
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq "$started_before" ] \
   || fail "drifted continuation reached native no-mistakes"
-assert_contains "$out" 'denied effective agent "auto"' \
-  "continuation drift was not re-read"
-pass "every validation continuation re-reads effective agent policy"
+assert_contains "$out" 'denied selector drift for active run bound-run' \
+  "continuation did not compare the current selector with its pinned start selector"
+printf 'agent: codex\n' > "$d/nm/config.yaml"
+write_policy "$d/home" '["codex"]' 2
+wrapper_env "$d" "$d/home" axi respond --action approve >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq $((started_before + 1)) ] \
+  || fail "unchanged pinned continuation selector was not admitted"
+pass "continuations require their pinned start selector and fresh authorization"
 
 # Two slots run together; status exposes the cohort and a third call is refused.
 d=$(make_case two-slots codex)
@@ -686,7 +743,7 @@ d2=$(make_case xdg-distinct-service codex)
 write_policy "$d/home" '["codex"]' 1
 write_policy "$d2/home" '["codex"]' 1
 mkdir -p "$d/block" "$d/xdg-one" "$d/xdg-two"
-FM_FAKE_BLOCK_DIR="$d/block" exec_wrapper_env_stable_root "$d" "$d/home" "$d/xdg-one" axi run --intent xdg-one \
+FM_NO_MISTAKES_SLOT_ROOT="$d/ambient-one" FM_FAKE_BLOCK_DIR="$d/block" exec_wrapper_env_stable_root "$d" "$d/home" "$d/xdg-one" axi run --intent xdg-one \
   > "$d/xdg-one.out" 2>&1 &
 xdg_wrapper=$!
 BG_PIDS+=("$xdg_wrapper")
@@ -695,7 +752,7 @@ wrapper_env_stable_root "$d2" "$d2/home" "$d/xdg-one" axi run --intent distinct-
 [ "$(find "$d2/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
   || fail "a distinct no-mistakes service collided in the stable accounting root"
 set +e
-out=$(wrapper_env_stable_root "$d" "$d/home" "$d/xdg-two" axi run --intent xdg-two 2>&1)
+out=$(FM_NO_MISTAKES_SLOT_ROOT="$d/ambient-two" wrapper_env_stable_root "$d" "$d/home" "$d/xdg-two" axi run --intent xdg-two 2>&1)
 rc=$?
 set -e
 [ "$rc" -eq 75 ] || fail "different XDG_STATE_HOME bypassed the shared service ceiling (exit $rc)"
@@ -703,7 +760,7 @@ set -e
   || fail "different XDG_STATE_HOME started an over-limit native child"
 touch "$d/block/release"
 wait "$xdg_wrapper"
-pass "service accounting ignores XDG drift without merging distinct services"
+pass "service accounting ignores XDG and ambient slot-root drift without merging distinct services"
 
 # Killing the wrapper in the widened spawn-to-identity handoff cannot free the
 # slot or let the pipe-gated native command start. The conservative transitional
@@ -791,7 +848,7 @@ pass "an interrupt observed before spawn prevents native launch"
 d=$(make_case interruption codex)
 write_policy "$d/home" '["codex"]' 1
 mkdir -p "$d/block"
-FM_FAKE_BLOCK_DIR="$d/block" FM_FAKE_DETACH_AGENT=1 FM_FAKE_STATUS=active \
+FM_FAKE_BLOCK_DIR="$d/block" FM_FAKE_DETACH_AGENT=1 FM_FAKE_STATUS=active FM_FAKE_RUN_ID=interrupt-run \
   exec_wrapper_env "$d" "$d/home" axi run --intent interrupt \
   > "$d/interrupt.out" 2>&1 &
 interrupt_wrapper=$!
@@ -820,11 +877,43 @@ FM_FAKE_STATUS=terminal wrapper_env "$d" "$d/home" axi run --intent after-interr
   || fail "terminal daemon status did not recover the interrupted lease"
 pass "interrupted CLI leases wait for daemon-status-proven recovery"
 
+d=$(make_case stable-recovery-cwd codex)
+write_policy "$d/home" '["codex"]' 1
+git -C "$d/repo" worktree add -q -b ephemeral "$d/ephemeral"
+mkdir -p "$d/block"
+FM_FAKE_BLOCK_DIR="$d/block" FM_FAKE_DETACH_AGENT=1 FM_FAKE_STATUS=active \
+  FM_FAKE_RUN_ID=ephemeral-run FM_FAKE_RUN_BRANCH=ephemeral \
+  exec_wrapper_env_at "$d" "$d/home" "$d/ephemeral" axi run --intent ephemeral-cwd \
+  > "$d/ephemeral.out" 2>&1 &
+ephemeral_wrapper=$!
+BG_PIDS+=("$ephemeral_wrapper")
+wait_for_count "$d/children" started 1 || fail "ephemeral-worktree fixture did not start"
+ephemeral_agent=$(cat "$d/children"/agent.*)
+BG_PIDS+=("$ephemeral_agent")
+kill -TERM "$ephemeral_wrapper"
+set +e
+wait "$ephemeral_wrapper"
+set -e
+git -C "$d/repo" worktree remove --force "$d/ephemeral"
+set +e
+out=$(FM_FAKE_STATUS=active wrapper_env "$d" "$d/home" axi run --intent while-ephemeral-run-active 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 75 ] || fail "removed task worktree prevented active-run lease accounting (exit $rc)"
+grep -F $'axi status --run ephemeral-run' "$d/native.log" >/dev/null \
+  || fail "stale recovery did not query the attributable run id from a stable location"
+touch "$d/block/release"
+wait_for_count "$d/children" completed 1 || fail "ephemeral-worktree daemon work did not complete"
+FM_FAKE_STATUS=terminal wrapper_env "$d" "$d/home" axi run --intent after-ephemeral-run >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 2 ] \
+  || fail "stable explicit-run recovery did not restore capacity after task worktree removal"
+pass "stale recovery uses attributable run identity outside ephemeral worktrees"
+
 d=$(make_case nonzero-client codex)
 write_policy "$d/home" '["codex"]' 1
 mkdir -p "$d/block"
 set +e
-FM_FAKE_BLOCK_DIR="$d/block" FM_FAKE_DETACH_AGENT=1 FM_FAKE_CLIENT_EXIT_CODE=1 FM_FAKE_STATUS=active \
+FM_FAKE_BLOCK_DIR="$d/block" FM_FAKE_DETACH_AGENT=1 FM_FAKE_CLIENT_EXIT_CODE=1 FM_FAKE_STATUS=active FM_FAKE_RUN_ID=failed-client-run \
   wrapper_env "$d" "$d/home" axi run --intent client-failure > "$d/client-failure.out" 2>&1
 rc=$?
 set -e

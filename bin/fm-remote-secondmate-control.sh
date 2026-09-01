@@ -3,6 +3,7 @@
 #
 # Usage:
 #   fm-remote-secondmate-control.sh launch <id> <harness> <model|-> <effort|-> herdr [traceparent]
+#   fm-remote-secondmate-control.sh capability <id>
 #   fm-remote-secondmate-control.sh state <id>
 #   fm-remote-secondmate-control.sh route <id>
 #   fm-remote-secondmate-control.sh send <id> <message> [fire-and-forget]
@@ -132,6 +133,13 @@ cmd_route() {
     die "remote secondmate has no endpoint metadata"
   fi
   print_route "$id"
+}
+
+cmd_capability() {
+  local id=$1
+  validate_id "$id"
+  validate_home "$id"
+  "$TARGET_HOME/bin/fm-spawn.sh" --validation-boundary-capability
 }
 
 cmd_launch() {
@@ -326,6 +334,7 @@ cmd_retire() {
 
 case "${1:-}" in
   launch) shift; [ "$#" -ge 5 ] && [ "$#" -le 6 ] || usage; cmd_launch "$@" ;;
+  capability) shift; [ "$#" -eq 1 ] || usage; cmd_capability "$1" ;;
   state) shift; [ "$#" -eq 1 ] || usage; validate_id "$1"; validate_home "$1"; state_value "$1" ;;
   route) shift; [ "$#" -eq 1 ] || usage; cmd_route "$1" ;;
   send) shift; [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage; cmd_send "$@" ;;

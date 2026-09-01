@@ -141,7 +141,7 @@ test_no_profile_keeps_claude_profile_defaults() {
     "no-profile launch did not bind no-mistakes policy to its home"
   assert_contains "$launch" "FM_NO_MISTAKES_NATIVE_BIN='$FAKEBIN_DIR/no-mistakes'" \
     "no-profile launch did not preserve the native no-mistakes command"
-  assert_contains "$launch" "PATH='$ROOT/bin:$FAKEBIN_DIR:" \
+  assert_contains "$launch" "PATH='$ROOT/bin':\$PATH" \
     "no-profile launch did not prepend Firstmate's command boundary"
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
@@ -156,7 +156,7 @@ test_policy_free_scout_launches_without_native_no_mistakes() {
   read_case_record "$rec"
   rm -f "$FAKEBIN_DIR/no-mistakes"
 
-  out=$(FM_NO_MISTAKES_NATIVE_PATH="$FAKEBIN_DIR:/usr/bin:/bin" \
+  out=$(PATH="$FAKEBIN_DIR:/usr/bin:/bin" \
     run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --scout)
   status=$?
   expect_code 0 "$status" "policy-free scout spawn should not require native no-mistakes"
@@ -165,7 +165,7 @@ test_policy_free_scout_launches_without_native_no_mistakes() {
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "FM_NO_MISTAKES_NATIVE_BIN=''" \
     "policy-free scout did not carry an intentionally empty native-validator hint"
-  assert_contains "$launch" "PATH='$ROOT/bin:$FAKEBIN_DIR:/usr/bin:/bin'" \
+  assert_contains "$launch" "PATH='$ROOT/bin':\$PATH" \
     "policy-free scout did not retain the tracked lazy validation boundary"
   pass "policy-free scout launch does not require native no-mistakes"
 }

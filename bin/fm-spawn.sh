@@ -224,6 +224,14 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_VALIDATION_BOUNDARY_CAPABILITY=firstmate-no-mistakes-boundary-v1
+
+if [ "${1:-}" = --validation-boundary-capability ] && [ "$#" -eq 1 ]; then
+  capability=$("$SCRIPT_DIR/no-mistakes" fm-boundary-capability 2>/dev/null) || exit 1
+  [ "$capability" = "$FM_VALIDATION_BOUNDARY_CAPABILITY" ] || exit 1
+  printf '%s\n' "$capability"
+  exit 0
+fi
 
 usage() {
   # The whole leading comment block, ending at the first line that is not a
@@ -590,6 +598,20 @@ spawn_remote_secondmate() {
       echo "error: remote secondmate $id inheritance failed; launch refused" >&2
     fi
     return "$rc"
+  fi
+  if [ -e "$CONFIG/no-mistakes-policy.json" ] || [ -L "$CONFIG/no-mistakes-policy.json" ]; then
+    if out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh capability "$id" < /dev/null 2>&1); then
+      rc=0
+    else
+      rc=$?
+    fi
+    if [ "$rc" -ne 0 ] || [ "$out" != "$FM_VALIDATION_BOUNDARY_CAPABILITY" ]; then
+      fm_lock_release "$remote_lock" || true
+      fm_lock_release "$registry_lock" || true
+      fm_lock_release "$SPAWN_TASK_LOCK" || true
+      echo "error: remote secondmate $id inherited policy but its tracked validation boundary is unavailable or stale" >&2
+      return 1
+    fi
   fi
   # This parent home owns the remote secondmate's task identity because it holds
   # the task metadata an observer reads, exactly as for a local spawn: the
@@ -1762,6 +1784,13 @@ if [ "$KIND" = secondmate ]; then
     if ! NM_POLICY_CONVERGENCE_ERROR=$(fm_no_mistakes_policy_converged "$CONFIG" "$PROJ_ABS/config"); then
       echo "error: secondmate $ID no-mistakes policy did not converge before launch: $NM_POLICY_CONVERGENCE_ERROR" >&2
       exit 1
+    fi
+    if [ -e "$CONFIG/no-mistakes-policy.json" ] || [ -L "$CONFIG/no-mistakes-policy.json" ]; then
+      if ! NM_BOUNDARY_CAPABILITY=$("$PROJ_ABS/bin/fm-spawn.sh" --validation-boundary-capability 2>/dev/null) \
+        || [ "$NM_BOUNDARY_CAPABILITY" != "$FM_VALIDATION_BOUNDARY_CAPABILITY" ]; then
+        echo "error: secondmate $ID inherited no-mistakes policy but its tracked validation boundary is unavailable or stale" >&2
+        exit 1
+      fi
     fi
     if [ "$SECONDMATE_INHERIT_STATUS" -ne 0 ]; then
       echo "warning: secondmate $ID inheritance failed for $PROJ_ABS" >&2
@@ -2967,7 +2996,6 @@ fi
 # secondmate agent inherits the original pair and passes it to its own workers,
 # so nested Firstmate homes cannot resolve this wrapper as the native binary. A
 # fresh remote secondmate resolves the same pair on its host.
-NM_NATIVE_PATH=${FM_NO_MISTAKES_NATIVE_PATH:-$PATH}
 NM_NATIVE_BIN=${FM_NO_MISTAKES_NATIVE_BIN:-}
 if [ -n "$NM_NATIVE_BIN" ]; then
   case "$NM_NATIVE_BIN" in /*) ;; *) NM_NATIVE_BIN= ;; esac
@@ -2982,7 +3010,7 @@ fi
 if [ -z "$NM_NATIVE_BIN" ]; then
   old_ifs=$IFS
   IFS=:
-  for nm_path_dir in $NM_NATIVE_PATH; do
+  for nm_path_dir in $PATH; do
     [ -n "$nm_path_dir" ] || nm_path_dir=.
     nm_candidate="$nm_path_dir/no-mistakes"
     [ -f "$nm_candidate" ] && [ -x "$nm_candidate" ] || continue
@@ -2996,7 +3024,6 @@ if [ -z "$NM_NATIVE_BIN" ]; then
 fi
 NM_POLICY_HOME=$FM_HOME
 [ "$KIND" != secondmate ] || NM_POLICY_HOME=$PROJ_ABS
-NM_WORKER_PATH="$FM_ROOT/bin:$NM_NATIVE_PATH"
 
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
@@ -3056,9 +3083,9 @@ if [ "$KIND" = secondmate ]; then
 fi
 # One structural prefix covers every supported harness template and backend:
 # all adapters receive this same LAUNCH string through spawn_send_literal below.
-# The wrapper gets the original PATH separately so it can invoke the native CLI
-# without recursively resolving bin/no-mistakes or changing agent lookup.
-LAUNCH="FM_NO_MISTAKES_POLICY_HOME=$(shell_quote "$NM_POLICY_HOME") FM_NO_MISTAKES_NATIVE_BIN=$(shell_quote "$NM_NATIVE_BIN") FM_NO_MISTAKES_NATIVE_PATH=$(shell_quote "$NM_NATIVE_PATH") PATH=$(shell_quote "$NM_WORKER_PATH") $LAUNCH"
+# The wrapper gets the resolved native binary separately and removes only its
+# own shim directory from the live PATH before invoking the native CLI.
+LAUNCH="FM_NO_MISTAKES_POLICY_HOME=$(shell_quote "$NM_POLICY_HOME") FM_NO_MISTAKES_NATIVE_BIN=$(shell_quote "$NM_NATIVE_BIN") PATH=$(shell_quote "$FM_ROOT/bin"):\$PATH $LAUNCH"
 if [ -z "$SPAWN_TRACEPARENT" ] && [ "$RELAUNCH" -eq 1 ]; then
   LAUNCH="unset TRACEPARENT; $LAUNCH"
 fi

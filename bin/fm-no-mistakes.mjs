@@ -4,7 +4,7 @@
  *
  * Firstmate workers resolve the bare `no-mistakes` command through the tracked
  * bin/no-mistakes symlink to this file. bin/fm-spawn.sh supplies the native
- * binary and its original PATH so this boundary can validate policy, account a
+ * binary so this boundary can validate policy, account a
  * machine-shared slot, and then invoke no-mistakes without recursively calling
  * itself.
  *
@@ -37,10 +37,10 @@
  * agent work is bounded even though non-agent steps within that call may hold
  * the slot conservatively. The native command starts behind a pipe gate whose
  * stable process identity is recorded before it can exec no-mistakes. Leases
- * carry only process identities,
- * agent identity, and working directory - never arguments, prompts, output, or
+ * carry only process identities, repository/run attribution,
+ * agent identity, and stable recovery directory - never arguments, prompts, output, or
  * credentials. A dead wrapper does not free a still-live native CLI child. Once
- * both are gone, a bounded public `axi status` read keeps an apparently active
+ * both are gone, a bounded public `axi status --run` read keeps an apparently active
  * run charged and reaps a gate-returned, terminal, or absent run. Successful
  * exits release immediately. No path kills an agent or manages the shared daemon.
  *
@@ -65,7 +65,9 @@ const SCRIPT_REAL = realpathIfPresent(fileURLToPath(import.meta.url));
 const SCRIPT_DIR = path.dirname(SCRIPT_REAL);
 const args = process.argv.slice(2);
 const statusRequested = args.length === 1 && args[0] === "fm-policy-status";
-const guarded = classifyGuardedBoundary(args) !== null;
+const capabilityRequested = args.length === 1 && args[0] === "fm-boundary-capability";
+const guardedBoundary = classifyGuardedBoundary(args);
+const guarded = guardedBoundary !== null;
 let heldLease = null;
 let nativeChild = null;
 let relayedSignal = null;
@@ -150,14 +152,7 @@ function serviceHome() {
   return realpathIfPresent(process.env.NM_HOME || path.join(os.homedir(), ".no-mistakes"));
 }
 
-function serviceKey(home) {
-  return crypto.createHash("sha256").update(home).digest("hex");
-}
-
 function stateRootForService(home) {
-  if (process.env.FM_NO_MISTAKES_SLOT_ROOT) {
-    return path.resolve(process.env.FM_NO_MISTAKES_SLOT_ROOT, serviceKey(home));
-  }
   return path.join(home, ".firstmate-policy");
 }
 
@@ -532,9 +527,8 @@ function registeredRepositoryRows(database) {
   return database.prepare("SELECT id, working_path, upstream_url, default_branch FROM repos").all();
 }
 
-async function readRegisteredDefaultBranch(nmHome, cwd) {
+async function openStateDatabase(nmHome) {
   const databaseFile = path.join(nmHome, "state.sqlite");
-  const repositoryRoot = registeredRepositoryRoot(cwd);
   const originalEmitWarning = process.emitWarning;
   process.emitWarning = (warning, options, ...rest) => {
     const type = typeof options === "string" ? options : options?.type;
@@ -549,9 +543,18 @@ async function readRegisteredDefaultBranch(nmHome, cwd) {
   } finally {
     process.emitWarning = originalEmitWarning;
   }
+  try {
+    return new sqlite.DatabaseSync(databaseFile, { readOnly: true });
+  } catch (error) {
+    throw new Error(`cannot read registered no-mistakes metadata from ${databaseFile} (${error.message})`);
+  }
+}
+
+async function readRegisteredRepository(nmHome, cwd) {
+  const repositoryRoot = registeredRepositoryRoot(cwd);
   let database;
   try {
-    database = new sqlite.DatabaseSync(databaseFile, { readOnly: true });
+    database = await openStateDatabase(nmHome);
     let rows = database.prepare("SELECT id, working_path, upstream_url, default_branch FROM repos WHERE working_path = ?").all(repositoryRoot);
     if (rows.length === 0) {
       const configured = gitResult(cwd, ["config", "--null", "--get-all", "remote.origin.url"], "could not resolve the repository origin");
@@ -573,7 +576,11 @@ async function readRegisteredDefaultBranch(nmHome, cwd) {
     if (rows.length !== 1 || typeof rows[0].default_branch !== "string" || !rows[0].default_branch.trim()) {
       throw new Error(`no unique registered repository matches ${repositoryRoot}`);
     }
-    return rows[0].default_branch.trim();
+    return {
+      id: rows[0].id,
+      workingPath: realpathIfPresent(rows[0].working_path),
+      defaultBranch: rows[0].default_branch.trim(),
+    };
   } catch (error) {
     throw new Error(`cannot determine the effective repository work-agent selector from registered no-mistakes metadata (${error.message})`);
   } finally {
@@ -597,7 +604,8 @@ function readRepositoryConfigAtCommit(top, commit, label) {
 
 async function readEffectiveRepositorySelector(nmHome, cwd) {
   const top = gitResult(cwd, ["rev-parse", "--show-toplevel"], "could not resolve the repository").trim();
-  const defaultBranch = await readRegisteredDefaultBranch(nmHome, cwd);
+  const repository = await readRegisteredRepository(nmHome, cwd);
+  const defaultBranch = repository.defaultBranch;
   const trustedRef = `refs/heads/${defaultBranch}`;
   gitResult(top, ["check-ref-format", trustedRef], "registered default branch is invalid");
   let trustedOid = null;
@@ -628,15 +636,43 @@ async function readEffectiveRepositorySelector(nmHome, cwd) {
     selectedConfig = readRepositoryConfigAtCommit(top, head, "HEAD");
     selectedLabel = "HEAD:.no-mistakes.yaml";
   }
-  return selectedConfig ? parseAgentSelector(selectedConfig, selectedLabel) : null;
+  const branch = gitResult(top, ["symbolic-ref", "--quiet", "--short", "HEAD"], "could not resolve the current branch").trim();
+  const head = gitResult(top, ["rev-parse", "HEAD"], "could not resolve the current branch head").trim();
+  return {
+    selectors: selectedConfig ? parseAgentSelector(selectedConfig, selectedLabel) : null,
+    repository: { ...repository, branch, head },
+  };
 }
 
 async function readEffectiveAgentSelector(nmHome) {
-  const repositorySelector = await readEffectiveRepositorySelector(nmHome, process.cwd());
+  const resolved = await readEffectiveRepositorySelector(nmHome, process.cwd());
   const globalFile = path.join(nmHome, "config.yaml");
   const globalText = readRegularConfigFile(globalFile);
   const globalSelector = parseAgentSelector(globalText, globalFile) || ["auto"];
-  return repositorySelector || globalSelector;
+  return {
+    selectors: resolved.selectors || globalSelector,
+    repository: resolved.repository,
+  };
+}
+
+async function readActiveRuns(nmHome) {
+  let database;
+  try {
+    database = await openStateDatabase(nmHome);
+    return database.prepare(
+      "SELECT id, repo_id, branch, head_sha, status FROM runs WHERE status IN ('pending', 'running') ORDER BY created_at DESC, id DESC",
+    ).all().map((row) => ({
+      id: row.id,
+      repositoryId: row.repo_id,
+      branch: row.branch,
+      head: row.head_sha,
+      status: row.status,
+    }));
+  } catch (error) {
+    throw new Error(`cannot determine active no-mistakes runs (${error.message})`);
+  } finally {
+    database?.close();
+  }
 }
 
 function nativePath() {
@@ -665,8 +701,8 @@ function nativePath() {
 
 function nativeEnvironment() {
   const env = { ...process.env };
-  if (process.env.FM_NO_MISTAKES_NATIVE_PATH) env.PATH = process.env.FM_NO_MISTAKES_NATIVE_PATH;
-  else env.PATH = (env.PATH || "").split(path.delimiter).filter((entry) => realpathIfPresent(entry) !== SCRIPT_DIR).join(path.delimiter);
+  env.PATH = (env.PATH || "").split(path.delimiter).filter((entry) => realpathIfPresent(entry) !== SCRIPT_DIR).join(path.delimiter);
+  delete env.FM_NO_MISTAKES_NATIVE_PATH;
   return env;
 }
 
@@ -876,6 +912,42 @@ function leaseDir(root) {
   return dir;
 }
 
+function bindingDir(root) {
+  const dir = path.join(root, "run-bindings");
+  assertPlainDirectory(dir, true);
+  return dir;
+}
+
+function bindingPath(root, runId) {
+  const digest = crypto.createHash("sha256").update(runId).digest("hex");
+  return path.join(bindingDir(root), `${digest}.json`);
+}
+
+function readRunBinding(root, runId) {
+  try {
+    const binding = readJsonFile(bindingPath(root, runId));
+    if (binding.version !== 1 || binding.runId !== runId || !Array.isArray(binding.selectors)) {
+      throw new Error("invalid binding");
+    }
+    return binding;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw new Error(`cannot read the validation run's starting selector (${error.message})`);
+  }
+}
+
+function writeRunBinding(root, run, repository, selectors) {
+  atomicJson(bindingPath(root, run.id), {
+    version: 1,
+    runId: run.id,
+    repositoryId: repository.id,
+    branch: repository.branch,
+    head: run.head,
+    selectors,
+    createdAt: new Date().toISOString(),
+  });
+}
+
 function statusLooksQuiescent(output) {
   if (/no active run/i.test(output)) return true;
   if (/^outcome:\s*\S+/m.test(output)) return true;
@@ -886,14 +958,28 @@ function statusLooksQuiescent(output) {
   return false;
 }
 
-function staleLeaseQuiescent(lease, native, env) {
+function staleLeaseQuiescent(lease, native, env, activeRuns, nmHome) {
   if (!lease.nativePid) {
     const created = Date.parse(lease.createdAt);
-    return Number.isFinite(created) && Date.now() - created >= 5000;
+    if (!Number.isFinite(created) || Date.now() - created < 5000) return false;
   }
-  const cwd = typeof lease.cwd === "string" && path.isAbsolute(lease.cwd) ? lease.cwd : null;
-  if (!cwd) return false;
-  const result = spawnSync(native, ["axi", "status"], {
+  let runId = typeof lease.runId === "string" && lease.runId ? lease.runId : null;
+  if (!runId && typeof lease.repositoryId === "string" && typeof lease.branch === "string") {
+    const matches = activeRuns.filter((run) => run.repositoryId === lease.repositoryId && run.branch === lease.branch);
+    if (matches.length > 1) return false;
+    if (matches.length === 1) runId = matches[0].id;
+    else return true;
+  }
+  if (!runId) return false;
+  const stillActive = activeRuns.some((run) => run.id === runId);
+  if (!stillActive) return true;
+  let cwd = typeof lease.stableCwd === "string" && path.isAbsolute(lease.stableCwd) ? lease.stableCwd : nmHome;
+  try {
+    if (!fs.statSync(cwd).isDirectory()) cwd = nmHome;
+  } catch {
+    cwd = nmHome;
+  }
+  const result = spawnSync(native, ["axi", "status", "--run", runId], {
     cwd,
     env: { ...env, NO_MISTAKES_NO_UPDATE_CHECK: "1" },
     encoding: "utf8",
@@ -904,7 +990,7 @@ function staleLeaseQuiescent(lease, native, env) {
   return statusLooksQuiescent(output);
 }
 
-function activeLeases(root, native, env) {
+function activeLeases(root, native, env, activeRuns, nmHome) {
   const dir = leaseDir(root);
   const active = [];
   for (const entry of fs.readdirSync(dir).sort()) {
@@ -926,7 +1012,7 @@ function activeLeases(root, native, env) {
       active.push({ ...lease, file });
       continue;
     }
-    if (!staleLeaseQuiescent(lease, native, env)) {
+    if (!staleLeaseQuiescent(lease, native, env, activeRuns, nmHome)) {
       active.push({ ...lease, file });
       continue;
     }
@@ -964,7 +1050,15 @@ async function readBoundaryState({ acquire = false } = {}) {
   // Repository selector resolution can perform bounded network reads. Keep it
   // outside the machine-shared accounting lock so simultaneous cohort members
   // preflight in parallel and serialize only the final policy/slot mutation.
-  const selectors = await readEffectiveAgentSelector(nmHome);
+  const resolved = await readEffectiveAgentSelector(nmHome);
+  const selectors = resolved.selectors;
+  const repository = resolved.repository;
+  const activeRuns = await readActiveRuns(nmHome);
+  const matchingRuns = activeRuns.filter((run) => run.repositoryId === repository.id && run.branch === repository.branch);
+  if (matchingRuns.length > 1) {
+    throw new Error(`cannot bind validation policy because multiple active runs match repository ${repository.id} branch ${repository.branch}`);
+  }
+  const currentRun = matchingRuns[0] || null;
   const agent = selectors.join(",");
   return withLock(root, async () => {
     registerCurrentPolicy(root, currentPath, currentPolicy);
@@ -972,17 +1066,40 @@ async function readBoundaryState({ acquire = false } = {}) {
     if (!policy) {
       return { policy: null, nmHome, root, native, env, selectors: [], agent: null, active: 0, available: null, lease: null };
     }
-    const leases = activeLeases(root, native, env);
+    const leases = activeLeases(root, native, env, activeRuns, nmHome);
     const active = leases.length;
     const available = Math.max(0, policy.maxConcurrent - active);
     if (!acquire) return { policy, nmHome, root, native, env, selectors, agent, active, available, lease: null };
-    const denied = selectors.filter((identity) => !policy.allowedAgents.includes(identity));
+    let authorizedSelectors = selectors;
+    if (currentRun) {
+      let binding = readRunBinding(root, currentRun.id);
+      if (!binding) {
+        const candidates = leases.filter((lease) => lease.repositoryId === repository.id && lease.branch === repository.branch);
+        const selectorSets = new Map(candidates.filter((lease) => Array.isArray(lease.selectors)).map((lease) => [JSON.stringify(lease.selectors), lease.selectors]));
+        if (selectorSets.size !== 1) {
+          throw new Error(`cannot continue active run ${currentRun.id} because its starting work-agent selector is not attributable to this boundary`);
+        }
+        const pinned = [...selectorSets.values()][0];
+        writeRunBinding(root, currentRun, repository, pinned);
+        binding = readRunBinding(root, currentRun.id);
+      }
+      if (binding.repositoryId !== repository.id || binding.branch !== repository.branch || binding.head !== currentRun.head) {
+        throw new Error(`cannot continue active run ${currentRun.id} because its starting selector binding does not match the active run`);
+      }
+      if (JSON.stringify(binding.selectors) !== JSON.stringify(selectors)) {
+        throw new Error(`denied selector drift for active run ${currentRun.id}: started with ${JSON.stringify(binding.selectors)} but current effective selector is ${JSON.stringify(selectors)}`);
+      }
+      authorizedSelectors = binding.selectors;
+    } else if (guardedBoundary === "continuation") {
+      throw new Error("cannot continue validation because no attributable active run exists for this repository branch");
+    }
+    const denied = authorizedSelectors.filter((identity) => !policy.allowedAgents.includes(identity));
     if (denied.length > 0) {
       const allowed = policy.allowedAgents.length ? policy.allowedAgents.join(",") : "none (configured policy intersections do not overlap)";
-      if (selectors.length === 1) {
+      if (authorizedSelectors.length === 1) {
         throw new Error(`denied effective agent ${JSON.stringify(denied[0])}; allowed identities: ${allowed}. Configure an allowed explicit global or repository selector and retry`);
       }
-      throw new Error(`denied effective selector ${JSON.stringify(selectors)}; disallowed fallback identities: ${denied.join(",")}; allowed identities: ${allowed}. Configure only allowed explicit global or repository selectors and retry`);
+      throw new Error(`denied effective selector ${JSON.stringify(authorizedSelectors)}; disallowed fallback identities: ${denied.join(",")}; allowed identities: ${allowed}. Configure only allowed explicit global or repository selectors and retry`);
     }
     if (active >= policy.maxConcurrent) {
       const capacity = new Error(`capacity reached: agent=${agent} active=${active} available=0 ceiling=${policy.maxConcurrent}; retry after another validation boundary returns`);
@@ -1002,6 +1119,12 @@ async function readBoundaryState({ acquire = false } = {}) {
       nativeStart: null,
       handoff: "reserved",
       cwd: path.resolve(process.cwd()),
+      stableCwd: repository.workingPath,
+      repositoryId: repository.id,
+      branch: repository.branch,
+      head: repository.head,
+      runId: currentRun?.id || null,
+      selectors: authorizedSelectors,
       agent,
       createdAt: new Date().toISOString(),
     };
@@ -1013,6 +1136,7 @@ async function readBoundaryState({ acquire = false } = {}) {
       native,
       env,
       selectors,
+      repository,
       agent,
       active: active + 1,
       available: Math.max(0, policy.maxConcurrent - active - 1),
@@ -1039,6 +1163,31 @@ function refreshLeaseNative(lease, pid) {
   current.handoff = "durable";
   atomicJson(lease.file, current);
   Object.assign(lease, current);
+}
+
+async function captureLeaseRun(state) {
+  if (!state.lease || state.lease.runId) return;
+  let run = null;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const runs = await readActiveRuns(state.nmHome);
+    const matches = runs.filter((candidate) => candidate.repositoryId === state.repository.id && candidate.branch === state.repository.branch);
+    if (matches.length > 1) throw new Error("multiple active runs appeared while binding the validation selector");
+    if (matches.length === 1) {
+      run = matches[0];
+      break;
+    }
+    if (nativeChild?.exitCode !== null || nativeChild?.signalCode) break;
+    await sleep(20);
+  }
+  if (!run) return;
+  await withLock(state.root, async () => {
+    const current = readJsonFile(state.lease.file);
+    if (current.token !== state.lease.token) throw new Error("the acquired validation slot changed owner during run binding");
+    current.runId = run.id;
+    atomicJson(state.lease.file, current);
+    Object.assign(state.lease, current);
+    writeRunBinding(state.root, run, state.repository, state.lease.selectors);
+  });
 }
 
 async function releaseLease(lease) {
@@ -1155,6 +1304,7 @@ async function invokeGuarded() {
     throwIfInterrupted();
     nativeLaunched = true;
     nativeChild.stdin.end("launch\n");
+    await captureLeaseRun(state);
     const outcome = await observed.exited;
     if (outcome.error) throw outcome.error;
     nativeChild = null;
@@ -1213,7 +1363,8 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   });
 }
 
-if (statusRequested) await inspectStatus();
+if (capabilityRequested) process.stdout.write("firstmate-no-mistakes-boundary-v1\n");
+else if (statusRequested) await inspectStatus();
 else if (guarded) await invokeGuarded();
 else await invokeNativeWithoutPolicy();
 

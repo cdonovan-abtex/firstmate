@@ -431,6 +431,7 @@ make_noop_tmux() {
 exit 0
 SH
   chmod +x "$fakebin/tmux"
+  ln -s "$(command -v node)" "$fakebin/node"
   fm_fake_exit0 "$fakebin" no-mistakes
   printf '%s\n' "$fakebin"
 }
@@ -441,6 +442,8 @@ SH
 make_seeded_home() {
   local home=$1 id=$2
   mkdir -p "$home/bin" "$home/data"
+  cp "$ROOT/bin/fm-spawn.sh" "$ROOT/bin/fm-no-mistakes.mjs" "$home/bin/"
+  ln -s fm-no-mistakes.mjs "$home/bin/no-mistakes"
   printf '# Firstmate\n' > "$home/AGENTS.md"
   printf '%s\n' "$id" > "$home/.fm-secondmate-home"
   printf 'charter\n' > "$home/data/charter.md"
@@ -465,7 +468,7 @@ spawn_secondmate() {
     FM_STATE_OVERRIDE="$world/home/state" FM_DATA_OVERRIDE="$world/home/data" \
     FM_PROJECTS_OVERRIDE="$world/home/projects" FM_CONFIG_OVERRIDE="$world/home/config" \
     FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" >/dev/null 2>&1 || true
+    "$ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" >/dev/null 2>"$world/spawn-$id.err" || true
 }
 
 meta_harness() { grep '^harness=' "$1" 2>/dev/null | tail -1 | cut -d= -f2-; }
@@ -489,7 +492,7 @@ test_spawn_split_and_inherit() {
   spawn_secondmate "$w" sm "$sm"
 
   meta="$w/home/state/sm.meta"
-  [ -f "$meta" ] || fail "split: no meta written"
+  [ -f "$meta" ] || fail "split: no meta written ($(cat "$w/spawn-sm.err"))"
   [ "$(meta_harness "$meta")" = codex ] \
     || fail "split: secondmate launched on '$(meta_harness "$meta")', expected codex"
   [ "$(cat "$sm/config/crew-harness" 2>/dev/null)" = claude ] \
@@ -546,6 +549,39 @@ test_spawn_blocks_unconverged_no_mistakes_policy() {
   [ ! -e "$sm/config/no-mistakes-policy.json" ] \
     || fail "guard-skip fixture unexpectedly copied the policy"
   pass "B2a secondmate launch blocks when required policy bytes do not converge"
+}
+
+test_spawn_blocks_stale_policy_boundary() {
+  local w sm fakebin out status
+  w="$TMP_ROOT/spawn-policy-stale-boundary"
+  sm="$w/sm"
+  mkdir -p "$w/home/config" "$w/home/state" "$w/home/data"
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  printf '%s\n' '{"version":1,"allowedAgents":["codex"],"maxConcurrent":2}' \
+    > "$w/home/config/no-mistakes-policy.json"
+  make_seeded_home "$sm" sm-stale
+  printf '%s\n' '#!/usr/bin/env node' 'process.stdout.write("obsolete-boundary\\n")' \
+    > "$sm/bin/fm-no-mistakes.mjs"
+  chmod +x "$sm/bin/fm-no-mistakes.mjs"
+  fakebin=$(make_noop_tmux "$w/tmux-sm-stale")
+
+  if out=$(PATH="$fakebin:$BASE_PATH" TMUX='' CLAUDECODE=1 \
+      FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$w/home" \
+      FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
+      FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
+      FM_SPAWN_NO_GUARD=1 \
+      "$ROOT/bin/fm-spawn.sh" sm-stale "$sm" --secondmate 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+
+  [ "$status" -ne 0 ] || fail "secondmate launched with stale tracked validation-boundary code"
+  assert_contains "$out" 'tracked validation boundary is unavailable or stale' \
+    "stale policy boundary refusal was not actionable"
+  [ ! -e "$w/home/state/sm-stale.meta" ] \
+    || fail "stale policy boundary launch published secondmate metadata"
+  pass "B2b inherited policy blocks stale tracked validation-boundary code"
 }
 
 # Backward-compat: secondmate-harness absent -> the secondmate launches on the
@@ -940,7 +976,7 @@ test_spawn_explicit_harness_uses_explicit_profile_axes() {
 }
 
 test_spawned_secondmate_uses_its_harness_supervision_model() {
-  local harness expected w sm sm_real launchlog launch fakebin out
+  local harness expected w sm sm_real launchlog launch fakebin latebin out
   for harness in codex claude; do
     w="$TMP_ROOT/spawn-supervision-model-$harness"
     sm="$w/sm"
@@ -962,12 +998,15 @@ test_spawned_secondmate_uses_its_harness_supervision_model() {
 FM_ROOT_OVERRIDE="$sm" "$ROOT/bin/fm-guard.sh"
 SH
     chmod +x "$fakebin/$harness"
+    latebin="$w/latebin"
+    mkdir -p "$latebin"
+    mv "$fakebin/$harness" "$latebin/$harness"
     launch=$(cat "$launchlog")
     assert_contains "$launch" "FM_NO_MISTAKES_POLICY_HOME='$sm_real'" \
       "secondmate launch did not bind validation policy to its inherited home"
-    assert_contains "$launch" "PATH='$ROOT/bin:" \
+    assert_contains "$launch" "PATH='$ROOT/bin':\$PATH" \
       "secondmate launch did not prepend the tracked no-mistakes command boundary"
-    out=$(PATH="$fakebin:$BASE_PATH" CLAUDECODE=1 bash -c "$launch" 2>&1)
+    out=$(PATH="$latebin:$BASE_PATH" CLAUDECODE=1 bash -c "$launch" 2>&1)
     case "$harness" in
       codex)
         expected='WATCHER DOWN - SUPERVISION IS OFF'
@@ -1034,7 +1073,7 @@ test_spawn_fallback_chain_and_crew_scout_unaffected() {
     "ordinary crew launch did not bind validation policy to the spawning home"
   assert_contains "$launch" "FM_NO_MISTAKES_NATIVE_BIN='$fakebin/no-mistakes'" \
     "ordinary crew launch did not preserve the native command outside the shim"
-  assert_contains "$launch" "PATH='$ROOT/bin:$fakebin:$BASE_PATH'" \
+  assert_contains "$launch" "PATH='$ROOT/bin':\$PATH" \
     "ordinary crew launch did not prepend the tracked no-mistakes command boundary"
   pass "C9 spawn: the harness fallback chain still resolves with no tokens; crew/scout launches are unaffected by this feature"
 }
@@ -2616,6 +2655,7 @@ test_dash_leading_process_names_are_basename_operands
 test_propagate_lib
 test_spawn_split_and_inherit
 test_spawn_blocks_unconverged_no_mistakes_policy
+test_spawn_blocks_stale_policy_boundary
 test_spawn_backward_compat_crew_fallback
 test_spawn_bare_backward_compat
 test_spawn_explicit_harness_wins

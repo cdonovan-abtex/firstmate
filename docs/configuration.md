@@ -222,17 +222,18 @@ The selector starts from the global configuration, then applies no-mistakes' tru
 `maxConcurrent` accepts integers from 1 through 256, so an operator can admit a monitored parallel cohort instead of serializing validation.
 Malformed, unsafe, or unsupported policy stops guarded validation with one diagnostic that names the file and correction, while read-only commands such as `doctor`, `status`, `runs`, `axi status`, logs, and help remain pass-through inspection paths.
 
-`bin/fm-spawn.sh` prepends Firstmate's tracked `bin/no-mistakes` command to every local worker PATH and preserves the native binary plus original PATH separately when the optional tool is installed.
+`bin/fm-spawn.sh` prepends Firstmate's tracked `bin/no-mistakes` command to every local worker's live PATH and preserves the resolved native binary separately when the optional tool is installed.
 A policy-free worker or scout still launches when native no-mistakes is absent; the boundary reports that missing tool only if validation is later invoked.
 The wrapper re-reads the effective policy, global selector, no-mistakes' registered default-branch metadata, freshly fetched trusted repository selector, and every ordered fallback at each normalized `axi run`, `axi respond`, or `rerun` boundary, including root options before those commands, registered pooled worktrees, and workers launched before configuration changed.
+When a run already exists, the boundary binds its ordered selector at run start, requires every continuation or reattachment to retain that selector, and authorizes the pinned selector against the freshly read policy.
 Only the bare `no-mistakes` command supplied to a Firstmate worker is supported for validation; an explicit absolute native-binary invocation is a deliberate bypass outside Firstmate's ownership boundary.
 Direct operator calls and non-Firstmate tools that do not use the worker PATH are likewise outside this policy because Firstmate does not modify no-mistakes upstream.
 
 The policy file belongs to one Firstmate home and is primary-authoritative inherited local material for its secondmate homes.
-A local secondmate therefore receives the same bytes, and its launch refuses before endpoint or task-record publication when policy propagation was skipped, failed, remained stale, or left unsafe source or destination artifacts; other inherited local-material failures retain their existing warning behavior.
-A remote secondmate receives the policy on its own host through the existing authenticated inheritance path.
+A local secondmate therefore receives the same bytes, and its launch refuses before endpoint or task-record publication when policy propagation was skipped, failed, remained stale, left unsafe source or destination artifacts, or the destination's tracked executable boundary is unavailable or stale; other inherited local-material failures retain their existing warning behavior.
+A remote secondmate receives the policy on its own host through the existing authenticated inheritance path and must expose the same executable-boundary capability before launch.
 Each policy-enabled home registers against the canonical `NM_HOME` used by its machine's shared no-mistakes service.
-Every Firstmate wrapper sharing that service refreshes registered policy files, intersects their allowlists, applies the smallest registered ceiling, and uses one machine-private slot pool beneath the canonical service home, independent of ambient `XDG_STATE_HOME` values.
+Every Firstmate wrapper sharing that service refreshes registered policy files, intersects their allowlists, applies the smallest registered ceiling, and uses one machine-private slot pool beneath the canonical service home, independent of ambient `XDG_STATE_HOME` or slot-root environment values.
 This makes independent Firstmate homes and local secondmate homes share one real service ceiling rather than separate per-home locks.
 Removing a registered policy file unregisters that home on the next wrapper boundary, while an invalid registered file stops guarded calls rather than silently retaining stale settings.
 A remote host has a different no-mistakes service and therefore a separate machine-local pool; Firstmate does not claim one cross-machine ceiling over independent services.
@@ -242,7 +243,8 @@ The wrapper starts an exact child behind a pipe gate, records that stable proces
 Successful completion and gate returns release immediately.
 An interruption or nonzero client exit after native launch leaves the lease charged because the CLI client can exit while its daemon-owned validation remains active.
 If a wrapper dies before identity publication, the still-closed pipe prevents native launch and the transitional lease remains conservatively charged for a bounded recovery window; if it dies after publication, the exact native CLI child keeps the lease while alive.
-After both disappear, a bounded read-only `axi status` check reaps a gate-returned, terminal, or absent run and keeps an apparently active run charged.
+Each lease records the registered repository identity, branch, starting selector, and attributable native run id as soon as the daemon publishes it.
+After both processes disappear, a bounded read-only `axi status --run <id>` check from the stable registered repository location reaps a gate-returned, terminal, or absent run and keeps an apparently active run charged even when the initiating task worktree was removed.
 This recovery is independent of the primary session and never deletes a manual lock, enumerates agent processes, or stops or restarts the shared no-mistakes service.
 
 Inspect the effective service policy without prompts, command arguments, credentials, or policy paths:
