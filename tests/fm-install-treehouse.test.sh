@@ -31,6 +31,7 @@ printf '%s\n' "$url" > "${CURL_URL_LOG:?}"
 SH
   cat > "$fakebin/sha256sum" <<'SH'
 #!/usr/bin/env bash
+[ "$#" -eq 1 ] || exit 2
 printf 'sha256sum\n' >> "${CHECKSUM_TOOL_LOG:?}"
 printf '%s  %s\n' "${FAKE_TREEHOUSE_SHA:?}" "$1"
 SH
