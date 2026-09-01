@@ -93,6 +93,44 @@ CASES
   pass "Treehouse CI installer pins every Linux/macOS asset and checksum to v2.1.1"
 }
 
+test_required_ci_job_consumes_treehouse_pin() {
+  local tmp fakebin step out
+  tmp=$(fm_test_tmproot fm-treehouse-ci-job)
+  fakebin=$(make_treehouse_fakebin "$tmp")
+  step="$tmp/install-treehouse-step.sh"
+
+  # The workflow is machine-consumed configuration, so normalize it as YAML and
+  # execute the selected job step instead of treating source text as evidence.
+  ruby - "$ROOT/.github/workflows/ci.yml" "$step" <<'RUBY'
+require "yaml"
+
+workflow = YAML.load_file(ARGV.fetch(0))
+steps = workflow.fetch("jobs").fetch("tests-herdr").fetch("steps")
+matches = steps.select { |candidate| candidate["name"] == "Install pinned Treehouse" }
+abort "expected exactly one tests-herdr Treehouse install step" unless matches.length == 1
+File.write(ARGV.fetch(1), matches.fetch(0).fetch("run"))
+RUBY
+
+  : > "$tmp/github-path"
+  out=$(CURL_URL_LOG="$tmp/url" CHECKSUM_TOOL_LOG="$tmp/checksum-tool" \
+    FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 \
+    FAKE_TREEHOUSE_SHA="$TREEHOUSE_LINUX_AMD64_SHA" FAKE_TREEHOUSE_VERSION=v2.1.1 \
+    RUNNER_TEMP="$tmp" GITHUB_PATH="$tmp/github-path" PATH="$fakebin:$PATH" \
+    bash "$step" 2>&1) \
+    || fail "required CI Treehouse install step failed: $out"
+
+  [ "$(cat "$tmp/url")" = \
+    "https://github.com/kunchenguid/treehouse/releases/download/v2.1.1/treehouse-v2.1.1-linux-amd64.tar.gz" ] \
+    || fail "required CI job did not consume the exact v2.1.1 installer asset"
+  [ "$(cat "$tmp/github-path")" = "$tmp/bin" ] \
+    || fail "required CI job did not publish the Treehouse installation directory"
+  [ "$("$tmp/bin/treehouse" --version)" = v2.1.1 ] \
+    || fail "required CI job did not install the exact Treehouse v2.1.1 pin"
+  assert_contains "$out" "installed treehouse v2.1.1" \
+    "required CI job did not execute the pinned installer"
+  pass "required CI Herdr job consumes the exact Treehouse v2.1.1 installer pin"
+}
+
 test_ci_treehouse_rejects_checksum_drift() {
   local tmp fakebin out code
   tmp=$(fm_test_tmproot fm-treehouse-checksum-drift)
@@ -144,6 +182,7 @@ SH
 }
 
 test_ci_treehouse_platform_pins
+test_required_ci_job_consumes_treehouse_pin
 test_ci_treehouse_rejects_checksum_drift
 test_ci_treehouse_rejects_version_drift
 test_ci_treehouse_preserves_shasum_fallback
