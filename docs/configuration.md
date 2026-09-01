@@ -224,7 +224,7 @@ Malformed, unsafe, or unsupported policy stops guarded validation with one diagn
 
 `bin/fm-spawn.sh` prepends Firstmate's tracked `bin/no-mistakes` command to every local worker PATH and preserves the native binary plus original PATH separately when the optional tool is installed.
 A policy-free worker or scout still launches when native no-mistakes is absent; the boundary reports that missing tool only if validation is later invoked.
-The wrapper re-reads the effective policy, global selector, no-mistakes' registered default-branch metadata, freshly fetched trusted repository selector, and every ordered fallback at each normalized `axi run`, `axi respond`, or `rerun` boundary, including root options before those commands and workers launched before configuration changed.
+The wrapper re-reads the effective policy, global selector, no-mistakes' registered default-branch metadata, freshly fetched trusted repository selector, and every ordered fallback at each normalized `axi run`, `axi respond`, or `rerun` boundary, including root options before those commands, registered pooled worktrees, and workers launched before configuration changed.
 Only the bare `no-mistakes` command supplied to a Firstmate worker is supported for validation; an explicit absolute native-binary invocation is a deliberate bypass outside Firstmate's ownership boundary.
 Direct operator calls and non-Firstmate tools that do not use the worker PATH are likewise outside this policy because Firstmate does not modify no-mistakes upstream.
 
@@ -239,8 +239,8 @@ A remote host has a different no-mistakes service and therefore a separate machi
 
 A slot covers one complete blocking native guarded call, conservatively including non-agent steps until that call returns at a gate, CI-ready point, or outcome.
 The wrapper starts an exact child behind a pipe gate, records that stable process identity in the lease, yields for any already-delivered interrupt, and only then lets the child exec native no-mistakes, so no native agent can outrun durable accounting.
-Normal completion and gate returns release immediately.
-An interruption after native launch leaves the lease charged because the CLI client can exit while its daemon-owned validation remains active.
+Successful completion and gate returns release immediately.
+An interruption or nonzero client exit after native launch leaves the lease charged because the CLI client can exit while its daemon-owned validation remains active.
 If a wrapper dies before identity publication, the still-closed pipe prevents native launch and the transitional lease remains conservatively charged for a bounded recovery window; if it dies after publication, the exact native CLI child keeps the lease while alive.
 After both disappear, a bounded read-only `axi status` check reaps a gate-returned, terminal, or absent run and keeps an apparently active run charged.
 This recovery is independent of the primary session and never deletes a manual lock, enumerates agent processes, or stops or restarts the shared no-mistakes service.

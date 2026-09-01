@@ -41,8 +41,8 @@
  * agent identity, and working directory - never arguments, prompts, output, or
  * credentials. A dead wrapper does not free a still-live native CLI child. Once
  * both are gone, a bounded public `axi status` read keeps an apparently active
- * run charged and reaps a gate-returned, terminal, or absent run. Normal exits
- * release immediately. No path kills an agent or manages the shared daemon.
+ * run charged and reaps a gate-returned, terminal, or absent run. Successful
+ * exits release immediately. No path kills an agent or manages the shared daemon.
  *
  * Inspection:
  *   bin/no-mistakes fm-policy-status
@@ -56,7 +56,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL } from "node:url";
 
 const EXIT_POLICY = 78;
 const EXIT_CAPACITY = 75;
@@ -499,6 +499,39 @@ function registeredRepositoryRoot(cwd) {
   return realpathIfPresent(gitResult(cwd, ["rev-parse", "--show-toplevel"], "could not resolve the registered repository root").trim());
 }
 
+function canonicalRepositoryRemote(value, base) {
+  const remote = value.trim();
+  if (!remote || /[\0\r\n]/.test(remote)) throw new Error("repository remote is empty or malformed");
+  if (path.isAbsolute(remote) || (!remote.includes(":") && !remote.startsWith("file://"))) {
+    return `file:${realpathIfPresent(path.resolve(base, remote))}`;
+  }
+  if (remote.startsWith("file://")) {
+    const parsed = new URL(remote);
+    if (parsed.search || parsed.hash) throw new Error("repository file remote has unsupported components");
+    return `file:${realpathIfPresent(fileURLToPath(parsed))}`;
+  }
+  let host;
+  let remotePath;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(remote)) {
+    const parsed = new URL(remote);
+    if (!parsed.hostname || parsed.search || parsed.hash) throw new Error("repository remote has unsupported components");
+    host = parsed.host;
+    remotePath = parsed.pathname;
+  } else {
+    const scp = remote.match(/^(?:[^/@:\s]+@)?([^/:\s]+):(.+)$/);
+    if (!scp) throw new Error("repository remote is unsupported");
+    host = scp[1];
+    remotePath = scp[2];
+  }
+  remotePath = remotePath.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
+  if (!remotePath) throw new Error("repository remote has no repository path");
+  return `remote:${host.toLowerCase()}/${remotePath}`;
+}
+
+function registeredRepositoryRows(database) {
+  return database.prepare("SELECT id, working_path, upstream_url, default_branch FROM repos").all();
+}
+
 async function readRegisteredDefaultBranch(nmHome, cwd) {
   const databaseFile = path.join(nmHome, "state.sqlite");
   const repositoryRoot = registeredRepositoryRoot(cwd);
@@ -519,7 +552,24 @@ async function readRegisteredDefaultBranch(nmHome, cwd) {
   let database;
   try {
     database = new sqlite.DatabaseSync(databaseFile, { readOnly: true });
-    const rows = database.prepare("SELECT default_branch FROM repos WHERE working_path = ?").all(repositoryRoot);
+    let rows = database.prepare("SELECT id, working_path, upstream_url, default_branch FROM repos WHERE working_path = ?").all(repositoryRoot);
+    if (rows.length === 0) {
+      const configured = gitResult(cwd, ["config", "--null", "--get-all", "remote.origin.url"], "could not resolve the repository origin");
+      const remotes = configured.split("\0").filter(Boolean);
+      if (remotes.length !== 1) throw new Error(`no unique repository origin identifies ${repositoryRoot}`);
+      const resolved = gitResult(cwd, ["remote", "get-url", "origin"], "could not resolve the effective repository origin").trim();
+      const identities = new Set([
+        canonicalRepositoryRemote(remotes[0], repositoryRoot),
+        canonicalRepositoryRemote(resolved, repositoryRoot),
+      ]);
+      rows = registeredRepositoryRows(database).filter((row) => {
+        try {
+          return identities.has(canonicalRepositoryRemote(row.upstream_url, row.working_path));
+        } catch {
+          return false;
+        }
+      });
+    }
     if (rows.length !== 1 || typeof rows[0].default_branch !== "string" || !rows[0].default_branch.trim()) {
       throw new Error(`no unique registered repository matches ${repositoryRoot}`);
     }
@@ -1108,9 +1158,13 @@ async function invokeGuarded() {
     const outcome = await observed.exited;
     if (outcome.error) throw outcome.error;
     nativeChild = null;
-    if (relayedSignal || outcome.signal) {
+    if (relayedSignal || outcome.signal || outcome.code !== 0) {
       heldLease = null;
-      process.exitCode = relayedSignal ? signalExitCode(relayedSignal) : signalExitCode(outcome.signal);
+      process.exitCode = relayedSignal
+        ? signalExitCode(relayedSignal)
+        : outcome.signal
+          ? signalExitCode(outcome.signal)
+          : outcome.code;
       return;
     }
     await releaseLease(heldLease);

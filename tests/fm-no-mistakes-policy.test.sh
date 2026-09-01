@@ -98,6 +98,9 @@ if [ "$fm_fake_guarded" = 1 ]; then
   else
     trap 'kill -TERM "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; exit 143' TERM INT HUP
   fi
+  if [ -n "${FM_FAKE_CLIENT_EXIT_CODE:-}" ]; then
+    exit "$FM_FAKE_CLIENT_EXIT_CODE"
+  fi
   wait "$child"
   exit $?
 fi
@@ -147,6 +150,11 @@ set_registered_default_branch() { # <case-dir> <branch>
     "$1/nm/state.sqlite" "$2"
 }
 
+set_registered_upstream() { # <case-dir> <upstream>
+  node --no-warnings -e 'const {DatabaseSync}=require("node:sqlite");const d=new DatabaseSync(process.argv[1]);d.prepare("UPDATE repos SET upstream_url = ? WHERE id = ?").run(process.argv[2],"test-repo");d.close()' \
+    "$1/nm/state.sqlite" "$2"
+}
+
 write_policy() { # <home> <allowed-json-array> <ceiling>
   printf '{"version":1,"allowedAgents":%s,"maxConcurrent":%s}\n' "$2" "$3" \
     > "$1/config/no-mistakes-policy.json"
@@ -167,6 +175,7 @@ wrapper_env() { # <case-dir> <home> <args...>
       FM_FAKE_CHILD_DIR="$dir/children" \
       FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
       FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
+      FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
       FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
       "$WRAPPER" "$@"
   )
@@ -188,8 +197,30 @@ exec_wrapper_env() { # <case-dir> <home> <args...>
     FM_FAKE_CHILD_DIR="$dir/children" \
     FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
     FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
+    FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
     FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
     "$WRAPPER" "$@"
+}
+
+wrapper_env_at() { # <case-dir> <home> <repository> <args...>
+  local dir=$1 home=$2 repo=$3
+  shift 3
+  (
+    cd "$repo" || exit 1
+    exec env \
+      FM_NO_MISTAKES_POLICY_HOME="$home" \
+      FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
+      FM_NO_MISTAKES_NATIVE_PATH="$PATH" \
+      FM_NO_MISTAKES_SLOT_ROOT="$dir/slots" \
+      NM_HOME="$dir/nm" \
+      FM_FAKE_NATIVE_LOG="$dir/native.log" \
+      FM_FAKE_CHILD_DIR="$dir/children" \
+      FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
+      FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
+      FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
+      FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+      "$WRAPPER" "$@"
+  )
 }
 
 wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
@@ -207,6 +238,7 @@ wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
       FM_FAKE_CHILD_DIR="$dir/children" \
       FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
       FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
+      FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
       FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
       "$WRAPPER" "$@"
   )
@@ -226,6 +258,7 @@ exec_wrapper_env_stable_root() { # <case-dir> <home> <xdg-state-home> <args...>
     FM_FAKE_CHILD_DIR="$dir/children" \
     FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
     FM_FAKE_DETACH_AGENT="${FM_FAKE_DETACH_AGENT:-}" \
+    FM_FAKE_CLIENT_EXIT_CODE="${FM_FAKE_CLIENT_EXIT_CODE:-}" \
     FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
     "$WRAPPER" "$@"
 }
@@ -418,6 +451,42 @@ wrapper_env "$d" "$d/home" axi run --intent registered-develop >/dev/null 2>&1
 [ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
   || fail "the registered develop selector did not control the counterfactual run"
 pass "registered default-branch metadata controls trusted selector resolution"
+
+d=$(make_case pooled-worktree codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" 'agent: claude'
+set_registered_upstream "$d" "$d/origin.git"
+git clone -q --bare "$d/origin.git" "$d/pool.git"
+git --git-dir="$d/pool.git" worktree add -q -b pooled "$d/pooled" main
+set +e
+out=$(wrapper_env_at "$d" "$d/home" "$d/pooled" axi run --intent pooled-denied 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "pooled worktree selector exited $rc instead of 78"
+assert_contains "$out" 'denied effective agent "claude"' \
+  "pooled worktree did not resolve its registered repository selector"
+[ ! -s "$d/native.log" ] || fail "denied pooled worktree selector reached native no-mistakes"
+write_policy "$d/home" '["claude"]' 2
+wrapper_env_at "$d" "$d/home" "$d/pooled" axi run --intent pooled-allowed >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "allowed pooled worktree did not start native work"
+node --no-warnings - "$d/nm/state.sqlite" "$d/duplicate" "$d/origin.git" <<'JS'
+const { DatabaseSync } = require("node:sqlite");
+const database = new DatabaseSync(process.argv[2]);
+database.prepare("INSERT INTO repos (id, working_path, upstream_url, default_branch, created_at) VALUES (?, ?, ?, ?, ?)")
+  .run("duplicate-repo", process.argv[3], process.argv[4], "main", 2);
+database.close();
+JS
+set +e
+out=$(wrapper_env_at "$d" "$d/home" "$d/pooled" axi run --intent pooled-ambiguous 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "ambiguous pooled worktree identity exited $rc instead of 78"
+assert_contains "$out" 'no unique registered repository matches' \
+  "ambiguous pooled worktree identity did not fail closed"
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "ambiguous pooled worktree identity started native work"
+pass "pooled worktrees resolve unique registered identity and refuse ambiguity"
 
 # Command normalization guards rerun and root-option forms without treating a
 # read-only argument value such as `--step run` as a validation boundary.
@@ -750,6 +819,34 @@ FM_FAKE_STATUS=terminal wrapper_env "$d" "$d/home" axi run --intent after-interr
 [ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 2 ] \
   || fail "terminal daemon status did not recover the interrupted lease"
 pass "interrupted CLI leases wait for daemon-status-proven recovery"
+
+d=$(make_case nonzero-client codex)
+write_policy "$d/home" '["codex"]' 1
+mkdir -p "$d/block"
+set +e
+FM_FAKE_BLOCK_DIR="$d/block" FM_FAKE_DETACH_AGENT=1 FM_FAKE_CLIENT_EXIT_CODE=1 FM_FAKE_STATUS=active \
+  wrapper_env "$d" "$d/home" axi run --intent client-failure > "$d/client-failure.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 1 ] || fail "failed native client exited $rc instead of 1"
+wait_for_count "$d/children" started 1 || fail "failed native client did not dispatch daemon-owned work"
+failed_client_agent=$(cat "$d/children"/agent.*)
+BG_PIDS+=("$failed_client_agent")
+kill -0 "$failed_client_agent" 2>/dev/null || fail "daemon-owned work did not survive its failed client"
+set +e
+out=$(FM_FAKE_STATUS=active wrapper_env "$d" "$d/home" axi run --intent while-failed-client-active 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 75 ] || fail "nonzero client exit released an active daemon run lease (exit $rc)"
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "nonzero client exit admitted a second native child"
+touch "$d/block/release"
+wait_for_count "$d/children" completed 1 || fail "daemon-owned work did not complete after failed client recovery"
+FM_FAKE_BLOCK_DIR= FM_FAKE_DETACH_AGENT= FM_FAKE_CLIENT_EXIT_CODE= FM_FAKE_STATUS=terminal \
+  wrapper_env "$d" "$d/home" axi run --intent after-client-failure >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 2 ] \
+  || fail "terminal daemon status did not recover the nonzero-client lease"
+pass "nonzero client exits remain charged until daemon status is safe"
 
 # A dead wrapper retains a live native child, then recovers without manual files.
 d=$(make_case abnormal-exit codex)

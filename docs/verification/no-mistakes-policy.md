@@ -31,9 +31,9 @@ node --check bin/fm-no-mistakes.mjs
 tests/fm-no-mistakes-policy.test.sh
 ```
 
-The test printed nineteen passing cases and `# all fm-no-mistakes-policy tests passed`.
-It exercised behavior through the tracked `bin/no-mistakes` command and a fake native command that starts a real child process for guarded calls, including one daemon-like child that survives its interrupted CLI client.
-The cases cover an allowed explicit identity, denied `auto`, denied disallowed explicit identity, malformed policy, missing policy, missing effective-agent configuration, trusted registered-default-branch and opted-in current-branch repository selectors, quoted and uniformly indented YAML selector keys with unrelated-key disconfirmation, ordered fallback selectors, live-origin versus registered-default-branch divergence and its registered-branch counterfactual, normalized root-option and `rerun` forms, help-looking flag values, post-launch config drift, continuation drift, two simultaneous allowed slots, over-limit refusal, independent homes sharing one service across divergent `XDG_STATE_HOME` values, distinct-service separation, a policy-free sibling home under a registered service policy, normal gate return, spawn-to-identity handoff death, pre-launch interruption, daemon-active interruption recovery, and abnormal wrapper and native-process exit recovery.
+The test printed twenty-one passing cases and `# all fm-no-mistakes-policy tests passed`.
+It exercised behavior through the tracked `bin/no-mistakes` command and a fake native command that starts a real child process for guarded calls, including daemon-like children that survive interrupted and failed CLI clients.
+The cases cover an allowed explicit identity, denied `auto`, denied disallowed explicit identity, malformed policy, missing policy, missing effective-agent configuration, trusted registered-default-branch and opted-in current-branch repository selectors, pooled-worktree repository identity with ambiguity refusal, quoted and uniformly indented YAML selector keys with unrelated-key disconfirmation, ordered fallback selectors, live-origin versus registered-default-branch divergence and its registered-branch counterfactual, normalized root-option and `rerun` forms, help-looking flag values, post-launch config drift, continuation drift, two simultaneous allowed slots, over-limit refusal, independent homes sharing one service across divergent `XDG_STATE_HOME` values, distinct-service separation, a policy-free sibling home under a registered service policy, normal gate return, spawn-to-identity handoff death, pre-launch interruption, daemon-active interruption recovery after signals and nonzero exits, and abnormal wrapper and native-process exit recovery.
 Denial cases assert that neither the fake native guarded command nor its child process started.
 Read-only `doctor` and genuine help calls remain pass-through under malformed policy.
 Assertions consume command output, exit status, process behavior, and child markers only, never implementation-source bytes.
@@ -73,7 +73,7 @@ bin/fm-test-run.sh --check-coverage
 ```
 
 Every focused command passed.
-The boundary test ended with `# all fm-no-mistakes-policy tests passed` after nineteen cases.
+The boundary test ended with `# all fm-no-mistakes-policy tests passed` after twenty-one cases.
 The inheritance test ended with `# all fm-secondmate-harness tests passed`.
 Lint reported ShellCheck 0.11.0 and actionlint 1.7.12 with all three workflow files valid.
 The documentation check reported `fm-doc-audience-check: ok surfaces=90 local_links=304`.
