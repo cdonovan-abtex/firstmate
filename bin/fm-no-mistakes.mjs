@@ -291,15 +291,66 @@ function parseYamlScalar(raw) {
 
 function readTopLevelYamlField(text, key, file) {
   const lines = text.split(/\r?\n/);
-  const pattern = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:(.*)$`);
   let found = null;
   for (let index = 0; index < lines.length; index += 1) {
-    const match = lines[index].match(pattern);
-    if (!match) continue;
+    const line = lines[index];
+    if (/^\s/.test(line) || /^\s*(?:#.*)?$/.test(line)) continue;
+    let single = false;
+    let double = false;
+    let escaped = false;
+    let separator = -1;
+    for (let offset = 0; offset < line.length; offset += 1) {
+      const char = line[offset];
+      if (double && escaped) {
+        escaped = false;
+        continue;
+      }
+      if (double && char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (!double && char === "'") {
+        if (single && line[offset + 1] === "'") {
+          offset += 1;
+          continue;
+        }
+        single = !single;
+        continue;
+      }
+      if (!single && char === '"') {
+        double = !double;
+        continue;
+      }
+      if (!single && !double && char === ":" && (offset + 1 === line.length || /\s/.test(line[offset + 1]))) {
+        separator = offset;
+        break;
+      }
+    }
+    if (single || double || escaped || separator < 0) {
+      throw new Error(`${file} uses an unsupported top-level YAML mapping form`);
+    }
+    const rawKey = line.slice(0, separator).trim();
+    let decodedKey;
+    if (rawKey.startsWith('"') || rawKey.startsWith("'")) {
+      try {
+        decodedKey = parseYamlScalar(rawKey);
+      } catch (error) {
+        throw new Error(`${file} has an ambiguous top-level YAML key (${error.message})`);
+      }
+    } else if (/^[A-Za-z_][A-Za-z0-9_-]*$/.test(rawKey)) {
+      decodedKey = rawKey;
+    } else {
+      throw new Error(`${file} uses an unsupported top-level YAML key`);
+    }
+    if (decodedKey === "<<") {
+      throw new Error(`${file} uses a top-level YAML merge key that cannot be resolved safely`);
+    }
+    if (decodedKey !== key) continue;
     if (found) throw new Error(`${file} contains duplicate top-level ${key} fields`);
-    const inline = stripYamlComment(match[1]);
+    const rawValue = line.slice(separator + 1);
+    const inline = stripYamlComment(rawValue);
     if (inline) {
-      found = { kind: "inline", values: [match[1]] };
+      found = { kind: "inline", values: [rawValue] };
       continue;
     }
     const values = [];
@@ -420,6 +471,56 @@ function gitResult(cwd, argv, purpose, timeout = 30000) {
   return result.stdout;
 }
 
+function registeredRepositoryRoot(cwd) {
+  let commonDir = gitResult(cwd, ["rev-parse", "--git-common-dir"], "could not resolve the registered repository root").trim();
+  if (!path.isAbsolute(commonDir)) commonDir = path.resolve(cwd, commonDir);
+  if (path.basename(commonDir) === ".git") return realpathIfPresent(path.dirname(commonDir));
+  const worktree = spawnSync("git", ["--git-dir", commonDir, "config", "--get", "core.worktree"], {
+    cwd,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    encoding: "utf8",
+    timeout: 30000,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (!worktree.error && worktree.status === 0 && worktree.stdout.trim()) {
+    const configured = worktree.stdout.trim();
+    return realpathIfPresent(path.isAbsolute(configured) ? configured : path.resolve(commonDir, configured));
+  }
+  return realpathIfPresent(gitResult(cwd, ["rev-parse", "--show-toplevel"], "could not resolve the registered repository root").trim());
+}
+
+async function readRegisteredDefaultBranch(nmHome, cwd) {
+  const databaseFile = path.join(nmHome, "state.sqlite");
+  const repositoryRoot = registeredRepositoryRoot(cwd);
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = (warning, options, ...rest) => {
+    const type = typeof options === "string" ? options : options?.type;
+    if (type === "ExperimentalWarning" && String(warning).includes("SQLite")) return;
+    originalEmitWarning.call(process, warning, options, ...rest);
+  };
+  let sqlite;
+  try {
+    sqlite = await import("node:sqlite");
+  } catch (error) {
+    throw new Error(`cannot determine the effective repository work-agent selector because ${databaseFile} cannot be read with this Node runtime (${error.message})`);
+  } finally {
+    process.emitWarning = originalEmitWarning;
+  }
+  let database;
+  try {
+    database = new sqlite.DatabaseSync(databaseFile, { readOnly: true });
+    const rows = database.prepare("SELECT default_branch FROM repos WHERE working_path = ?").all(repositoryRoot);
+    if (rows.length !== 1 || typeof rows[0].default_branch !== "string" || !rows[0].default_branch.trim()) {
+      throw new Error(`no unique registered repository matches ${repositoryRoot}`);
+    }
+    return rows[0].default_branch.trim();
+  } catch (error) {
+    throw new Error(`cannot determine the effective repository work-agent selector from registered no-mistakes metadata (${error.message})`);
+  } finally {
+    database?.close();
+  }
+}
+
 function readRepositoryConfigAtCommit(top, commit, label) {
   const row = gitResult(top, ["ls-tree", commit, "--", ".no-mistakes.yaml"], `could not inspect ${label}`);
   if (!row.trim()) return null;
@@ -434,32 +535,28 @@ function readRepositoryConfigAtCommit(top, commit, label) {
   return text;
 }
 
-function readEffectiveRepositorySelector(cwd) {
+async function readEffectiveRepositorySelector(nmHome, cwd) {
   const top = gitResult(cwd, ["rev-parse", "--show-toplevel"], "could not resolve the repository").trim();
-  let trustedRef = null;
+  const defaultBranch = await readRegisteredDefaultBranch(nmHome, cwd);
+  const trustedRef = `refs/heads/${defaultBranch}`;
+  gitResult(top, ["check-ref-format", trustedRef], "registered default branch is invalid");
   let trustedOid = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const before = gitResult(top, ["ls-remote", "--symref", "origin", "HEAD"], "could not resolve origin's live default branch", 15000);
-    const refMatch = before.match(/^ref:\s+(refs\/heads\/[^\s]+)\s+HEAD$/m);
-    const oidMatch = before.match(/^([0-9a-f]{40,64})\s+HEAD$/m);
-    if (!refMatch || !oidMatch) {
-      throw new Error("cannot determine the effective repository work-agent selector because origin has no readable symbolic default branch");
-    }
-    trustedRef = refMatch[1];
+    const before = gitResult(top, ["ls-remote", "origin", trustedRef], "could not resolve the registered default branch", 15000);
+    const oidMatch = before.match(new RegExp(`^([0-9a-f]{40,64})\\s+${trustedRef.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
+    if (!oidMatch) throw new Error(`cannot determine the effective repository work-agent selector because origin has no readable registered default branch ${JSON.stringify(defaultBranch)}`);
     trustedOid = oidMatch[1];
     gitResult(top, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", trustedRef], "could not fetch origin's live default branch", 60000);
-    const after = gitResult(top, ["ls-remote", "--symref", "origin", "HEAD"], "could not re-check origin's live default branch", 15000);
-    const afterRef = after.match(/^ref:\s+(refs\/heads\/[^\s]+)\s+HEAD$/m)?.[1];
-    const afterOid = after.match(/^([0-9a-f]{40,64})\s+HEAD$/m)?.[1];
-    if (afterRef === trustedRef && afterOid === trustedOid) break;
-    trustedRef = null;
+    const after = gitResult(top, ["ls-remote", "origin", trustedRef], "could not re-check the registered default branch", 15000);
+    const afterOid = after.match(new RegExp(`^([0-9a-f]{40,64})\\s+${trustedRef.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"))?.[1];
+    if (afterOid === trustedOid) break;
     trustedOid = null;
   }
-  if (!trustedRef || !trustedOid) {
-    throw new Error("cannot determine the effective repository work-agent selector because origin's default branch changed during preflight; retry");
+  if (!trustedOid) {
+    throw new Error("cannot determine the effective repository work-agent selector because the registered default branch changed during preflight; retry");
   }
-  gitResult(top, ["cat-file", "-e", `${trustedOid}^{commit}`], "could not verify origin's live default commit");
-  const trustedLabel = `origin/${trustedRef.slice("refs/heads/".length)}`;
+  gitResult(top, ["cat-file", "-e", `${trustedOid}^{commit}`], "could not verify the registered default commit");
+  const trustedLabel = `origin/${defaultBranch}`;
   const trustedConfig = readRepositoryConfigAtCommit(top, trustedOid, trustedLabel);
   const allowBranchConfig = trustedConfig
     ? parseBooleanField(trustedConfig, "allow_repo_commands", `${trustedLabel}:.no-mistakes.yaml`)
@@ -474,8 +571,8 @@ function readEffectiveRepositorySelector(cwd) {
   return selectedConfig ? parseAgentSelector(selectedConfig, selectedLabel) : null;
 }
 
-function readEffectiveAgentSelector(nmHome) {
-  const repositorySelector = readEffectiveRepositorySelector(process.cwd());
+async function readEffectiveAgentSelector(nmHome) {
+  const repositorySelector = await readEffectiveRepositorySelector(nmHome, process.cwd());
   const globalFile = path.join(nmHome, "config.yaml");
   const globalText = readRegularConfigFile(globalFile);
   const globalSelector = parseAgentSelector(globalText, globalFile) || ["auto"];
@@ -807,7 +904,7 @@ async function readBoundaryState({ acquire = false } = {}) {
   // Repository selector resolution can perform bounded network reads. Keep it
   // outside the machine-shared accounting lock so simultaneous cohort members
   // preflight in parallel and serialize only the final policy/slot mutation.
-  const selectors = readEffectiveAgentSelector(nmHome);
+  const selectors = await readEffectiveAgentSelector(nmHome);
   const agent = selectors.join(",");
   return withLock(root, async () => {
     registerCurrentPolicy(root, currentPath, currentPolicy);

@@ -217,14 +217,14 @@ The complete version 1 schema is:
 `allowedAgents` is a non-empty positive allowlist of exact no-mistakes work-agent identities.
 `auto` is not a positive identity and is invalid in the allowlist, so an effective global `agent: auto` setting is denied whenever the policy is active.
 Every identity in the effective selector must be inside the combined allowlist before guarded validation reaches the native no-mistakes command.
-The selector starts from the global configuration, then applies no-mistakes' trusted live-default-branch repository override, or the current committed branch override only when that trusted file opts in with `allow_repo_commands: true`; every member of an ordered fallback list is checked because a later invocation may launch any one of them.
+The selector starts from the global configuration, then applies no-mistakes' trusted registered-default-branch repository override, or the current committed branch override only when that trusted file opts in with `allow_repo_commands: true`; every member of an ordered fallback list is checked because a later invocation may launch any one of them.
 `auto` is always denied under an active policy rather than resolved optimistically from current tool availability.
 `maxConcurrent` accepts integers from 1 through 256, so an operator can admit a monitored parallel cohort instead of serializing validation.
 Malformed, unsafe, or unsupported policy stops guarded validation with one diagnostic that names the file and correction, while read-only commands such as `doctor`, `status`, `runs`, `axi status`, logs, and help remain pass-through inspection paths.
 
 `bin/fm-spawn.sh` prepends Firstmate's tracked `bin/no-mistakes` command to every local worker PATH and preserves the native binary plus original PATH separately when the optional tool is installed.
 A policy-free worker or scout still launches when native no-mistakes is absent; the boundary reports that missing tool only if validation is later invoked.
-The wrapper re-reads the effective policy, global selector, freshly fetched trusted repository selector, and every ordered fallback at each normalized `axi run`, `axi respond`, or `rerun` boundary, including root options before those commands and workers launched before configuration changed.
+The wrapper re-reads the effective policy, global selector, no-mistakes' registered default-branch metadata, freshly fetched trusted repository selector, and every ordered fallback at each normalized `axi run`, `axi respond`, or `rerun` boundary, including root options before those commands and workers launched before configuration changed.
 Only the bare `no-mistakes` command supplied to a Firstmate worker is supported for validation; an explicit absolute native-binary invocation is a deliberate bypass outside Firstmate's ownership boundary.
 Direct operator calls and non-Firstmate tools that do not use the worker PATH are likewise outside this policy because Firstmate does not modify no-mistakes upstream.
 

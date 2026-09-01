@@ -113,6 +113,15 @@ make_case() { # <name> [agent]
   git -C "$dir/repo" commit -q -m seed
   git -C "$dir/repo" remote add origin "$dir/origin.git"
   git -C "$dir/repo" push -q -u origin main
+  node --no-warnings - "$dir/nm/state.sqlite" "$dir/repo" <<'JS'
+const fs = require("node:fs");
+const { DatabaseSync } = require("node:sqlite");
+const database = new DatabaseSync(process.argv[2]);
+database.exec("CREATE TABLE repos (id TEXT PRIMARY KEY, working_path TEXT NOT NULL UNIQUE, upstream_url TEXT NOT NULL, fork_url TEXT, default_branch TEXT NOT NULL DEFAULT 'main', created_at INTEGER NOT NULL)");
+database.prepare("INSERT INTO repos (id, working_path, upstream_url, default_branch, created_at) VALUES (?, ?, ?, ?, ?)")
+  .run("test-repo", fs.realpathSync(process.argv[3]), "test-origin", "main", 1);
+database.close();
+JS
   printf '%s\n' "$dir"
 }
 
@@ -122,6 +131,11 @@ set_trusted_repo_config() { # <case-dir> <yaml-text>
   git -C "$dir/repo" add .no-mistakes.yaml
   git -C "$dir/repo" commit -q -m config
   git -C "$dir/repo" push -q origin main
+}
+
+set_registered_default_branch() { # <case-dir> <branch>
+  node --no-warnings -e 'const {DatabaseSync}=require("node:sqlite");const d=new DatabaseSync(process.argv[1]);d.prepare("UPDATE repos SET default_branch = ? WHERE id = ?").run(process.argv[2],"test-repo");d.close()' \
+    "$1/nm/state.sqlite" "$2"
 }
 
 write_policy() { # <home> <allowed-json-array> <ceiling>
@@ -276,6 +290,65 @@ assert_contains "$out" 'denied effective agent "claude"' \
   "trusted allow_repo_commands opt-in did not select the current branch agent"
 [ ! -s "$d/native.log" ] || fail "denied branch override reached native no-mistakes"
 pass "trusted repository selectors and every ordered fallback are enforced"
+
+d=$(make_case quoted-selector-key codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" '"agent": claude'
+set +e
+out=$(wrapper_env "$d" "$d/home" axi run --intent quoted-selector 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "quoted selector key exited $rc instead of 78"
+assert_contains "$out" 'denied effective agent "claude"' \
+  "quoted selector key did not select the disallowed repository agent"
+[ ! -s "$d/native.log" ] || fail "quoted selector key bypass reached native no-mistakes"
+
+d=$(make_case quoted-allow-key codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" $'"allow_repo_commands": true\n"agent": codex'
+git -C "$d/repo" checkout -q -b feature
+printf '%s\n' '"agent": claude' > "$d/repo/.no-mistakes.yaml"
+git -C "$d/repo" add .no-mistakes.yaml
+git -C "$d/repo" commit -q -m quoted-feature-config
+set +e
+out=$(wrapper_env "$d" "$d/home" axi run --intent quoted-opt-in 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "quoted allow_repo_commands key exited $rc instead of 78"
+assert_contains "$out" 'denied effective agent "claude"' \
+  "quoted allow_repo_commands key did not select the committed branch agent"
+[ ! -s "$d/native.log" ] || fail "quoted allow_repo_commands bypass reached native no-mistakes"
+
+d=$(make_case quoted-unrelated-key codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" '"agent_note": claude'
+wrapper_env "$d" "$d/home" axi run --intent quoted-unrelated >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "an unrelated quoted key changed the effective global selector"
+pass "quoted YAML selector keys are decoded without false matches"
+
+d=$(make_case registered-default-branch codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" 'agent: claude'
+git -C "$d/repo" checkout -q -b develop
+printf '%s\n' 'agent: codex' > "$d/repo/.no-mistakes.yaml"
+git -C "$d/repo" add .no-mistakes.yaml
+git -C "$d/repo" commit -q -m develop-config
+git -C "$d/repo" push -q origin develop
+git --git-dir="$d/origin.git" symbolic-ref HEAD refs/heads/develop
+set +e
+out=$(wrapper_env "$d" "$d/home" axi run --intent registered-main 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "registered main selector exited $rc instead of 78 after origin HEAD drift"
+assert_contains "$out" 'denied effective agent "claude"' \
+  "origin HEAD drift replaced the registered main selector"
+[ ! -s "$d/native.log" ] || fail "origin HEAD drift bypass reached native no-mistakes"
+set_registered_default_branch "$d" develop
+wrapper_env "$d" "$d/home" axi run --intent registered-develop >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "the registered develop selector did not control the counterfactual run"
+pass "registered default-branch metadata controls trusted selector resolution"
 
 # Command normalization guards rerun and root-option forms without treating a
 # read-only argument value such as `--step run` as a validation boundary.
