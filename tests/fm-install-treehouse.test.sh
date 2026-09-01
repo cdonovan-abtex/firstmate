@@ -172,7 +172,7 @@ command() {
 SH
   out=$(run_fake_treehouse_installer "$fakebin" "$tmp/bin" "$tmp/url" "$tmp/tool" \
     Darwin arm64 deabeb7153bad14659e98da78de5334afecaeaac7e05988b106a4888646747d3 \
-    v2.1.1 env BASH_ENV="$bash_env") \
+    v2.1.1 env BASH_ENV="$bash_env" bash) \
     || fail "Treehouse shasum fallback failed: $out"
   [ "$(cat "$tmp/tool")" = "shasum -a 256" ] \
     || fail "installer did not use the SHA-256 shasum fallback"
