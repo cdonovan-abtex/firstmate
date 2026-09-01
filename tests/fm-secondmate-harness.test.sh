@@ -507,6 +507,47 @@ test_spawn_split_and_inherit() {
   pass "B2 spawn: secondmate runs the secondmate harness; its home inherits declared config"
 }
 
+# The generic inheritance path keeps warning-only behavior for ordinary local
+# material, but the mechanically enforced policy must be byte-converged before
+# a local secondmate can launch. An unignored destination makes propagation skip
+# the file; launch must stop before publishing metadata or an endpoint.
+test_spawn_blocks_unconverged_no_mistakes_policy() {
+  local w sm fakebin out status
+  w="$TMP_ROOT/spawn-policy-convergence"
+  sm="$w/sm"
+  mkdir -p "$w/home/config" "$w/home/state" "$w/home/data"
+  printf 'claude\n' > "$w/home/config/crew-harness"
+  printf '%s\n' '{"version":1,"allowedAgents":["codex"],"maxConcurrent":2}' \
+    > "$w/home/config/no-mistakes-policy.json"
+  make_seeded_home "$sm" sm-policy
+  git init -q -b main "$sm"
+  git -C "$sm" config user.name fm-test
+  git -C "$sm" config user.email fm-test@example.com
+  fakebin=$(make_noop_tmux "$w/tmux-sm-policy")
+
+  if out=$(PATH="$fakebin:$BASE_PATH" TMUX='' CLAUDECODE=1 \
+      FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$w/home" \
+      FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
+      FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
+      FM_SPAWN_NO_GUARD=1 \
+      "$ROOT/bin/fm-spawn.sh" sm-policy "$sm" --secondmate 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+
+  [ "$status" -ne 0 ] || fail "secondmate launched after required policy propagation was skipped"
+  assert_contains "$out" 'no-mistakes policy did not converge before launch' \
+    "secondmate refusal did not identify required policy convergence"
+  assert_contains "$out" 'destination policy is absent or unsafe' \
+    "secondmate refusal did not identify the unconverged destination"
+  [ ! -e "$w/home/state/sm-policy.meta" ] \
+    || fail "unconverged policy launch published secondmate metadata"
+  [ ! -e "$sm/config/no-mistakes-policy.json" ] \
+    || fail "guard-skip fixture unexpectedly copied the policy"
+  pass "B2a secondmate launch blocks when required policy bytes do not converge"
+}
+
 # Backward-compat: secondmate-harness absent -> the secondmate launches on the
 # crew harness, exactly as before this knob existed, and that crew value is the
 # one inherited.
@@ -2574,6 +2615,7 @@ test_pi_signed_detection_and_session_lock_identity
 test_dash_leading_process_names_are_basename_operands
 test_propagate_lib
 test_spawn_split_and_inherit
+test_spawn_blocks_unconverged_no_mistakes_policy
 test_spawn_backward_compat_crew_fallback
 test_spawn_bare_backward_compat
 test_spawn_explicit_harness_wins

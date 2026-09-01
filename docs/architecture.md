@@ -218,12 +218,13 @@ The helper's header owns the exact signal detection, relocated-home limitation, 
 
 The outer worker runtime and no-mistakes work-agent selector are independent ownership axes.
 `bin/fm-spawn.sh` therefore gives every supported local worker one structural PATH prefix after harness-specific launch composition and before backend delivery, rather than duplicating checks in harness adapters or relying on generated instructions.
-The tracked `bin/no-mistakes` symlink resolves that bare command to `bin/fm-no-mistakes.mjs`, while separately supplied native-binary and original-PATH values prevent recursion through nested secondmate launches.
-`axi run` and `axi respond` are the validation-start and continuation boundaries because they are the supported Firstmate worker path that can hand native agent work to the machine-shared service.
-The wrapper checks the effective global work-agent identity and acquires a service-keyed slot before invoking either boundary, while read-only commands and globally absent policy remain transparent.
+The tracked `bin/no-mistakes` symlink resolves that bare command to `bin/fm-no-mistakes.mjs`, while an optional native-binary hint and the original PATH prevent recursion through nested secondmate launches without making that validator a worker-launch prerequisite.
+Normalized `axi run`, `axi respond`, and `rerun` forms are the validation-start and continuation boundaries because they are the supported Firstmate worker path that can hand native agent work to the machine-shared service; root options before those commands do not change classification, while help and inspection forms remain transparent.
+The wrapper resolves the complete selector from global configuration and the freshly fetched trusted repository configuration, requires every ordered fallback identity to be allowed, acquires a service-keyed slot, records a pipe-gated exact child identity, and only then permits native execution.
 
 A home-local policy registers by canonical policy path against the canonical `NM_HOME` service identity.
 All registered homes on that machine contribute to one conservative effective policy and one lease pool, so separate primary homes and local secondmates cannot each spend an independent copy of the configured ceiling against one service.
+A local secondmate launch additionally requires byte-exact policy convergence, or matching absence, before its endpoint exists; warning-only propagation remains available for non-policy inherited material but cannot create an unguarded policy gap.
 Remote secondmates inherit the bytes but register on their remote machine, whose distinct service has a distinct pool.
 The operator schema and supported scope are owned by [`configuration.md`](configuration.md#no-mistakes-worker-policy-configno-mistakes-policyjson), and exact state, lease, recovery, and pass-through mechanics are owned by the wrapper header.
 

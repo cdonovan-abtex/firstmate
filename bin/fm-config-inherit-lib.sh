@@ -65,7 +65,8 @@ FM_SHARED_CAPTAIN_MODE="444"
 # The declared inheritable set (space-separated, config-dir-relative item paths).
 # Extend here to inherit more of the primary's local config; override via the
 # environment only in tests. Items must not contain whitespace.
-FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces no-mistakes-policy.json startup-memory-budget trace-context}"
+FM_NO_MISTAKES_POLICY_FILE="no-mistakes-policy.json"
+FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces $FM_NO_MISTAKES_POLICY_FILE startup-memory-budget trace-context}"
 
 # Items whose value is a home-SESSION enablement decision rather than durable
 # local configuration. They are inherited at the launch convergence point, where
@@ -127,6 +128,36 @@ fm_inherit_sha256() {
   else
     return 1
   fi
+}
+
+# fm_no_mistakes_policy_converged <primary-config> <secondmate-config>
+# Prove that the one mechanically enforced inherited policy is byte-identical,
+# or absent on both sides, before a local secondmate launch can proceed. The
+# executable wrapper remains the sole schema parser; this helper checks only
+# ordinary-file identity and convergence, so it does not duplicate policy
+# semantics in shell.
+fm_no_mistakes_policy_converged() {
+  local src_config=$1 dest_config=$2 src dest
+  src="$src_config/$FM_NO_MISTAKES_POLICY_FILE"
+  dest="$dest_config/$FM_NO_MISTAKES_POLICY_FILE"
+  if [ -e "$src" ] || [ -L "$src" ]; then
+    if [ ! -f "$src" ] || [ -L "$src" ] || [ "$(fm_inherit_file_link_count "$src")" != 1 ]; then
+      printf '%s\n' "primary policy is not a regular, non-symlinked, single-linked file: $src"
+      return 1
+    fi
+    if [ ! -f "$dest" ] || [ -L "$dest" ] || [ "$(fm_inherit_file_link_count "$dest")" != 1 ]; then
+      printf '%s\n' "destination policy is absent or unsafe: $dest"
+      return 1
+    fi
+    if ! cmp -s "$src" "$dest"; then
+      printf '%s\n' "destination policy bytes differ from the primary: $dest"
+      return 1
+    fi
+  elif [ -e "$dest" ] || [ -L "$dest" ]; then
+    printf '%s\n' "primary policy is absent but a destination policy remains: $dest"
+    return 1
+  fi
+  return 0
 }
 
 copy_inheritable_file() {

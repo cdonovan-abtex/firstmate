@@ -216,26 +216,32 @@ The complete version 1 schema is:
 
 `allowedAgents` is a non-empty positive allowlist of exact no-mistakes work-agent identities.
 `auto` is not a positive identity and is invalid in the allowlist, so an effective global `agent: auto` setting is denied whenever the policy is active.
-Any effective identity outside the combined allowlist is denied before `axi run` or `axi respond` reaches the native no-mistakes command.
+Every identity in the effective selector must be inside the combined allowlist before guarded validation reaches the native no-mistakes command.
+The selector starts from the global configuration, then applies no-mistakes' trusted live-default-branch repository override, or the current committed branch override only when that trusted file opts in with `allow_repo_commands: true`; every member of an ordered fallback list is checked because a later invocation may launch any one of them.
+`auto` is always denied under an active policy rather than resolved optimistically from current tool availability.
 `maxConcurrent` accepts integers from 1 through 256, so an operator can admit a monitored parallel cohort instead of serializing validation.
 Malformed, unsafe, or unsupported policy stops guarded validation with one diagnostic that names the file and correction, while read-only commands such as `doctor`, `status`, `runs`, `axi status`, logs, and help remain pass-through inspection paths.
 
-`bin/fm-spawn.sh` prepends Firstmate's tracked `bin/no-mistakes` command to every local worker PATH and preserves the native binary plus original PATH separately.
-The wrapper re-reads the effective policy and the shared service's global `config.yaml` agent at every `axi run` and `axi respond` boundary, including workers launched before either file changed.
+`bin/fm-spawn.sh` prepends Firstmate's tracked `bin/no-mistakes` command to every local worker PATH and preserves the native binary plus original PATH separately when the optional tool is installed.
+A policy-free worker or scout still launches when native no-mistakes is absent; the boundary reports that missing tool only if validation is later invoked.
+The wrapper re-reads the effective policy, global selector, freshly fetched trusted repository selector, and every ordered fallback at each normalized `axi run`, `axi respond`, or `rerun` boundary, including root options before those commands and workers launched before configuration changed.
 Only the bare `no-mistakes` command supplied to a Firstmate worker is supported for validation; an explicit absolute native-binary invocation is a deliberate bypass outside Firstmate's ownership boundary.
 Direct operator calls and non-Firstmate tools that do not use the worker PATH are likewise outside this policy because Firstmate does not modify no-mistakes upstream.
 
 The policy file belongs to one Firstmate home and is primary-authoritative inherited local material for its secondmate homes.
-A local secondmate therefore receives the same bytes, and a remote secondmate receives them on its own host through the existing authenticated inheritance path.
+A local secondmate therefore receives the same bytes, and its launch refuses before endpoint or task-record publication when policy propagation was skipped, failed, remained stale, or left unsafe source or destination artifacts; other inherited local-material failures retain their existing warning behavior.
+A remote secondmate receives the policy on its own host through the existing authenticated inheritance path.
 Each policy-enabled home registers against the canonical `NM_HOME` used by its machine's shared no-mistakes service.
 Every Firstmate wrapper sharing that service refreshes registered policy files, intersects their allowlists, applies the smallest registered ceiling, and uses one machine-private slot pool keyed by that service home.
 This makes independent Firstmate homes and local secondmate homes share one real service ceiling rather than separate per-home locks.
 Removing a registered policy file unregisters that home on the next wrapper boundary, while an invalid registered file stops guarded calls rather than silently retaining stale settings.
 A remote host has a different no-mistakes service and therefore a separate machine-local pool; Firstmate does not claim one cross-machine ceiling over independent services.
 
-A slot covers one complete blocking native `axi run` or `axi respond` call, conservatively including non-agent steps until that call returns at a gate, CI-ready point, or outcome.
+A slot covers one complete blocking native guarded call, conservatively including non-agent steps until that call returns at a gate, CI-ready point, or outcome.
+The wrapper starts an exact child behind a pipe gate, records that stable process identity in the lease, yields for any already-delivered interrupt, and only then lets the child exec native no-mistakes, so no native agent can outrun durable accounting.
 Normal completion, gate returns, and handled interruption release immediately.
-If a wrapper or worker dies, its native CLI child keeps the lease while alive; after both disappear, a bounded read-only `axi status` check reaps a gate-returned, terminal, or absent run and keeps an apparently active run charged.
+If a wrapper dies before identity publication, the still-closed pipe prevents native launch and the transitional lease remains conservatively charged for a bounded recovery window; if it dies after publication, the exact native CLI child keeps the lease while alive.
+After both disappear, a bounded read-only `axi status` check reaps a gate-returned, terminal, or absent run and keeps an apparently active run charged.
 This recovery is independent of the primary session and never deletes a manual lock, enumerates agent processes, or stops or restarts the shared no-mistakes service.
 
 Inspect the effective service policy without prompts, command arguments, credentials, or policy paths:

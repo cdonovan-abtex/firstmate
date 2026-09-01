@@ -24,18 +24,18 @@ An outer Codex worker cannot mask an unsafe global `auto` selector, while an exp
 
 ## Portable boundary regressions
 
-Verified on 2026-08-31 with Node v22.23.1 and the repository behavior-test environment:
+Verified on 2026-09-01 with Node v22.23.1 and the repository behavior-test environment:
 
 ```sh
 node --check bin/fm-no-mistakes.mjs
 tests/fm-no-mistakes-policy.test.sh
 ```
 
-The test printed eleven passing cases and `# all fm-no-mistakes-policy tests passed`.
+The test printed fifteen passing cases and `# all fm-no-mistakes-policy tests passed`.
 It exercised behavior through the tracked `bin/no-mistakes` command and a fake native command that starts a real child process for guarded calls.
-The cases cover an allowed explicit identity, denied `auto`, denied disallowed explicit identity, malformed policy, missing policy, missing effective-agent configuration, post-launch config drift, continuation drift, two simultaneous allowed slots, over-limit refusal, independent homes sharing one service, a policy-free sibling home under a registered service policy, normal gate return, handled interruption, and abnormal wrapper and native-process exit recovery.
+The cases cover an allowed explicit identity, denied `auto`, denied disallowed explicit identity, malformed policy, missing policy, missing effective-agent configuration, trusted default-branch and opted-in current-branch repository selectors, ordered fallback selectors, normalized root-option and `rerun` forms, help-looking flag values, post-launch config drift, continuation drift, two simultaneous allowed slots, over-limit refusal, independent homes sharing one service, a policy-free sibling home under a registered service policy, normal gate return, spawn-to-identity handoff death, pre-launch and handled interruption, and abnormal wrapper and native-process exit recovery.
 Denial cases assert that neither the fake native guarded command nor its child process started.
-Read-only `doctor` and help calls remain pass-through under malformed policy.
+Read-only `doctor` and genuine help calls remain pass-through under malformed policy.
 Assertions consume command output, exit status, process behavior, and child markers only, never implementation-source bytes.
 
 ## Harness and runtime applicability
@@ -60,39 +60,35 @@ The boundary is structural and does not consume vendor-rendered harness output.
 
 ## Repository verification
 
-Verified on 2026-08-31:
+Verified on 2026-09-01:
 
 ```sh
 node --check bin/fm-no-mistakes.mjs
 tests/fm-no-mistakes-policy.test.sh
 tests/fm-spawn-dispatch-profile.test.sh
-tests/fm-kimi-harness.test.sh
 tests/fm-secondmate-harness.test.sh
-tests/fm-startup-memory-budget.test.sh
-tests/fm-brief.test.sh
-tests/fm-task-delivery.test.sh
-tests/fm-test-run.test.sh
-tests/fm-gitignore-config.test.sh
 bin/fm-lint.sh
 bin/fm-doc-audience-check.sh
 bin/fm-test-run.sh --check-coverage
 ```
 
 Every focused command passed.
-The boundary test ended with `# all fm-no-mistakes-policy tests passed` after eleven cases.
+The boundary test ended with `# all fm-no-mistakes-policy tests passed` after fifteen cases.
 The inheritance test ended with `# all fm-secondmate-harness tests passed`.
 Lint reported ShellCheck 0.11.0 and actionlint 1.7.12 with all three workflow files valid.
-The documentation check reported `fm-doc-audience-check: ok surfaces=90 local_links=303`.
-The coverage check reported `FM_TEST_COVERAGE ok total=174 parallel=24 serial=138 serial_shards=4 herdr=12`.
+The documentation check reported `fm-doc-audience-check: ok surfaces=90 local_links=304`.
+The coverage check reported `FM_TEST_COVERAGE ok total=176 parallel=24 serial=140 serial_shards=4 herdr=12`.
 
-The complete deterministic non-Herdr inventory was also run with a physically resolved temporary directory because macOS `/var` aliases `/private/var` and process-event ownership intentionally compares physical homes:
+The complete deterministic non-Herdr inventory was also covered with a physically resolved temporary directory because macOS `/var` aliases `/private/var` and process-event ownership intentionally compares physical homes:
 
 ```sh
-PHYS_TMP=$(cd "$TMPDIR" && pwd -P)
+PHYS_TMP=$(cd "${TMPDIR:-/tmp}" && pwd -P)
 TMPDIR="$PHYS_TMP" bin/fm-test-run.sh --all --exclude-family real-herdr-gated
 ```
 
-The result was `total=162 failed=1 skipped_gate=24`; all changed and policy-relevant families passed.
-The only failure was `tests/fm-pi-branch-extension.test.sh`, where the installed Pi stock `ToolExecutionComponent` calm-off rendering differed from the repository expectation.
-The same isolated test failed with the identical message from an untouched `git archive origin/main`, so it is a pre-existing installed-Pi compatibility failure rather than a branch regression.
+The inventory contained 164 scripts.
+An outer 3600-second execution bound interrupted the serial runner after 125 completed scripts, so the exact 39 uncompleted scripts were selected from the runner markers and completed through the same runner; every policy-relevant family and every remaining script passed.
+Two unrelated first-pass environment failures passed on immediate isolated rerun: the Calm follow-up case passed unchanged, and the Cursor primary case passed when `/usr/bin/cc` preceded a local `cc` alias that was actually Claude Code.
+The remaining failure was `tests/fm-pi-branch-extension.test.sh`, where the installed Pi stock `ToolExecutionComponent` calm-off rendering differed from the repository expectation.
+The same isolated test failed with the identical message from an untouched `git archive 4ad8cba`, so it is a pre-existing installed-Pi compatibility failure rather than a branch regression.
 Real-Herdr lifecycle evidence remains separately owned by [`runtime-backends.md`](runtime-backends.md) and is not claimed by this portable policy verification.

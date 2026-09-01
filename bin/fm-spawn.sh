@@ -1755,9 +1755,17 @@ if [ "$KIND" = secondmate ]; then
     CONFIG_INHERIT_LOCK_HELD=1
     # Inheritance propagation: push the primary-authoritative live-safe local inheritance
     # surface into this secondmate home (fm-config-inherit-lib.sh).
+    SECONDMATE_INHERIT_STATUS=0
     FM_CONFIG_INHERIT_LIVE=1 \
       propagate_secondmate_inheritance "$FM_HOME" "$PROJ_ABS" "$CONFIG" "$DATA" \
-      || echo "warning: secondmate $ID inheritance failed for $PROJ_ABS" >&2
+      || SECONDMATE_INHERIT_STATUS=$?
+    if ! NM_POLICY_CONVERGENCE_ERROR=$(fm_no_mistakes_policy_converged "$CONFIG" "$PROJ_ABS/config"); then
+      echo "error: secondmate $ID no-mistakes policy did not converge before launch: $NM_POLICY_CONVERGENCE_ERROR" >&2
+      exit 1
+    fi
+    if [ "$SECONDMATE_INHERIT_STATUS" -ne 0 ]; then
+      echo "warning: secondmate $ID inheritance failed for $PROJ_ABS" >&2
+    fi
   fi
   if [ -f "$PROJ_ABS/data/charter.md" ]; then
     BRIEF="$PROJ_ABS/data/charter.md"
@@ -2952,10 +2960,13 @@ fi
 "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
-# Resolve the native binary before Firstmate prepends its tracked bin/ shim.
-# A secondmate agent inherits the original pair and passes it to its own workers,
-# so nested Firstmate homes cannot resolve this wrapper as the native binary.
-# A fresh remote secondmate resolves the same pair on its host.
+# Resolve the native binary opportunistically before Firstmate prepends its
+# tracked bin/ shim. An empty result is valid for policy-free workers and scouts:
+# their launch must not require an optional validation tool, and the wrapper
+# reports the missing native command only if validation is later invoked. A
+# secondmate agent inherits the original pair and passes it to its own workers,
+# so nested Firstmate homes cannot resolve this wrapper as the native binary. A
+# fresh remote secondmate resolves the same pair on its host.
 NM_NATIVE_PATH=${FM_NO_MISTAKES_NATIVE_PATH:-$PATH}
 NM_NATIVE_BIN=${FM_NO_MISTAKES_NATIVE_BIN:-}
 if [ -n "$NM_NATIVE_BIN" ]; then
@@ -2983,10 +2994,6 @@ if [ -z "$NM_NATIVE_BIN" ]; then
   done
   IFS=$old_ifs
 fi
-[ -n "$NM_NATIVE_BIN" ] || {
-  echo "error: native no-mistakes binary is unavailable outside Firstmate's worker command shim; install it or repair PATH before spawning" >&2
-  exit 1
-}
 NM_POLICY_HOME=$FM_HOME
 [ "$KIND" != secondmate ] || NM_POLICY_HOME=$PROJ_ABS
 NM_WORKER_PATH="$FM_ROOT/bin:$NM_NATIVE_PATH"

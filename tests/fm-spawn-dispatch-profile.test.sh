@@ -146,6 +146,30 @@ test_no_profile_keeps_claude_profile_defaults() {
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
 
+# A policy-free scout does not need the optional native validator merely to
+# launch; the tracked boundary keeps an empty native hint and diagnoses only if
+# validation is later invoked.
+test_policy_free_scout_launches_without_native_no_mistakes() {
+  local rec id out status launch
+  id=profile-policy-free-scout-z1a
+  rec=$(make_spawn_case profile-policy-free-scout claude "$id")
+  read_case_record "$rec"
+  rm -f "$FAKEBIN_DIR/no-mistakes"
+
+  out=$(FM_NO_MISTAKES_NATIVE_PATH="$FAKEBIN_DIR:/usr/bin:/bin" \
+    run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --scout)
+  status=$?
+  expect_code 0 "$status" "policy-free scout spawn should not require native no-mistakes"
+  assert_contains "$out" "spawned $id harness=claude kind=scout" \
+    "policy-free scout did not launch after native no-mistakes was removed"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "FM_NO_MISTAKES_NATIVE_BIN=''" \
+    "policy-free scout did not carry an intentionally empty native-validator hint"
+  assert_contains "$launch" "PATH='$ROOT/bin:$FAKEBIN_DIR:/usr/bin:/bin'" \
+    "policy-free scout did not retain the tracked lazy validation boundary"
+  pass "policy-free scout launch does not require native no-mistakes"
+}
+
 test_non_cursor_launch_clears_inherited_cursor_markers() {
   local rec id out status launch
   id=profile-claude-cursor-markers-z1b
@@ -808,6 +832,7 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
 }
 
 test_no_profile_keeps_claude_profile_defaults
+test_policy_free_scout_launches_without_native_no_mistakes
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
 test_home_defaults_preserve_absolute_or_resolve_relative_paths

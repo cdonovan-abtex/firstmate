@@ -8,16 +8,21 @@
  * machine-shared slot, and then invoke no-mistakes without recursively calling
  * itself.
  *
- * Guarded native boundaries are `axi run` and `axi respond`, except their help
- * forms. Every other command is passed through unchanged. A globally absent
- * policy therefore preserves the old path byte-for-byte apart from one exec
- * hop, while malformed configured policy refuses only guarded validation work.
+ * Guarded native boundaries are normalized `axi run`, `axi respond`, and
+ * `rerun` forms, including root flags before those commands and excluding help
+ * and version forms. Every other command is passed through unchanged. A
+ * globally absent policy therefore preserves the old path byte-for-byte apart
+ * from one exec hop, while malformed configured policy refuses only guarded
+ * validation work.
  *
  * Local policy lives at config/no-mistakes-policy.json under
  * FM_NO_MISTAKES_POLICY_HOME (falling back to FM_HOME, then the tracked root).
  * Schema v1 is:
  *   {"version":1,"allowedAgents":["<identity>",...],"maxConcurrent":<integer>}
- * `auto` is never a positive identity and is rejected in allowedAgents.
+ * `auto` is never a positive identity and is rejected in allowedAgents. The
+ * complete selector is read from global config plus the freshly fetched trusted
+ * repository config, including every ordered fallback and the committed branch
+ * only when the trusted default branch opts into allow_repo_commands.
  *
  * A policy-enabled home registers its policy path under a private service key
  * derived from the canonical NM_HOME. Every Firstmate wrapper on the machine
@@ -28,9 +33,11 @@
  * next boundary. Direct operator calls that deliberately bypass Firstmate's
  * worker PATH are outside this Firstmate-owned boundary.
  *
- * Slot leases cover the complete blocking native `axi run`/`axi respond` call,
- * so native agent work is bounded even though non-agent steps within that call
- * may hold the slot conservatively. Leases carry only process identities,
+ * Slot leases cover the complete blocking native validation call, so native
+ * agent work is bounded even though non-agent steps within that call may hold
+ * the slot conservatively. The native command starts behind a pipe gate whose
+ * stable process identity is recorded before it can exec no-mistakes. Leases
+ * carry only process identities,
  * agent identity, and working directory - never arguments, prompts, output, or
  * credentials. A dead wrapper does not free a still-live native CLI child. Once
  * both are gone, a bounded public `axi status` read keeps an apparently active
@@ -58,7 +65,7 @@ const SCRIPT_REAL = realpathIfPresent(fileURLToPath(import.meta.url));
 const SCRIPT_DIR = path.dirname(SCRIPT_REAL);
 const args = process.argv.slice(2);
 const statusRequested = args.length === 1 && args[0] === "fm-policy-status";
-const guarded = isGuardedBoundary(args);
+const guarded = classifyGuardedBoundary(args) !== null;
 let heldLease = null;
 let nativeChild = null;
 let relayedSignal = null;
@@ -76,9 +83,57 @@ function realpathIfPresent(value) {
   }
 }
 
-function isGuardedBoundary(argv) {
-  if (argv.includes("--help") || argv.includes("-h")) return false;
-  return argv[0] === "axi" && (argv[1] === "run" || argv[1] === "respond");
+function isReadOnlyInvocation(argv) {
+  const valueFlags = new Set([
+    "--skip",
+    "--intent",
+    "--action",
+    "--add-finding",
+    "--findings",
+    "--instructions",
+    "--step",
+  ]);
+  let consumesNext = false;
+  for (const arg of argv) {
+    if (consumesNext) {
+      consumesNext = false;
+      continue;
+    }
+    if (valueFlags.has(arg)) {
+      consumesNext = true;
+      continue;
+    }
+    if (arg === "--help" || arg === "-h" || arg === "--version" || arg === "-v") return true;
+  }
+  return false;
+}
+
+function nextCommandToken(argv, start = 0) {
+  for (let index = start; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--skip") {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--skip=") || arg === "--yes" || arg === "-y") continue;
+    if (arg === "--") return index + 1 < argv.length ? { value: argv[index + 1], index: index + 1 } : null;
+    if (arg.startsWith("-")) continue;
+    return { value: arg, index };
+  }
+  return null;
+}
+
+function classifyGuardedBoundary(argv) {
+  if (isReadOnlyInvocation(argv)) return null;
+  const top = nextCommandToken(argv);
+  if (!top) return null;
+  if (top.value === "rerun") return "start";
+  if (top.value !== "axi") return null;
+  const subcommand = nextCommandToken(argv, top.index + 1);
+  if (!subcommand) return null;
+  if (subcommand.value === "run") return "start";
+  if (subcommand.value === "respond") return "continuation";
+  return null;
 }
 
 function policyHome() {
@@ -234,36 +289,197 @@ function parseYamlScalar(raw) {
   return value;
 }
 
-function readEffectiveAgent(nmHome) {
-  const file = path.join(nmHome, "config.yaml");
+function readTopLevelYamlField(text, key, file) {
+  const lines = text.split(/\r?\n/);
+  const pattern = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:(.*)$`);
+  let found = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(pattern);
+    if (!match) continue;
+    if (found) throw new Error(`${file} contains duplicate top-level ${key} fields`);
+    const inline = stripYamlComment(match[1]);
+    if (inline) {
+      found = { kind: "inline", values: [match[1]] };
+      continue;
+    }
+    const values = [];
+    for (let nested = index + 1; nested < lines.length; nested += 1) {
+      const line = lines[nested];
+      if (/^\s*(?:#.*)?$/.test(line)) continue;
+      if (/^\S/.test(line)) break;
+      const item = line.match(/^\s+-\s*(.*)$/);
+      if (!item) throw new Error(`${file} field ${key} uses an unsupported nested YAML form`);
+      values.push(item[1]);
+      index = nested;
+    }
+    found = { kind: "block", values };
+  }
+  return found;
+}
+
+function parseYamlFlowSequence(raw, file) {
+  const value = stripYamlComment(raw);
+  if (!value.startsWith("[")) return [parseYamlScalar(raw)];
+  if (!value.endsWith("]")) throw new Error(`${file} agent has an unterminated inline list`);
+  const body = value.slice(1, -1);
+  const values = [];
+  let start = 0;
+  let single = false;
+  let double = false;
+  let escaped = false;
+  for (let index = 0; index <= body.length; index += 1) {
+    const char = body[index];
+    if (index < body.length) {
+      if (double && escaped) {
+        escaped = false;
+        continue;
+      }
+      if (double && char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (!double && char === "'") {
+        if (single && body[index + 1] === "'") {
+          index += 1;
+          continue;
+        }
+        single = !single;
+        continue;
+      }
+      if (!single && char === '"') {
+        double = !double;
+        continue;
+      }
+    }
+    if (index === body.length || (char === "," && !single && !double)) {
+      const item = body.slice(start, index).trim();
+      if (!item) throw new Error(`${file} agent list contains an empty item`);
+      values.push(parseYamlScalar(item));
+      start = index + 1;
+    }
+  }
+  if (single || double || escaped) throw new Error(`${file} agent list has an unterminated quoted item`);
+  return values;
+}
+
+function parseAgentSelector(text, file) {
+  const field = readTopLevelYamlField(text, "agent", file);
+  if (!field) return null;
+  let selectors;
+  try {
+    selectors = field.kind === "inline"
+      ? parseYamlFlowSequence(field.values[0], file)
+      : field.values.map((value) => parseYamlScalar(value));
+  } catch (error) {
+    throw new Error(`cannot determine the effective work-agent selector from ${file} (${error.message})`);
+  }
+  if (selectors.length === 0) throw new Error(`${file} field agent must not be an empty list`);
+  for (const selector of selectors) {
+    if (!/^[a-z][a-z0-9._-]*(?::[A-Za-z0-9._/-]+)?$/.test(selector)) {
+      throw new Error(`${file} field agent contains invalid identity ${JSON.stringify(selector)}`);
+    }
+  }
+  return selectors;
+}
+
+function parseBooleanField(text, key, file) {
+  const field = readTopLevelYamlField(text, key, file);
+  if (!field) return false;
+  if (field.kind !== "inline") throw new Error(`${file} field ${key} must be true or false`);
+  const value = parseYamlScalar(field.values[0]);
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${file} field ${key} must be true or false`);
+}
+
+function readRegularConfigFile(file) {
   let st;
   try {
     st = fs.lstatSync(file);
   } catch {
-    throw new Error(`cannot determine the effective work agent because ${file} is missing`);
+    throw new Error(`cannot determine the effective work-agent selector because ${file} is missing`);
   }
-  if (!st.isFile() || st.isSymbolicLink()) {
-    throw new Error(`cannot determine the effective work agent because ${file} is not a regular file`);
+  if (!st.isFile() || st.isSymbolicLink() || st.nlink !== 1) {
+    throw new Error(`cannot determine the effective work-agent selector because ${file} is not a regular, single-linked file`);
   }
-  const matches = [];
-  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-  for (const line of lines) {
-    const match = line.match(/^agent\s*:(.*)$/);
-    if (match) matches.push(match[1]);
+  if (st.size > 65536) throw new Error(`cannot determine the effective work-agent selector because ${file} exceeds 65536 bytes`);
+  return fs.readFileSync(file, "utf8");
+}
+
+function gitResult(cwd, argv, purpose, timeout = 30000) {
+  const result = spawnSync("git", argv, {
+    cwd,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    encoding: "utf8",
+    timeout,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error(`cannot determine the effective repository work-agent selector because git ${purpose} failed`);
   }
-  if (matches.length !== 1) {
-    throw new Error(`cannot determine the effective work agent because ${file} must contain exactly one top-level agent field`);
+  return result.stdout;
+}
+
+function readRepositoryConfigAtCommit(top, commit, label) {
+  const row = gitResult(top, ["ls-tree", commit, "--", ".no-mistakes.yaml"], `could not inspect ${label}`);
+  if (!row.trim()) return null;
+  const mode = row.trim().split(/\s+/, 1)[0];
+  if (mode !== "100644" && mode !== "100755") {
+    throw new Error(`cannot determine the effective repository work-agent selector because ${label} .no-mistakes.yaml is not a regular file`);
   }
-  let agent;
-  try {
-    agent = parseYamlScalar(matches[0]);
-  } catch (error) {
-    throw new Error(`cannot determine the effective work agent from ${file} (${error.message})`);
+  const text = gitResult(top, ["show", `${commit}:.no-mistakes.yaml`], `could not read ${label}`);
+  if (Buffer.byteLength(text) > 65536) {
+    throw new Error(`cannot determine the effective repository work-agent selector because ${label} .no-mistakes.yaml exceeds 65536 bytes`);
   }
-  if (!/^[a-z][a-z0-9._-]*(?::[A-Za-z0-9._/-]+)?$/.test(agent)) {
-    throw new Error(`cannot determine the effective work agent because ${file} has an invalid agent identity`);
+  return text;
+}
+
+function readEffectiveRepositorySelector(cwd) {
+  const top = gitResult(cwd, ["rev-parse", "--show-toplevel"], "could not resolve the repository").trim();
+  let trustedRef = null;
+  let trustedOid = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const before = gitResult(top, ["ls-remote", "--symref", "origin", "HEAD"], "could not resolve origin's live default branch", 15000);
+    const refMatch = before.match(/^ref:\s+(refs\/heads\/[^\s]+)\s+HEAD$/m);
+    const oidMatch = before.match(/^([0-9a-f]{40,64})\s+HEAD$/m);
+    if (!refMatch || !oidMatch) {
+      throw new Error("cannot determine the effective repository work-agent selector because origin has no readable symbolic default branch");
+    }
+    trustedRef = refMatch[1];
+    trustedOid = oidMatch[1];
+    gitResult(top, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", trustedRef], "could not fetch origin's live default branch", 60000);
+    const after = gitResult(top, ["ls-remote", "--symref", "origin", "HEAD"], "could not re-check origin's live default branch", 15000);
+    const afterRef = after.match(/^ref:\s+(refs\/heads\/[^\s]+)\s+HEAD$/m)?.[1];
+    const afterOid = after.match(/^([0-9a-f]{40,64})\s+HEAD$/m)?.[1];
+    if (afterRef === trustedRef && afterOid === trustedOid) break;
+    trustedRef = null;
+    trustedOid = null;
   }
-  return agent;
+  if (!trustedRef || !trustedOid) {
+    throw new Error("cannot determine the effective repository work-agent selector because origin's default branch changed during preflight; retry");
+  }
+  gitResult(top, ["cat-file", "-e", `${trustedOid}^{commit}`], "could not verify origin's live default commit");
+  const trustedLabel = `origin/${trustedRef.slice("refs/heads/".length)}`;
+  const trustedConfig = readRepositoryConfigAtCommit(top, trustedOid, trustedLabel);
+  const allowBranchConfig = trustedConfig
+    ? parseBooleanField(trustedConfig, "allow_repo_commands", `${trustedLabel}:.no-mistakes.yaml`)
+    : false;
+  let selectedConfig = trustedConfig;
+  let selectedLabel = `${trustedLabel}:.no-mistakes.yaml`;
+  if (allowBranchConfig) {
+    const head = gitResult(top, ["rev-parse", "HEAD"], "could not resolve the current branch head").trim();
+    selectedConfig = readRepositoryConfigAtCommit(top, head, "HEAD");
+    selectedLabel = "HEAD:.no-mistakes.yaml";
+  }
+  return selectedConfig ? parseAgentSelector(selectedConfig, selectedLabel) : null;
+}
+
+function readEffectiveAgentSelector(nmHome) {
+  const repositorySelector = readEffectiveRepositorySelector(process.cwd());
+  const globalFile = path.join(nmHome, "config.yaml");
+  const globalText = readRegularConfigFile(globalFile);
+  const globalSelector = parseAgentSelector(globalText, globalFile) || ["auto"];
+  return repositorySelector || globalSelector;
 }
 
 function nativePath() {
@@ -352,6 +568,17 @@ async function sleep(milliseconds) {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function signalExitCode(signal) {
+  return 128 + (os.constants.signals[signal] || 1);
+}
+
+function throwIfInterrupted() {
+  if (!relayedSignal) return;
+  const error = new Error(`interrupted by ${relayedSignal}`);
+  error.interrupted = true;
+  throw error;
+}
+
 async function acquireLock(root) {
   const lock = path.join(root, ".lock");
   const token = crypto.randomUUID();
@@ -359,6 +586,7 @@ async function acquireLock(root) {
   if (!ownerStart) throw new Error("cannot establish this wrapper process identity for machine-shared accounting");
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
+    throwIfInterrupted();
     try {
       fs.mkdirSync(lock, { mode: 0o700 });
       atomicJson(path.join(lock, "owner.json"), {
@@ -386,10 +614,12 @@ async function acquireLock(root) {
     }
     if (owner && processMatches(owner.pid, owner.processStart)) {
       await sleep(25);
+      throwIfInterrupted();
       continue;
     }
     if (age < 2000) {
       await sleep(25);
+      throwIfInterrupted();
       continue;
     }
     const stale = `${lock}.stale.${process.pid}.${crypto.randomUUID()}`;
@@ -398,6 +628,7 @@ async function acquireLock(root) {
       fs.rmSync(stale, { recursive: true, force: true });
     } catch {
       await sleep(25);
+      throwIfInterrupted();
     }
   }
   throw new Error("could not acquire the machine-shared policy lock within 5 seconds");
@@ -499,7 +730,10 @@ function statusLooksQuiescent(output) {
 }
 
 function staleLeaseQuiescent(lease, native, env) {
-  if (!lease.nativePid) return true;
+  if (!lease.nativePid) {
+    const created = Date.parse(lease.createdAt);
+    return Number.isFinite(created) && Date.now() - created >= 5000;
+  }
   const cwd = typeof lease.cwd === "string" && path.isAbsolute(lease.cwd) ? lease.cwd : null;
   if (!cwd) return false;
   const result = spawnSync(native, ["axi", "status"], {
@@ -522,7 +756,9 @@ function activeLeases(root, native, env) {
     let lease;
     try {
       lease = readJsonFile(file);
-      if (lease.version !== 1 || typeof lease.token !== "string") throw new Error("invalid lease");
+      if (lease.version !== 1 || typeof lease.token !== "string" || typeof lease.createdAt !== "string") {
+        throw new Error("invalid lease");
+      }
     } catch {
       fs.rmSync(file, { force: true });
       continue;
@@ -555,25 +791,41 @@ async function readBoundaryState({ acquire = false } = {}) {
   const root = stateRootForService(nmHome);
   const rootExists = fs.existsSync(root);
   if (!currentPolicy && !rootExists) {
-    return { policy: null, nmHome, root, agent: null, active: 0, available: null, lease: null };
+    return { policy: null, nmHome, root, selectors: [], agent: null, active: 0, available: null, lease: null };
   }
   assertPlainDirectory(root, true);
   const native = nativePath();
   const env = nativeEnvironment();
+  const initialPolicy = await withLock(root, async () => {
+    registerCurrentPolicy(root, currentPath, currentPolicy);
+    return effectiveRegisteredPolicy(root);
+  });
+  if (!initialPolicy) {
+    return { policy: null, nmHome, root, native, env, selectors: [], agent: null, active: 0, available: null, lease: null };
+  }
+
+  // Repository selector resolution can perform bounded network reads. Keep it
+  // outside the machine-shared accounting lock so simultaneous cohort members
+  // preflight in parallel and serialize only the final policy/slot mutation.
+  const selectors = readEffectiveAgentSelector(nmHome);
+  const agent = selectors.join(",");
   return withLock(root, async () => {
     registerCurrentPolicy(root, currentPath, currentPolicy);
     const policy = effectiveRegisteredPolicy(root);
     if (!policy) {
-      return { policy: null, nmHome, root, native, env, agent: null, active: 0, available: null, lease: null };
+      return { policy: null, nmHome, root, native, env, selectors: [], agent: null, active: 0, available: null, lease: null };
     }
-    const agent = readEffectiveAgent(nmHome);
     const leases = activeLeases(root, native, env);
     const active = leases.length;
     const available = Math.max(0, policy.maxConcurrent - active);
-    if (!acquire) return { policy, nmHome, root, native, env, agent, active, available, lease: null };
-    if (!policy.allowedAgents.includes(agent)) {
+    if (!acquire) return { policy, nmHome, root, native, env, selectors, agent, active, available, lease: null };
+    const denied = selectors.filter((identity) => !policy.allowedAgents.includes(identity));
+    if (denied.length > 0) {
       const allowed = policy.allowedAgents.length ? policy.allowedAgents.join(",") : "none (configured policy intersections do not overlap)";
-      throw new Error(`denied effective agent ${JSON.stringify(agent)}; allowed identities: ${allowed}. Set ${path.join(nmHome, "config.yaml")} agent to an allowed explicit identity and retry`);
+      if (selectors.length === 1) {
+        throw new Error(`denied effective agent ${JSON.stringify(denied[0])}; allowed identities: ${allowed}. Configure an allowed explicit global or repository selector and retry`);
+      }
+      throw new Error(`denied effective selector ${JSON.stringify(selectors)}; disallowed fallback identities: ${denied.join(",")}; allowed identities: ${allowed}. Configure only allowed explicit global or repository selectors and retry`);
     }
     if (active >= policy.maxConcurrent) {
       const capacity = new Error(`capacity reached: agent=${agent} active=${active} available=0 ceiling=${policy.maxConcurrent}; retry after another validation boundary returns`);
@@ -591,6 +843,7 @@ async function readBoundaryState({ acquire = false } = {}) {
       holderStart,
       nativePid: null,
       nativeStart: null,
+      handoff: "reserved",
       cwd: path.resolve(process.cwd()),
       agent,
       createdAt: new Date().toISOString(),
@@ -602,6 +855,7 @@ async function readBoundaryState({ acquire = false } = {}) {
       root,
       native,
       env,
+      selectors,
       agent,
       active: active + 1,
       available: Math.max(0, policy.maxConcurrent - active - 1),
@@ -610,41 +864,34 @@ async function readBoundaryState({ acquire = false } = {}) {
   });
 }
 
-async function refreshLeaseNative(lease, pid) {
+function refreshLeaseNative(lease, pid) {
   if (!lease) return;
   const nativeStart = processIdentity(pid);
   if (!nativeStart) throw new Error("cannot establish the native command process identity for slot recovery");
-  await withLock(path.dirname(path.dirname(lease.file)), async () => {
-    let current;
-    try {
-      current = readJsonFile(lease.file);
-    } catch {
-      throw new Error("the acquired validation slot disappeared before native launch");
-    }
-    if (current.token !== lease.token || current.holderPid !== process.pid) {
-      throw new Error("the acquired validation slot changed owner before native launch");
-    }
-    current.nativePid = pid;
-    current.nativeStart = nativeStart;
-    atomicJson(lease.file, current);
-    Object.assign(lease, current);
-  });
+  let current;
+  try {
+    current = readJsonFile(lease.file);
+  } catch {
+    throw new Error("the acquired validation slot disappeared before native launch");
+  }
+  if (current.token !== lease.token || current.holderPid !== process.pid) {
+    throw new Error("the acquired validation slot changed owner before native launch");
+  }
+  current.nativePid = pid;
+  current.nativeStart = nativeStart;
+  current.handoff = "durable";
+  atomicJson(lease.file, current);
+  Object.assign(lease, current);
 }
 
 async function releaseLease(lease) {
   if (!lease) return;
-  const root = path.dirname(path.dirname(lease.file));
   try {
-    await withLock(root, async () => {
-      try {
-        const current = readJsonFile(lease.file);
-        if (current.token === lease.token) fs.rmSync(lease.file, { force: true });
-      } catch {
-        // Already recovered or absent.
-      }
-    });
+    const current = readJsonFile(lease.file);
+    if (current.token === lease.token) fs.rmSync(lease.file, { force: true });
   } catch {
-    // A later invocation safely reaps a dead lease. Do not mask native outcome.
+    // Already recovered or absent. A unique token makes direct removal safe
+    // even while an interrupted wrapper cannot re-enter the shared scan lock.
   }
 }
 
@@ -660,31 +907,62 @@ async function inspectStatus() {
     process.stdout.write("policy=disabled active=0 available=unbounded ceiling=unbounded participants=0\n");
     return;
   }
-  const allowed = state.policy.allowedAgents.includes(state.agent);
+  const allowed = state.selectors.every((identity) => state.policy.allowedAgents.includes(identity));
   process.stdout.write(
     `policy=enabled agent=${state.agent} allowed=${allowed ? "true" : "false"} active=${state.active} available=${state.available} ceiling=${state.policy.maxConcurrent} participants=${state.policy.participants}\n`,
   );
 }
 
+function observeChild(child) {
+  const spawned = new Promise((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
+  });
+  const exited = new Promise((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal, error: null }));
+    child.once("error", (error) => resolve({ code: null, signal: null, error }));
+  });
+  return { spawned, exited };
+}
+
+function spawnNativeBehindGate(native, argv, env) {
+  const gate = 'IFS= read -r fm_launch_token && [ "$fm_launch_token" = launch ] || exit 125\nexec "$@"';
+  const child = spawn("/bin/sh", ["-c", gate, "fm-no-mistakes-native-gate", native, ...argv], {
+    stdio: ["pipe", "inherit", "inherit"],
+    env,
+  });
+  child.stdin.on("error", () => {
+    // Exit observation owns an interrupted or failed gate write.
+  });
+  return child;
+}
+
 async function invokeNativeWithoutPolicy() {
   let native;
   try {
+    throwIfInterrupted();
     native = nativePath();
+    throwIfInterrupted();
   } catch (error) {
-    diagnostic(error.message);
+    if (error.interrupted) {
+      process.exitCode = signalExitCode(relayedSignal);
+    } else {
+      diagnostic(error.message);
+    }
     return;
   }
   try {
     nativeChild = spawn(native, args, { stdio: "inherit", env: nativeEnvironment() });
-    const outcome = await new Promise((resolve, reject) => {
-      nativeChild.once("error", reject);
-      nativeChild.once("exit", (code, signal) => resolve({ code, signal }));
-    });
+    const observed = observeChild(nativeChild);
+    await observed.spawned;
+    const outcome = await observed.exited;
     nativeChild = null;
-    process.exitCode = outcome.code ?? 128 + (os.constants.signals[outcome.signal] || 1);
+    if (outcome.error) throw outcome.error;
+    process.exitCode = outcome.code ?? signalExitCode(outcome.signal);
   } catch (error) {
     nativeChild = null;
-    diagnostic(`could not launch native no-mistakes (${error.message})`);
+    if (relayedSignal) process.exitCode = signalExitCode(relayedSignal);
+    else diagnostic(`could not launch native no-mistakes (${error.message})`);
   }
 }
 
@@ -693,7 +971,8 @@ async function invokeGuarded() {
   try {
     state = await readBoundaryState({ acquire: true });
   } catch (error) {
-    diagnostic(error.message, error.exitCode || EXIT_POLICY);
+    if (error.interrupted) process.exitCode = signalExitCode(relayedSignal);
+    else diagnostic(error.message, error.exitCode || EXIT_POLICY);
     return;
   }
   if (!state.policy) {
@@ -704,28 +983,46 @@ async function invokeGuarded() {
   process.stderr.write(
     `Firstmate no-mistakes policy: agent=${state.agent} active=${state.active} available=${state.available} ceiling=${state.policy.maxConcurrent}; slot acquired.\n`,
   );
+  let observed = null;
   try {
-    nativeChild = spawn(state.native, args, { stdio: "inherit", env: state.env });
-    await new Promise((resolve, reject) => {
-      nativeChild.once("spawn", resolve);
-      nativeChild.once("error", reject);
-    });
-    await refreshLeaseNative(heldLease, nativeChild.pid);
-    const outcome = await new Promise((resolve) => nativeChild.once("exit", (code, signal) => resolve({ code, signal })));
+    throwIfInterrupted();
+    nativeChild = spawnNativeBehindGate(state.native, args, state.env);
+    observed = observeChild(nativeChild);
+    await observed.spawned;
+    refreshLeaseNative(heldLease, nativeChild.pid);
+    // processIdentity uses a bounded synchronous ps read. Yield once before
+    // opening the pipe gate so a signal delivered during that read becomes an
+    // observed interruption rather than a native launch race.
+    await new Promise((resolve) => setImmediate(resolve));
+    throwIfInterrupted();
+    nativeChild.stdin.end("launch\n");
+    const outcome = await observed.exited;
+    if (outcome.error) throw outcome.error;
+    nativeChild = null;
     await releaseLease(heldLease);
     heldLease = null;
-    process.exitCode = outcome.code ?? 128 + (os.constants.signals[outcome.signal] || 1);
+    process.exitCode = outcome.code ?? signalExitCode(outcome.signal);
   } catch (error) {
-    if (nativeChild && nativeChild.pid) {
+    if (nativeChild) {
       try {
-        nativeChild.kill("SIGTERM");
+        nativeChild.stdin.end();
       } catch {
-        // Exact native child only; never enumerate or manage service processes.
+        // The exact child may already have consumed or closed the gate.
       }
+      if (nativeChild.pid && pidExists(nativeChild.pid)) {
+        try {
+          nativeChild.kill(relayedSignal || "SIGTERM");
+        } catch {
+          // Exact child exit observation below remains authoritative.
+        }
+      }
+      if (observed) await observed.exited;
+      nativeChild = null;
     }
     await releaseLease(heldLease);
     heldLease = null;
-    diagnostic(`native launch failed (${error.message})`);
+    if (relayedSignal || error.interrupted) process.exitCode = signalExitCode(relayedSignal);
+    else diagnostic(`native launch failed (${error.message})`);
   }
 }
 
@@ -739,7 +1036,7 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
         // Child outcome or stale-lease recovery owns the result.
       }
     } else {
-      process.exitCode = 128 + (os.constants.signals[signal] || 1);
+      process.exitCode = signalExitCode(signal);
     }
   });
 }
@@ -748,6 +1045,4 @@ if (statusRequested) await inspectStatus();
 else if (guarded) await invokeGuarded();
 else await invokeNativeWithoutPolicy();
 
-if (relayedSignal && process.exitCode === undefined) {
-  process.exitCode = 128 + (os.constants.signals[relayedSignal] || 1);
-}
+if (relayedSignal) process.exitCode = signalExitCode(relayedSignal);

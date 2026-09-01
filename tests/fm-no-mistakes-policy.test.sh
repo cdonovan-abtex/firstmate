@@ -52,8 +52,31 @@ if [ "${1:-}" = axi ] && [ "${2:-}" = status ]; then
   esac
   exit 0
 fi
-if [ "${1:-}" = axi ] && { [ "${2:-}" = run ] || [ "${2:-}" = respond ]; }; then
-  case " $* " in *' --help '*|*' -h '*) printf '%s\n' "native:$*"; exit 0 ;; esac
+fm_fake_read_only=0
+fm_fake_consumes_next=0
+for fm_fake_arg in "$@"; do
+  if [ "$fm_fake_consumes_next" = 1 ]; then
+    fm_fake_consumes_next=0
+    continue
+  fi
+  case "$fm_fake_arg" in
+    --skip|--intent|--action|--add-finding|--findings|--instructions|--step)
+      fm_fake_consumes_next=1
+      ;;
+    --help|-h|--version|-v)
+      fm_fake_read_only=1
+      ;;
+  esac
+done
+if [ "$fm_fake_read_only" = 1 ]; then
+  printf '%s\n' "native:$*"
+  exit 0
+fi
+case " $* " in
+  *' axi run '*|*' axi respond '*|*' rerun '*) fm_fake_guarded=1 ;;
+  *) fm_fake_guarded=0 ;;
+esac
+if [ "$fm_fake_guarded" = 1 ]; then
   mkdir -p "$FM_FAKE_CHILD_DIR"
   printf '%s\n' "$$" > "$FM_FAKE_CHILD_DIR/native.$$"
   (
@@ -80,7 +103,25 @@ make_case() { # <name> [agent]
   make_native "$dir"
   printf 'agent: %s\n' "$agent" > "$dir/nm/config.yaml"
   : > "$dir/native.log"
+  git init -q --bare "$dir/origin.git"
+  git --git-dir="$dir/origin.git" symbolic-ref HEAD refs/heads/main
+  git init -q -b main "$dir/repo"
+  git -C "$dir/repo" config user.name fm-test
+  git -C "$dir/repo" config user.email fm-test@example.com
+  printf '%s\n' seed > "$dir/repo/.repo-seed"
+  git -C "$dir/repo" add .repo-seed
+  git -C "$dir/repo" commit -q -m seed
+  git -C "$dir/repo" remote add origin "$dir/origin.git"
+  git -C "$dir/repo" push -q -u origin main
   printf '%s\n' "$dir"
+}
+
+set_trusted_repo_config() { # <case-dir> <yaml-text>
+  local dir=$1 text=$2
+  printf '%s\n' "$text" > "$dir/repo/.no-mistakes.yaml"
+  git -C "$dir/repo" add .no-mistakes.yaml
+  git -C "$dir/repo" commit -q -m config
+  git -C "$dir/repo" push -q origin main
 }
 
 write_policy() { # <home> <allowed-json-array> <ceiling>
@@ -91,15 +132,38 @@ write_policy() { # <home> <allowed-json-array> <ceiling>
 wrapper_env() { # <case-dir> <home> <args...>
   local dir=$1 home=$2
   shift 2
-  FM_NO_MISTAKES_POLICY_HOME="$home" \
-  FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
-  FM_NO_MISTAKES_NATIVE_PATH="$PATH" \
-  FM_NO_MISTAKES_SLOT_ROOT="$dir/slots" \
-  NM_HOME="$dir/nm" \
-  FM_FAKE_NATIVE_LOG="$dir/native.log" \
-  FM_FAKE_CHILD_DIR="$dir/children" \
-  FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
-  FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+  (
+    cd "$dir/repo" || exit 1
+    exec env \
+      FM_NO_MISTAKES_POLICY_HOME="$home" \
+      FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
+      FM_NO_MISTAKES_NATIVE_PATH="$PATH" \
+      FM_NO_MISTAKES_SLOT_ROOT="$dir/slots" \
+      NM_HOME="$dir/nm" \
+      FM_FAKE_NATIVE_LOG="$dir/native.log" \
+      FM_FAKE_CHILD_DIR="$dir/children" \
+      FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
+      FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
+      "$WRAPPER" "$@"
+  )
+}
+
+# Background lifecycle cases need $! to identify the wrapper itself rather than
+# a waiting helper shell, so this variant replaces its calling subshell.
+exec_wrapper_env() { # <case-dir> <home> <args...>
+  local dir=$1 home=$2
+  shift 2
+  cd "$dir/repo" || exit 1
+  exec env \
+    FM_NO_MISTAKES_POLICY_HOME="$home" \
+    FM_NO_MISTAKES_NATIVE_BIN="$dir/fakebin/no-mistakes-native" \
+    FM_NO_MISTAKES_NATIVE_PATH="$PATH" \
+    FM_NO_MISTAKES_SLOT_ROOT="$dir/slots" \
+    NM_HOME="$dir/nm" \
+    FM_FAKE_NATIVE_LOG="$dir/native.log" \
+    FM_FAKE_CHILD_DIR="$dir/children" \
+    FM_FAKE_BLOCK_DIR="${FM_FAKE_BLOCK_DIR:-}" \
+    FM_FAKE_STATUS="${FM_FAKE_STATUS:-}" \
     "$WRAPPER" "$@"
 }
 
@@ -112,6 +176,11 @@ wait_for_count() { # <glob-parent> <prefix> <count>
     tries=$((tries + 1))
   done
   return 1
+}
+
+service_state_root() { # <case-dir>
+  node -e 'const c=require("node:crypto"),f=require("node:fs"); process.stdout.write(process.argv[1]+"/"+c.createHash("sha256").update(f.realpathSync(process.argv[2])).digest("hex"))' \
+    "$1/slots" "$1/nm"
 }
 
 # Explicit identity is admitted and the native child starts.
@@ -156,6 +225,97 @@ for denied_agent in auto claude; do
 done
 pass "auto and disallowed explicit identities are denied before native agent launch"
 
+# Trusted repository overrides and every ordered fallback are part of the
+# selector admitted by policy, including the explicit branch opt-in.
+d=$(make_case trusted-repo-denied codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" 'agent: claude'
+set +e
+out=$(wrapper_env "$d" "$d/home" axi run --intent repo-denied 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "trusted repository override exited $rc instead of 78"
+assert_contains "$out" 'denied effective agent "claude"' \
+  "trusted repository override did not replace the allowed global selector"
+[ ! -s "$d/native.log" ] || fail "denied trusted repository override reached native no-mistakes"
+
+d=$(make_case trusted-repo-fallback codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" 'agent: [codex, claude]'
+set +e
+out=$(wrapper_env "$d" "$d/home" axi run --intent fallback-denied 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "disallowed repository fallback exited $rc instead of 78"
+assert_contains "$out" 'denied effective selector ["codex","claude"]' \
+  "ordered fallback denial did not identify the complete selector"
+[ ! -s "$d/native.log" ] || fail "disallowed repository fallback reached native no-mistakes"
+
+d=$(make_case trusted-repo-allowed codex)
+write_policy "$d/home" '["codex","pi"]' 2
+set_trusted_repo_config "$d" $'agent:\n  - codex\n  - pi'
+out=$(wrapper_env "$d" "$d/home" axi run --intent fallback-allowed 2>&1)
+assert_contains "$out" 'agent=codex,pi active=1 available=1 ceiling=2' \
+  "allowed ordered fallback list was not admitted as one guarded selector"
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "allowed ordered fallback selector did not start native work"
+
+d=$(make_case branch-repo-denied codex)
+write_policy "$d/home" '["codex"]' 2
+set_trusted_repo_config "$d" $'allow_repo_commands: true\nagent: codex'
+git -C "$d/repo" checkout -q -b feature
+printf '%s\n' 'agent: claude' > "$d/repo/.no-mistakes.yaml"
+git -C "$d/repo" add .no-mistakes.yaml
+git -C "$d/repo" commit -q -m feature-config
+set +e
+out=$(wrapper_env "$d" "$d/home" axi run --intent branch-denied 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "opted-in branch override exited $rc instead of 78"
+assert_contains "$out" 'denied effective agent "claude"' \
+  "trusted allow_repo_commands opt-in did not select the current branch agent"
+[ ! -s "$d/native.log" ] || fail "denied branch override reached native no-mistakes"
+pass "trusted repository selectors and every ordered fallback are enforced"
+
+# Command normalization guards rerun and root-option forms without treating a
+# read-only argument value such as `--step run` as a validation boundary.
+d=$(make_case normalized-boundaries codex)
+write_policy "$d/home" '["codex"]' 2
+wrapper_env "$d" "$d/home" --skip lint axi run --intent root-flags >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "root flags before axi run bypassed or failed the guarded boundary"
+read_out=$(wrapper_env "$d" "$d/home" axi logs --step run)
+assert_contains "$read_out" 'native:axi logs --step run' \
+  "read-only logs command with a run-valued option was misclassified"
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "read-only logs command started a native agent child"
+printf 'agent: auto\n' > "$d/nm/config.yaml"
+set +e
+out=$(wrapper_env "$d" "$d/home" --skip=lint axi respond --action approve 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "root-option continuation bypass exited $rc instead of 78"
+printf 'agent: codex\n' > "$d/nm/config.yaml"
+wrapper_env "$d" "$d/home" rerun --intent normalized >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 2 ] \
+  || fail "supported rerun did not pass through an allowed guarded boundary"
+printf 'agent: auto\n' > "$d/nm/config.yaml"
+set +e
+out=$(wrapper_env "$d" "$d/home" --skip lint rerun --intent denied 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "root-option rerun bypass exited $rc instead of 78"
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 2 ] \
+  || fail "denied rerun started a native agent child"
+set +e
+out=$(wrapper_env "$d" "$d/home" axi run --intent --help 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 78 ] || fail "help-looking intent value bypass exited $rc instead of 78"
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 2 ] \
+  || fail "help-looking intent value bypassed policy and started a native agent child"
+pass "normalized start and continuation forms cannot bypass policy"
+
 # Malformed policy fails one guarded boundary, while harmless reads still pass.
 d=$(make_case malformed codex)
 printf '%s\n' '{"version":1,"allowedAgents":["codex"],"maxConcurrent":"many"}' \
@@ -187,8 +347,8 @@ out=$(wrapper_env "$d" "$d/home" axi run --intent denied 2>&1)
 rc=$?
 set -e
 [ "$rc" -eq 78 ] || fail "missing global config exited $rc instead of 78"
-assert_contains "$out" 'cannot determine the effective work agent' \
-  "missing global config did not explain the unknown effective identity"
+assert_contains "$out" 'cannot determine the effective work-agent selector' \
+  "missing global config did not explain the unknown effective selector"
 [ ! -s "$d/native.log" ] || fail "missing global config reached native guarded command"
 pass "missing effective-agent configuration is refused instead of guessed"
 
@@ -200,6 +360,7 @@ cat > "$d/launched-worker.sh" <<'SH'
 set -eu
 touch "$FM_DRIFT_READY"
 while [ ! -e "$FM_DRIFT_GO" ]; do sleep 0.03; done
+cd "$FM_DRIFT_REPO"
 no-mistakes axi run --intent drift
 SH
 chmod +x "$d/launched-worker.sh"
@@ -211,7 +372,7 @@ FM_NO_MISTAKES_NATIVE_BIN="$d/fakebin/no-mistakes-native" \
 FM_NO_MISTAKES_NATIVE_PATH="$drift_native_path" \
 FM_NO_MISTAKES_SLOT_ROOT="$d/slots" \
 NM_HOME="$d/nm" FM_FAKE_NATIVE_LOG="$d/native.log" FM_FAKE_CHILD_DIR="$d/children" \
-FM_DRIFT_READY="$d/ready" FM_DRIFT_GO="$d/go" \
+FM_DRIFT_READY="$d/ready" FM_DRIFT_GO="$d/go" FM_DRIFT_REPO="$d/repo" \
   "$d/launched-worker.sh" > "$d/drift.out" 2>&1 &
 drift_pid=$!
 BG_PIDS+=("$drift_pid")
@@ -251,7 +412,7 @@ write_policy "$d/home" '["codex"]' 2
 mkdir -p "$d/block"
 cohort_pids=()
 for cohort in one two; do
-  FM_FAKE_BLOCK_DIR="$d/block" wrapper_env "$d" "$d/home" axi run --intent "$cohort" \
+  FM_FAKE_BLOCK_DIR="$d/block" exec_wrapper_env "$d" "$d/home" axi run --intent "$cohort" \
     > "$d/$cohort.out" 2>&1 &
   cohort_pids+=("$!")
   BG_PIDS+=("$!")
@@ -284,7 +445,7 @@ write_policy "$d/home" '["codex","pi"]' 2
 write_policy "$d/home-two" '["codex"]' 2
 shared_pids=()
 for home in "$d/home" "$d/home-two"; do
-  FM_FAKE_BLOCK_DIR="$d/block" wrapper_env "$d" "$home" axi run --intent shared \
+  FM_FAKE_BLOCK_DIR="$d/block" exec_wrapper_env "$d" "$home" axi run --intent shared \
     > "$d/shared.$(basename "$home").out" 2>&1 &
   shared_pids+=("$!")
   BG_PIDS+=("$!")
@@ -309,11 +470,94 @@ status=$(wrapper_env "$d" "$d/home-unconfigured" fm-policy-status)
   || fail "removed home policies remained registered: $status"
 pass "independent homes sharing one service use one conservative slot pool"
 
+# Killing the wrapper in the widened spawn-to-identity handoff cannot free the
+# slot or let the pipe-gated native command start. The conservative transitional
+# lease later self-recovers after the exact gate child has exited.
+d=$(make_case handoff-race codex)
+write_policy "$d/home" '["codex"]' 1
+mkdir -p "$d/psbin"
+cat > "$d/psbin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+target=
+args=("$@")
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -p) target=${2:-}; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [ -n "${FM_HANDOFF_MARKER:-}" ] && [ "$target" != "$PPID" ]; then
+  touch "$FM_HANDOFF_MARKER"
+  while [ ! -e "$FM_HANDOFF_RELEASE" ]; do sleep 0.02; done
+fi
+exec /bin/ps "${args[@]}"
+SH
+chmod +x "$d/psbin/ps"
+set +e
+PATH="$d/psbin:$PATH" FM_HANDOFF_MARKER="$d/handoff-marker" FM_HANDOFF_RELEASE="$d/handoff-release" \
+  exec_wrapper_env "$d" "$d/home" axi run --intent handoff > "$d/handoff.out" 2>&1 &
+handoff_wrapper=$!
+BG_PIDS+=("$handoff_wrapper")
+set -e
+for _ in $(seq 1 200); do
+  [ -e "$d/handoff-marker" ] && break
+  sleep 0.03
+done
+[ -e "$d/handoff-marker" ] || fail "handoff fixture never reached the widened pre-identity window"
+kill -KILL "$handoff_wrapper"
+set +e
+wait "$handoff_wrapper" 2>/dev/null
+set -e
+touch "$d/handoff-release"
+sleep 0.1
+set +e
+out=$(wrapper_env "$d" "$d/home" axi run --intent charged-handoff 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 75 ] || fail "transitional handoff lease was not conservatively charged (exit $rc)"
+[ ! -s "$d/native.log" ] || fail "a native command started before durable handoff identity publication"
+sleep 5.1
+wrapper_env "$d" "$d/home" axi run --intent recovered-handoff >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "transitional handoff lease did not recover after the gate child exited"
+pass "launch handoff remains charged and pipe-gated through identity publication"
+
+# A signal observed while the wrapper waits for the shared lock exits before a
+# lease or native command can be created, then leaves capacity usable.
+d=$(make_case prelaunch-signal codex)
+write_policy "$d/home" '["codex"]' 1
+state_root=$(service_state_root "$d")
+mkdir -p "$state_root/.lock"
+owner_start=$(ps -p $$ -o lstart= | awk '{$1=$1; print}')
+node -e 'const f=require("node:fs"); f.writeFileSync(process.argv[1], JSON.stringify({version:1,token:"test-owner",pid:Number(process.argv[2]),processStart:process.argv[3]})+"\n")' \
+  "$state_root/.lock/owner.json" "$$" "$owner_start"
+set +e
+exec_wrapper_env "$d" "$d/home" axi run --intent interrupted-before-spawn > "$d/prelaunch.out" 2>&1 &
+prelaunch_wrapper=$!
+BG_PIDS+=("$prelaunch_wrapper")
+set -e
+sleep 0.2
+kill -TERM "$prelaunch_wrapper"
+set +e
+wait "$prelaunch_wrapper"
+rc=$?
+set -e
+[ "$rc" -eq 143 ] || fail "pre-launch interruption exited $rc instead of 143"
+[ ! -s "$d/native.log" ] || fail "pre-launch interruption reached native no-mistakes"
+[ -z "$(find "$d/children" -name 'started.*' -print -quit)" ] \
+  || fail "pre-launch interruption started a native agent child"
+rm -rf "$state_root/.lock"
+wrapper_env "$d" "$d/home" axi run --intent after-prelaunch-interrupt >/dev/null 2>&1
+[ "$(find "$d/children" -name 'started.*' | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "pre-launch interruption left capacity unavailable"
+pass "an interrupt observed before spawn prevents native launch"
+
 # A normal interruption is relayed only to the exact native boundary and releases.
 d=$(make_case interruption codex)
 write_policy "$d/home" '["codex"]' 1
 mkdir -p "$d/block"
-FM_FAKE_BLOCK_DIR="$d/block" wrapper_env "$d" "$d/home" axi run --intent interrupt \
+FM_FAKE_BLOCK_DIR="$d/block" exec_wrapper_env "$d" "$d/home" axi run --intent interrupt \
   > "$d/interrupt.out" 2>&1 &
 interrupt_wrapper=$!
 BG_PIDS+=("$interrupt_wrapper")
@@ -334,7 +578,7 @@ d=$(make_case abnormal-exit codex)
 write_policy "$d/home" '["codex"]' 1
 mkdir -p "$d/block"
 FM_FAKE_BLOCK_DIR="$d/block" FM_FAKE_STATUS=terminal \
-  wrapper_env "$d" "$d/home" axi run --intent crash > "$d/crash.out" 2>&1 &
+  exec_wrapper_env "$d" "$d/home" axi run --intent crash > "$d/crash.out" 2>&1 &
 crash_wrapper=$!
 BG_PIDS+=("$crash_wrapper")
 wait_for_count "$d/children" started 1 || fail "abnormal-exit fixture did not start"
