@@ -60,7 +60,7 @@ SH
 run_fake_treehouse_installer() {
   local fakebin=$1 dest=$2 url_log=$3 tool_log=$4 os=$5 arch=$6 sha=$7 version=$8
   shift 8
-  CURL_URL_LOG="$url_log" CHECKSUM_TOOL_LOG="$tool_log" \
+  BASH_ENV='' CURL_URL_LOG="$url_log" CHECKSUM_TOOL_LOG="$tool_log" \
     FAKE_UNAME_S="$os" FAKE_UNAME_M="$arch" \
     FAKE_TREEHOUSE_SHA="$sha" FAKE_TREEHOUSE_VERSION="$version" \
     PATH="$fakebin:$PATH" "$@" "$INSTALLER" "$dest" 2>&1
