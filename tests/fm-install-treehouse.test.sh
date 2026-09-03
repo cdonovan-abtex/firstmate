@@ -158,6 +158,30 @@ test_ci_treehouse_rejects_version_drift() {
   pass "Treehouse CI installer rejects installed-version drift"
 }
 
+test_ci_treehouse_ignores_ambient_bash_env() {
+  local tmp fakebin bash_env out
+  tmp=$(fm_test_tmproot fm-treehouse-ambient-bash-env)
+  fakebin=$(make_treehouse_fakebin "$tmp")
+  bash_env="$tmp/ambient-bash-env"
+  cat > "$bash_env" <<'SH'
+command() {
+  if [ "$#" -eq 2 ] && [ "$1" = -v ] && [ "$2" = sha256sum ]; then
+    return 1
+  fi
+  builtin command "$@"
+}
+SH
+  out=$(BASH_ENV="$bash_env" run_fake_treehouse_installer \
+    "$fakebin" "$tmp/bin" "$tmp/url" "$tmp/tool" \
+    Linux x86_64 "$TREEHOUSE_LINUX_AMD64_SHA" v2.1.1) \
+    || fail "ambient BASH_ENV isolation failed: $out"
+  [ "$(cat "$tmp/tool")" = sha256sum ] \
+    || fail "ambient BASH_ENV changed the installer's checksum path"
+  assert_contains "$out" "installed treehouse v2.1.1" \
+    "ambient BASH_ENV prevented the exact pin from installing"
+  pass "Treehouse CI installer fixture ignores ambient BASH_ENV"
+}
+
 test_ci_treehouse_preserves_shasum_fallback() {
   local tmp fakebin bash_env out
   tmp=$(fm_test_tmproot fm-treehouse-shasum-fallback)
@@ -186,4 +210,5 @@ test_ci_treehouse_platform_pins
 test_required_ci_job_consumes_treehouse_pin
 test_ci_treehouse_rejects_checksum_drift
 test_ci_treehouse_rejects_version_drift
+test_ci_treehouse_ignores_ambient_bash_env
 test_ci_treehouse_preserves_shasum_fallback
