@@ -150,10 +150,10 @@ test_ci_treehouse_rejects_version_drift() {
   tmp=$(fm_test_tmproot fm-treehouse-version-drift)
   fakebin=$(make_treehouse_fakebin "$tmp")
   out=$(run_fake_treehouse_installer "$fakebin" "$tmp/bin" "$tmp/url" "$tmp/tool" \
-    Linux x86_64 "$TREEHOUSE_LINUX_AMD64_SHA" v2.1.0)
+    Linux x86_64 "$TREEHOUSE_LINUX_AMD64_SHA" v2.0.1)
   code=$?
   expect_code 1 "$code" "Treehouse installed-version drift"
-  assert_contains "$out" "installed treehouse version is 'v2.1.0', expected exact pin v2.1.1" \
+  assert_contains "$out" "installed treehouse version is 'v2.0.1', expected exact pin v2.1.1" \
     "installer did not reject installed-version drift"
   pass "Treehouse CI installer rejects installed-version drift"
 }
