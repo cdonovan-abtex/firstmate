@@ -1,0 +1,96 @@
+Result: live PR 43 cleanup succeeded after correcting fixture PATH; unpreserved scout work was refused and retained. Both latest regressions failed against f7dcdd0 as expected and passed against e507983 in the focused run.
+Fixture notes: the initial live attempt inherited a fake gh executable; removing that fixture executable resolved the failure. WATCHER DOWN and diverged-main messages refer to the disposable synthetic home/project, which has no live watcher and starts from an unrelated seed commit.
+
+Live PR 43 check uses installed gh-axi and the live read-only GitHub API. Git and task record operations are real, in disposable fixture homes. Endpoint and Treehouse tools are fixture doubles. Pre-fix comparisons execute f7dcdd0 with the same regression fixtures.
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/bin/fm-teardown.sh reports-canonical-malish-credential-vault-v1
+Before: recovery record
+project=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.8pDlM8/live-reports-pr43/project
+kind=ship
+mode=direct-PR
+worktree=
+pr=https://github.com/abtex/abtex-epicor-reports/pull/43
+REFUSED: cleanup classification REFUSED - GitHub API did not confirm the identified upstream pull request as merged.
+Exit code: 1
+After: recovery record retained
+
+Corrected live fixture: removed its fake gh executable so gh-axi can use the installed gh client.
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/bin/fm-teardown.sh reports-canonical-malish-credential-vault-v1
+Before: recovery record
+project=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/live-reports-pr43/project
+kind=ship
+mode=direct-PR
+worktree=
+pr=https://github.com/abtex/abtex-epicor-reports/pull/43
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/live-reports-pr43/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
+teardown reports-canonical-malish-credential-vault-v1 complete (window , worktree )
+Backlog: reports-canonical-malish-credential-vault-v1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/live-reports-pr43/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/live-reports-pr43/data/backlog.md - move reports-canonical-malish-credential-vault-v1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Exit code: 0
+After: recovery record removed
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/bin/fm-teardown.sh unpreserved-scout-copy
+Before: recovery record
+project=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/existing-unpreserved-scout/project
+kind=scout
+mode=no-mistakes
+worktree=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/existing-unpreserved-scout/wt
+REFUSED: cleanup classification REFUSED - isolated scout copy has task commits beyond the current upstream default branch.
+Exit code: 1
+After: recovery record retained
+Verified after refusal: commit d83cafe61552424dec946bd442008e843b267d86 and irreplaceable.txt remain intact.
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/previous-bin/fm-teardown.sh task-x1
+Before: recovery record
+project=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/empty-scout-index-flags/project
+kind=scout
+mode=no-mistakes
+worktree=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/empty-scout-index-flags/wt
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/empty-scout-index-flags/wt)
+Backlog: task-x1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/empty-scout-index-flags/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/empty-scout-index-flags/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Exit code: 0
+After: recovery record removed
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/previous-bin/fm-teardown.sh task-x1 --legacy-record
+Before: recovery record
+project=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/sparse-legacy-EMPTY-absent/project
+kind=scout
+mode=no-mistakes
+worktree=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/sparse-legacy-EMPTY-absent/wt
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: unknown backend 'none' (known: tmux herdr zellij orca cmux)
+REFUSED: task task-x1's record predates spawn_gen and its recorded endpoint reads 'unverified', not confidently dead or agent-less; --legacy-record teardown is refused while an agent may still be bound to it. Nothing was changed.
+Reconcile the endpoint first (bin/fm-crew-state.sh task-x1), or relaunch the task to publish an unambiguous incarnation, then retry teardown.
+Exit code: 1
+After: recovery record retained
+Persisted backlog:
+# Backlog
+
+## In flight
+
+## Queued
+
+## Done

@@ -1,0 +1,12 @@
+ok - pi-compaction empty scout is classified EMPTY and cleaned without an endpoint
+ok - EMPTY verifies flagged content without changing real index flags
+ok - EMPTY refuses hidden submodule edits and allows a clean submodule
+ok - EMPTY recursively refuses hidden nested material and allows clean submodules
+ok - sparse legacy recovery checks backlog ownership without querying an absent endpoint
+ok - EMPTY scout backlog completion records no nonexistent report
+ok - portfolio empty scout behind upstream is classified EMPTY and cleaned
+ok - Reports PR 43 sparse record is classified PROVABLY-LANDED from API evidence
+ok - sparse merge record refuses when API merge evidence is unavailable
+ok - sparse merge record refuses when API evidence does not confirm a merge
+ok - EMPTY resolves the current remote default branch before checking ancestry
+ok - lost scout refusal becomes red against a faulty absence-is-emptiness classifier

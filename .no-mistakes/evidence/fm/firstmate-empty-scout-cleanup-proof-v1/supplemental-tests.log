@@ -1,0 +1,16 @@
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/live-reports-pr43/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
+teardown reports-canonical-malish-credential-vault-v1 complete (window , worktree )
+Backlog: reports-canonical-malish-credential-vault-v1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/live-reports-pr43/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23C8SWJK71BKJ6J4T67RG5W/.test-phase-tmp/fm-teardown-tests.fDtFr1/live-reports-pr43/data/backlog.md - move reports-canonical-malish-credential-vault-v1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ok - live gh-axi API confirms PR 43 and real teardown removes its sparse recovery record
+REFUSED: cleanup classification REFUSED - isolated scout copy has task commits beyond the current upstream default branch.
+ok - existing unpreserved scout commit and content retained
+ok - pre-fix regression reproduced: test_empty_scout_checks_index_assumptions
+ok - pre-fix regression reproduced: test_sparse_recovery_backlog_with_legacy_option

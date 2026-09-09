@@ -1,0 +1,1 @@
+not ok - empty-scout-index-flags: assume-unchanged edits must refuse cleanup: expected exit 1, got 0
