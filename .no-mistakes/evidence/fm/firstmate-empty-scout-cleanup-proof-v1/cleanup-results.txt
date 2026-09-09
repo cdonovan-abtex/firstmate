@@ -1,0 +1,124 @@
+Actual fm-teardown.sh CLI output and observed metadata state.
+Disposable Git/task fixtures; worker/backend disposal mocked.
+The live-reports-pr43 fixture used installed gh-axi against GitHub; other API cases evaluated response fixtures with real jq.
+Watcher warnings and live fixture clone divergence in the full transcript are fixture setup effects.
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh pi-compaction-auto-trigger-failure-s1
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+REFUSED: cleanup classification EMPTY cannot retire an in-flight backlog row without an exact spawned incarnation.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+REFUSED: cleanup classification PROVABLY-LANDED cannot retire an in-flight backlog row without an exact spawned incarnation.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh portfolio-linear-stale-ticket-reconcile-s1
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reports-canonical-malish-credential-vault-v1
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reports-pr43-api-unavailable
+REFUSED: cleanup classification REFUSED - GitHub API could not authenticate or resolve the recorded pull request.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reports-pr43-api-unconfirmed
+REFUSED: cleanup classification REFUSED - GitHub API did not confirm the identified upstream pull request as merged.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reportless-scout-with-endpoint
+REFUSED: scout task reportless-scout-with-endpoint has no report at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/reportless-scout-endpoint/data/reportless-scout-with-endpoint/report.md.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh ambiguous-scout-recovery
+REFUSED: cleanup classification REFUSED - scout recovery identity is missing or ambiguous.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reports-canonical-malish-credential-vault-v1
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --force
+exit_code=0
+recovery_record=removed
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh fresh-default-branch-scout
+REFUSED: cleanup classification REFUSED - isolated scout copy has task commits beyond the current upstream default branch.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh lost-scout-unpreserved-commit
+REFUSED: cleanup classification REFUSED - missing isolated scout copy is not proof of emptiness.
+exit_code=1
+recovery_record=retained
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/lost-scout-work/faulty-bin/fm-teardown.sh lost-scout-unpreserved-commit
+Cleanup classification: EMPTY - FAULTY missing copy treated as empty
+exit_code=0
+recovery_record=removed
+Persisted EMPTY scout backlog after cleanup:
+- [x] task-x1 - teardown fixture task (kind: scout) (done 2026-09-09)
