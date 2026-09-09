@@ -104,6 +104,8 @@ A markdown backlog is additionally addressed by an explicit `--file` at `<data>/
 Any other configured adapter is addressed by that root alone, because `--file` would override the adapter's own workspace path.
 The gate does not apply to persistent secondmates, manual-backend homes, or markdown homes without a backlog file, preserving their existing persistent-agent, manual, or ad-hoc lifecycle behavior while configured non-markdown adapters remain active without that file.
 Migrated-hold resolution on a beads home reads its graph path, binary, and prefix from the root `.tasks.toml` `[beads]` section only, and refuses (rc=2) when the beads backend is selected elsewhere (a `TASKS_AXI_BACKEND` override or user-level config) with no root-level `[beads]` section.
+When the gate otherwise applies, a record matching a [recovery classification below](#runtime-backend-configbackend--fm_backend) but lacking an exact spawned incarnation can be removed without changing the backlog only after a successful probe rules out an In flight row; an In flight row or an inconclusive probe refuses cleanup.
+An `EMPTY` scout with an exact spawned incarnation follows the ordinary completion transition without recording a nonexistent report as its deliverable.
 On an automatic-backend home, missing or incompatible `tasks-axi`, an unresolvable configured data directory, or one containing a control byte fails lifecycle work before mutation.
 An unreadable backend configuration can refuse lifecycle work before the no-backlog exemption applies; repair the configuration named in the diagnostic ([backend resolution contract](../bin/fm-tasks-axi-lib.sh)).
 Secondmate handoffs bypass that routine-backend choice: `fm-backlog-handoff.sh` keeps only its own fleet-level validation and delegates the item move to `tasks-axi mv`; its [script header](../bin/fm-backlog-handoff.sh) owns route-specific wake outcomes and remote outbox release.
@@ -151,9 +153,11 @@ Only metadata-routed task selectors carry secondmate-marker and Codex-harness co
 These five sentences are the single owner of the task-selector vocabulary; backend guides and other documents point here instead of restating the resolution order.
 `fm-teardown.sh <id>` takes a task id directly and normally validates the complete metadata-only endpoint identity before any runtime dispatch or cleanup mutation.
 A reportless, endpoint-less scout may instead report `EMPTY` only after the teardown guard proves it has no task commits and a clean isolated copy at an ancestor of the current default branch freshly resolved from upstream.
-A sparse, endpoint-less ship record may instead report `PROVABLY-LANDED` only when an explicitly selected `gh-axi api` response confirms its identified upstream pull request is merged.
+The copy must be registered to its recorded project, and cleanliness includes tracked edits, untracked and ignored material, and every populated submodule recursively, even when Git index flags or submodule ignore settings hide changes from ordinary status.
+A sparse, endpoint-less ship record with an explicitly empty worktree field may instead report `PROVABLY-LANDED` only when an explicitly selected `gh-axi api` response confirms its recorded canonical GitHub pull request is merged and matches the recorded project's upstream repository.
 Records with endpoint metadata remain subject to ordinary endpoint retirement, and explicit `--force` keeps its existing discard authorization.
 Missing, empty, duplicate, malformed, backend-inconsistent, task-mismatched, unverified, or otherwise ambiguous endpoint and recovery evidence is preserved and refused.
+[`tests/fm-teardown.test.sh`](../tests/fm-teardown.test.sh) covers both recovery categories, hidden scout material, unavailable merge evidence, and a lost-work refusal that detects a deliberately faulty absence-as-emptiness guard.
 Legacy tmux metadata remains cleanup-compatible when its exact window name is `fm-<id>`; opaque non-tmux endpoints require their recorded `endpoint_task_id=` binding.
 `FM_HOME` determines Herdr's home label: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.
 [`herdr-backend.md`](herdr-backend.md#watching-and-task-containers) owns launcher-bound workspace placement, the label-only fallback, collision handling, and recovery behavior.
