@@ -1058,6 +1058,7 @@ test_sparse_recovery_backlog_with_legacy_option() {
         write_sparse_recovery_meta "$case_dir" task-x1 direct-PR ship ''
         printf '%s\n' 'pr=https://github.com/abtex/abtex-epicor-reports/pull/43' >> "$case_dir/state/task-x1.meta"
         git -C "$case_dir/project" remote set-url origin https://github.com/abtex/abtex-epicor-reports.git
+        printf '%s\n' 'pr_head=55b3ad333f8a6d9078a1f9f8ff9abde0620da834' >> "$case_dir/state/task-x1.meta"
         add_gh_api_response "$case_dir" true
       fi
       if [ "$row" = absent ]; then
@@ -1157,7 +1158,7 @@ test_reports_pr43_sparse_record_allows_only_api_confirmed_merge() {
   url=https://github.com/abtex/abtex-epicor-reports/pull/43
   case_dir=$(make_case provably-landed-reports-43)
   write_sparse_recovery_meta "$case_dir" "$id" direct-PR ship ''
-  printf 'pr=%s\n' "$url" >> "$case_dir/state/$id.meta"
+  printf 'pr=%s\npr_head=%s\n' "$url" '55b3ad333f8a6d9078a1f9f8ff9abde0620da834' >> "$case_dir/state/$id.meta"
   git -C "$case_dir/project" remote set-url origin https://github.com/abtex/abtex-epicor-reports.git
   add_gh_api_response "$case_dir" true
 
@@ -1174,13 +1175,63 @@ test_reports_pr43_sparse_record_allows_only_api_confirmed_merge() {
   pass "Reports PR 43 sparse record is classified PROVABLY-LANDED from API evidence"
 }
 
+# A merged pull request in the same upstream repository is not proof for this
+# sparse task unless its API head matches the submitted task head in the record.
+test_sparse_merge_record_refuses_unrelated_merged_pr() {
+  local case_dir id rc url
+  id=reports-pr43-unrelated-merge
+  url=https://github.com/abtex/abtex-epicor-reports/pull/43
+  case_dir=$(make_case provably-landed-unrelated-merge)
+  write_sparse_recovery_meta "$case_dir" "$id" direct-PR ship ''
+  printf 'pr=%s\npr_head=%s\n' "$url" '1111111111111111111111111111111111111111' >> "$case_dir/state/$id.meta"
+  git -C "$case_dir/project" remote set-url origin https://github.com/abtex/abtex-epicor-reports.git
+  add_gh_api_response "$case_dir" true
+
+  set +e
+  run_teardown_for "$TEARDOWN" "$case_dir" "$id" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "provably-landed-unrelated-merge: unrelated merged PR must refuse"
+  assert_grep 'cleanup classification REFUSED' "$case_dir/stderr" \
+    "provably-landed-unrelated-merge: refusal did not identify its category"
+  assert_grep 'recorded task head' "$case_dir/stderr" \
+    "provably-landed-unrelated-merge: refusal did not name the identity mismatch"
+  assert_present "$case_dir/state/$id.meta" \
+    "provably-landed-unrelated-merge: unrelated merge erased the sparse record"
+  pass "sparse merge cleanup refuses an unrelated merged PR in the same repository"
+}
+
+test_sparse_merge_record_refuses_without_submitted_head() {
+  local case_dir id rc url
+  id=reports-pr43-missing-submitted-head
+  url=https://github.com/abtex/abtex-epicor-reports/pull/43
+  case_dir=$(make_case provably-landed-missing-submitted-head)
+  write_sparse_recovery_meta "$case_dir" "$id" direct-PR ship ''
+  printf 'pr=%s\n' "$url" >> "$case_dir/state/$id.meta"
+  git -C "$case_dir/project" remote set-url origin https://github.com/abtex/abtex-epicor-reports.git
+  add_gh_api_response "$case_dir" true
+
+  set +e
+  run_teardown_for "$TEARDOWN" "$case_dir" "$id" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "provably-landed-missing-submitted-head: missing task identity must refuse"
+  assert_grep 'ship recovery identity is missing or ambiguous' "$case_dir/stderr" \
+    "provably-landed-missing-submitted-head: refusal did not name missing identity evidence"
+  assert_present "$case_dir/state/$id.meta" \
+    "provably-landed-missing-submitted-head: missing identity erased the sparse record"
+  pass "sparse merge cleanup requires a submitted task head"
+}
+
 test_sparse_merge_record_refuses_when_api_evidence_is_unavailable() {
   local case_dir id rc url
   id=reports-pr43-api-unavailable
   url=https://github.com/abtex/abtex-epicor-reports/pull/43
   case_dir=$(make_case provably-landed-api-unavailable)
   write_sparse_recovery_meta "$case_dir" "$id" direct-PR ship ''
-  printf 'pr=%s\n' "$url" >> "$case_dir/state/$id.meta"
+  printf 'pr=%s\npr_head=%s\n' "$url" '55b3ad333f8a6d9078a1f9f8ff9abde0620da834' >> "$case_dir/state/$id.meta"
   git -C "$case_dir/project" remote set-url origin https://github.com/abtex/abtex-epicor-reports.git
   cat > "$case_dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
@@ -1209,7 +1260,7 @@ test_sparse_merge_record_refuses_when_api_does_not_confirm_merge() {
   url=https://github.com/abtex/abtex-epicor-reports/pull/43
   case_dir=$(make_case provably-landed-api-unconfirmed)
   write_sparse_recovery_meta "$case_dir" "$id" direct-PR ship ''
-  printf 'pr=%s\n' "$url" >> "$case_dir/state/$id.meta"
+  printf 'pr=%s\npr_head=%s\n' "$url" '55b3ad333f8a6d9078a1f9f8ff9abde0620da834' >> "$case_dir/state/$id.meta"
   git -C "$case_dir/project" remote set-url origin https://github.com/abtex/abtex-epicor-reports.git
   add_gh_api_response "$case_dir" false
 
@@ -4234,6 +4285,8 @@ test_sparse_recovery_backlog_with_legacy_option
 test_empty_scout_closes_backlog_without_report
 test_empty_portfolio_scout_allows_when_behind_upstream
 test_reports_pr43_sparse_record_allows_only_api_confirmed_merge
+test_sparse_merge_record_refuses_unrelated_merged_pr
+test_sparse_merge_record_refuses_without_submitted_head
 test_sparse_merge_record_refuses_when_api_evidence_is_unavailable
 test_sparse_merge_record_refuses_when_api_does_not_confirm_merge
 test_reportless_scout_with_endpoint_uses_ordinary_cleanup_guard
