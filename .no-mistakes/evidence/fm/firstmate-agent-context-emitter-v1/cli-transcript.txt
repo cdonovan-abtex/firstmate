@@ -1,0 +1,301 @@
+$ bin/fm-agent-context.py --help
+usage: fm-agent-context.py {emit|check} [--repo DIR] [--context PATH] [--schema PATH] [--migrate-legacy]
+
+Emit or compare the one generated AGENT-CONTEXT envelope in DIR/AGENTS.md.
+
+Format
+  The only generated markers are:
+    <!-- AGENT-CONTEXT:BEGIN -->
+    <!-- AGENT-CONTEXT:END -->
+  Exactly one complete pair is valid. emit replaces only that byte range and
+  leaves prose before and after it untouched. It creates AGENTS.md when absent.
+
+Inputs
+  Repository shape is measured from Git, graphify-out/graph.json, package.json,
+  Makefile, pyproject.toml, executable bin/ entries, and conventional docs.
+  Stable shape is stored; volatile HEAD, dirty count, upstream divergence, and
+  graph freshness are intentionally omitted. context.yaml is optional. When it
+  exists, context.schema.json is required and validated strictly, followed by
+  the satellite semantic checks, before its domain facts are rendered.
+  The dependency-free schema subset supports type, enum, minLength, minimum,
+  maximum, minItems, items (object schema), required, properties, and boolean
+  additionalProperties. Draft-07 declarations and title/description annotations
+  are accepted. Unsupported keywords or malformed schemas are refused in full,
+  including constraints on absent properties, before writing.
+
+Modes
+  emit   write the expected envelope if needed.
+  check  compare only; exits nonzero for missing, malformed, legacy, duplicate,
+         or different generated content and never writes.
+
+Legacy migration
+  DOMAIN SPECIALIZATION and GROUND-TRUTH markers are refused normally. Use
+  emit --migrate-legacy only for a deliberate one-time conversion. Migration
+  requires no current AGENT-CONTEXT pair and exactly one complete pair for each
+  legacy type present; it can convert either legacy type or both together.
+  It removes only their generated regions, preserves surrounding prose, and
+  emits one current envelope. It never runs during check or ordinary emit.
+
+Redaction
+  Origin URLs are redacted while measured. URL userinfo, including a synthetic
+  user:token@host authority, becomes <redacted>@host before rendering.
+
+Tenant scope
+  The inherited satellite schema remains fixed to primary plus secondary_sandbox.
+  Adding a third tenant still needs a schema and renderer migration, so this
+  merged emitter makes that change unchanged in cost from today's contract.
+
+exit: 0
+
+=== Disposable satellite source and clone ===
+$ git clone -q --no-local .test-tmp/cli-evidence/satellite-source .test-tmp/cli-evidence/satellite-copy
+
+
+exit: 0
+
+$ git -C .test-tmp/cli-evidence/satellite-copy remote set-url origin https://user:token@example.test/org/repo.git
+
+
+exit: 0
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy
+
+error: legacy marker pair present; rerun with emit --migrate-legacy
+exit: 1
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy --migrate-legacy
+wrote: satellite-copy
+
+exit: 0
+
+Generated AGENTS.md:
+# Operator prose above
+
+<!-- AGENT-CONTEXT:BEGIN -->
+## Agent context (generated - do not hand-edit)
+
+### Repository shape
+- Repository: `satellite-copy`
+- Current branch: `main`
+- Default branch: `main`
+- Origin: `https://<redacted>@example.test/org/repo.git`
+- Graph: unbuilt
+- Entrypoints: `npm run start` - node server.js
+- Also present: `README.md`
+
+### Domain contract
+- Context state: validated
+- External system: Fixture ERP (ERP)
+- Integration surface: REST
+- Operator persona: operator
+- Responsibilities: reconcile
+- Domain summary: Disposable satellite domain
+- Entities: Order (source of truth: ERP; sensitivity: HIGH)
+- Events: order.changed: order changed
+- MCP tools: search_orders (read): search orders
+- Tier: 1 - fixture
+- Standalone faces: execution=worker; decision=operator
+- Write posture: phase_1_pull_only; approved entities=none
+- Operator-owned fields: none
+- Canonical fields: id
+- Tenants: primary=primary; secondary or sandbox=sandbox
+- Access model: users=operator; roles=reader; entitlements=orders.read
+- Operator decision: proceed by operator on 2026-09-10; fixture
+
+<!-- AGENT-CONTEXT:END -->
+
+
+
+
+# Operator prose below
+
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/satellite-copy
+ok: satellite-copy
+
+exit: 0
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy
+unchanged: satellite-copy
+
+exit: 0
+
+Repeat emission SHA-256 (both runs): 1d941d4e6b6a9da390b4186351def7a8245ea8a34f3b75d8f0ac89a262592e7f
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy --migrate-legacy
+
+error: no legacy marker pair remains to migrate
+exit: 1
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/satellite-copy
+
+error: drift: AGENT-CONTEXT differs; run fm-agent-context.py emit
+exit: 1
+
+Compare-only drift preserved AGENTS.md SHA-256: 1d941d4e6b6a9da390b4186351def7a8245ea8a34f3b75d8f0ac89a262592e7f
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy
+wrote: satellite-copy
+
+exit: 0
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/satellite-copy
+ok: satellite-copy
+
+exit: 0
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy
+
+error: context validation failed:
+- $.domain_summary: must contain at least 10 character(s)
+exit: 1
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy
+
+error: $.properties.absent.pattern: unsupported schema keyword
+exit: 1
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy
+
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/satellite-copy
+
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+
+malformed refusal preserved exact input bytes
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy
+
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/satellite-copy
+
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+
+duplicate refusal preserved exact input bytes
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/satellite-copy
+wrote: satellite-copy
+
+exit: 0
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/satellite-copy
+ok: satellite-copy
+
+exit: 0
+
+Generated escaped entrypoint: - Entrypoints: `npm run start` - echo '&lt;!-- AGENT-CONTEXT:END -->'
+Original disposable source remains byte-identical and clean.
+
+=== Disposable non-satellite source and clone ===
+$ git clone -q --no-local .test-tmp/cli-evidence/non-satellite-source .test-tmp/cli-evidence/non-satellite-copy
+
+
+exit: 0
+
+$ git -C .test-tmp/cli-evidence/non-satellite-copy remote set-url origin https://example.test/org/repo.git
+
+
+exit: 0
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/non-satellite-copy
+
+error: legacy marker pair present; rerun with emit --migrate-legacy
+exit: 1
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/non-satellite-copy --migrate-legacy
+wrote: non-satellite-copy
+
+exit: 0
+
+Generated AGENTS.md:
+# Operator prose above
+
+<!-- AGENT-CONTEXT:BEGIN -->
+## Agent context (generated - do not hand-edit)
+
+### Repository shape
+- Repository: `non-satellite-copy`
+- Current branch: `main`
+- Default branch: `main`
+- Origin: `https://example.test/org/repo.git`
+- Graph: unbuilt
+- Entrypoints: `npm run start` - node server.js
+- Also present: `README.md`
+
+### Domain contract
+No validated context.yaml is configured for this repository.
+
+<!-- AGENT-CONTEXT:END -->
+
+
+# Operator prose below
+
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/non-satellite-copy
+ok: non-satellite-copy
+
+exit: 0
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/non-satellite-copy
+unchanged: non-satellite-copy
+
+exit: 0
+
+Repeat emission SHA-256 (both runs): e26ad5f2adf12f9d7e4ac99413876fbb7b151924ed547ca5efabbe02cbaedff6
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/non-satellite-copy --migrate-legacy
+
+error: no legacy marker pair remains to migrate
+exit: 1
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/non-satellite-copy
+
+error: drift: AGENT-CONTEXT differs; run fm-agent-context.py emit
+exit: 1
+
+Compare-only drift preserved AGENTS.md SHA-256: e26ad5f2adf12f9d7e4ac99413876fbb7b151924ed547ca5efabbe02cbaedff6
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/non-satellite-copy
+wrote: non-satellite-copy
+
+exit: 0
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/non-satellite-copy
+ok: non-satellite-copy
+
+exit: 0
+
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/non-satellite-copy
+
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/non-satellite-copy
+
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+
+malformed refusal preserved exact input bytes
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/non-satellite-copy
+
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/non-satellite-copy
+
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+
+duplicate refusal preserved exact input bytes
+$ bin/fm-agent-context.py emit --repo .test-tmp/cli-evidence/non-satellite-copy
+wrote: non-satellite-copy
+
+exit: 0
+
+$ bin/fm-agent-context.py check --repo .test-tmp/cli-evidence/non-satellite-copy
+ok: non-satellite-copy
+
+exit: 0
+
+Generated escaped entrypoint: - Entrypoints: `npm run start` - echo '&lt;!-- AGENT-CONTEXT:END -->'
+Original disposable source remains byte-identical and clean.
