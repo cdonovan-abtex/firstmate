@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -74,6 +75,11 @@ Inputs
   graph freshness are intentionally omitted. context.yaml is optional. When it
   exists, context.schema.json is required and validated strictly, followed by
   the satellite semantic checks, before its domain facts are rendered.
+  The dependency-free schema subset supports type, enum, minLength, minimum,
+  maximum, minItems, items (object schema), required, properties, and boolean
+  additionalProperties. Draft-07 declarations and title/description annotations
+  are accepted. Unsupported keywords or malformed schemas are refused in full,
+  including constraints on absent properties, before writing.
 
 Modes
   emit   write the expected envelope if needed.
@@ -225,6 +231,7 @@ def validate_context(context_path: Path, schema_path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise ContractError(str(exc)) from exc
     errors: list[str] = []
+    _check_schema(schema)
     _validate_schema(context, schema, "$", errors)
     _validate_satellite_semantics(context, errors)
     if errors:
@@ -232,16 +239,74 @@ def validate_context(context_path: Path, schema_path: Path) -> dict[str, Any]:
     return context
 
 
+def _json_equal(left: Any, right: Any) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(_json_equal(left[key], right[key]) for key in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_json_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def _check_schema(schema: Any, path: str = "$") -> None:
+    if not isinstance(schema, dict):
+        raise ContractError(f"{path}: unsupported schema; expected an object")
+    supported = {
+        "$schema", "title", "description", "type", "enum", "minLength", "minimum",
+        "maximum", "minItems", "items", "required", "properties", "additionalProperties",
+    }
+    for key, value in schema.items():
+        location = f"{path}.{key}"
+        if key not in supported:
+            raise ContractError(f"{location}: unsupported schema keyword")
+        valid = True
+        if key == "$schema":
+            valid = value in (
+                "http://json-schema.org/draft-07/schema#",
+                "https://json-schema.org/draft-07/schema#",
+            )
+        elif key in {"title", "description"}:
+            valid = isinstance(value, str)
+        elif key == "type":
+            valid = isinstance(value, str) and value in {
+                "object", "array", "string", "integer", "number", "boolean", "null",
+            }
+        elif key == "enum":
+            valid = isinstance(value, list) and bool(value) and not any(
+                _json_equal(item, earlier) for index, item in enumerate(value) for earlier in value[:index]
+            )
+        elif key in {"minLength", "minItems"}:
+            valid = type(value) is int and value >= 0
+        elif key in {"minimum", "maximum"}:
+            valid = _matches_type(value, "number")
+        elif key == "additionalProperties":
+            valid = isinstance(value, bool)
+        elif key == "required":
+            valid = isinstance(value, list) and all(isinstance(item, str) for item in value)
+            if valid:
+                valid = len(set(value)) == len(value)
+        elif key == "items":
+            _check_schema(value, location)
+        elif key == "properties":
+            valid = isinstance(value, dict)
+            if valid:
+                for name, child in value.items():
+                    _check_schema(child, f"{location}.{name}")
+        if not valid:
+            raise ContractError(f"{location}: unsupported or malformed schema constraint")
+
+
 def _validate_schema(value: Any, schema: Mapping[str, Any], path: str, errors: list[str]) -> None:
     expected_type = schema.get("type")
     if expected_type and not _matches_type(value, expected_type):
         errors.append(f"{path}: expected {expected_type}, got {type(value).__name__}")
         return
-    if "enum" in schema and value not in schema["enum"]:
+    if "enum" in schema and not any(_json_equal(value, option) for option in schema["enum"]):
         errors.append(f"{path}: expected one of {schema['enum']}, got {value!r}")
-    if isinstance(value, str) and value == "" and schema.get("minLength", 0) > 0:
-        errors.append(f"{path}: must not be empty")
-    if isinstance(value, int) and not isinstance(value, bool):
+    if isinstance(value, str) and len(value) < schema.get("minLength", 0):
+        errors.append(f"{path}: must contain at least {schema['minLength']} character(s)")
+    if _matches_type(value, "number"):
         if "minimum" in schema and value < schema["minimum"]:
             errors.append(f"{path}: must be >= {schema['minimum']}")
         if "maximum" in schema and value > schema["maximum"]:
@@ -272,9 +337,11 @@ def _matches_type(value: Any, expected_type: str) -> bool:
         "object": isinstance(value, dict),
         "array": isinstance(value, list),
         "string": isinstance(value, str),
-        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "integer": type(value) is int or (isinstance(value, float) and value.is_integer()),
+        "number": type(value) is int or (isinstance(value, float) and math.isfinite(value)),
         "boolean": isinstance(value, bool),
-    }.get(expected_type, True)
+        "null": value is None,
+    }.get(expected_type, False)
 
 
 def _validate_satellite_semantics(context: Mapping[str, Any], errors: list[str]) -> None:
@@ -397,7 +464,6 @@ def _measure_entrypoints(repo: Path) -> list[tuple[str, str]]:
 
 def render(context: Mapping[str, Any] | None, measured: Mapping[str, Any]) -> bytes:
     lines = [
-        BEGIN.decode(),
         "## Agent context (generated - do not hand-edit)",
         "",
         "### Repository shape",
@@ -415,8 +481,8 @@ def render(context: Mapping[str, Any] | None, measured: Mapping[str, Any]) -> by
         lines.append("No validated context.yaml is configured for this repository.")
     else:
         lines.extend(_render_domain(context))
-    lines.extend(["", END.decode(), ""])
-    return "\n".join(lines).encode("utf-8")
+    body = "\n".join(lines).replace("<!--", "&lt;!--").encode("utf-8")
+    return BEGIN + b"\n" + body + b"\n\n" + END + b"\n"
 
 
 def _render_entrypoints(entries: Sequence[tuple[str, str]]) -> str:
@@ -563,6 +629,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             updated = content[:current[0]] + wanted + content[current[1]:]
         else:
             updated = content + (b"" if not content or content.endswith(b"\n") else b"\n") + wanted
+        candidate, remaining_legacy = inspect_markers(updated)
+        if candidate is None or remaining_legacy or updated[candidate[0]:candidate[1]] != wanted:
+            raise ContractError("invalid generated AGENT-CONTEXT candidate")
         if updated != content:
             agents.write_bytes(updated)
             print(f"wrote: {repo.name}")
