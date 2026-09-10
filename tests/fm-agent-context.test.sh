@@ -126,7 +126,7 @@ test_bin_entrypoints_filter_before_limit() {
       done
     fi
     "$EMITTER" emit --repo "$repo" >/dev/null || fail "bin entrypoint emit failed"
-    assert_grep '`bin/run`' "$repo/AGENTS.md" "executable hidden by unrelated bin entries"
+    assert_grep "\`bin/run\`" "$repo/AGENTS.md" "executable hidden by unrelated bin entries"
     python3 - "$repo/AGENTS.md" <<'PY' || fail "bin entrypoint ordering or limit is incorrect"
 from pathlib import Path
 import sys
