@@ -8,11 +8,15 @@
 # preserves every byte of prose outside it. The envelope contains two inputs:
 # optional domain facts from a validated context.yaml/context.schema.json pair,
 # and repository shape measured from Git and declared source manifests.
+# Rendered input escapes HTML comment openers so values cannot introduce current
+# or legacy markers; the complete candidate is checked before writing.
 #
 # A context.yaml is optional. If present, context.schema.json must also be
-# present and the strict schema plus the satellite semantic checks are applied
-# before any AGENTS.md write. If absent, the envelope states that no domain
-# contract is configured, so ordinary repositories remain supported.
+# present. The dependency-free schema subset listed in --help is enforced,
+# and unsupported or malformed constraints are refused throughout the schema,
+# including absent properties, before applying the satellite semantic checks.
+# If context.yaml is absent, the envelope states that no domain contract is
+# configured, so ordinary repositories remain supported.
 #
 # `check` is compare-only and exits nonzero for a missing, malformed, legacy,
 # duplicate, or drifting envelope. It never writes. Stored shape deliberately
@@ -28,6 +32,11 @@
 # before rendering, so credentials cannot reach AGENTS.md. The inherited domain
 # schema remains fixed to primary plus secondary_sandbox tenants. A third tenant
 # still requires a schema and renderer migration, unchanged from that contract.
+#
+# This is a standalone utility, not wired into automatic project initialization
+# or fleet sync. It neither invokes nor deletes home-local legacy writers.
+# Regression and deliberate-mutation coverage lives in tests/fm-agent-context.test.sh;
+# its guarded migration cases operate only on disposable repository copies.
 from __future__ import annotations
 
 import argparse
