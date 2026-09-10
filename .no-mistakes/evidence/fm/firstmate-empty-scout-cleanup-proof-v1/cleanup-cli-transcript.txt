@@ -1,8 +1,16 @@
+Real bin/fm-teardown.sh executed against isolated Git repositories and recovery metadata.
+GitHub responses and endpoint/treehouse operations are fixture-controlled; tasks-axi is real.
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh pi-compaction-auto-trigger-failure-s1
-Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
-teardown pi-compaction-auto-trigger-failure-s1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-pi-compaction/wt)
-Backlog: pi-compaction-auto-trigger-failure-s1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-pi-compaction/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-pi-compaction/data/backlog.md - move pi-compaction-auto-trigger-failure-s1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+CASE ambiguous-scout-recovery
+--- stderr ---
+REFUSED: cleanup classification REFUSED - scout recovery identity is missing or ambiguous.
+
+--- stdout ---
+
+Persisted task records after case: ambiguous-scout-recovery.meta
+
+CASE empty-pi-compaction
+--- stderr ---
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
 ●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
@@ -10,23 +18,139 @@ Backlog: pi-compaction-auto-trigger-failure-s1 just finished (this home keeps no
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
-REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
-REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+--- stdout ---
 Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
-teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-index-flags/wt)
-Backlog: task-x1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-index-flags/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-index-flags/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+teardown pi-compaction-auto-trigger-failure-s1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-pi-compaction/wt)
+Backlog: pi-compaction-auto-trigger-failure-s1 just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-pi-compaction/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-pi-compaction/data/backlog.md - move pi-compaction-auto-trigger-failure-s1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+Persisted task records after case: (none)
+
+CASE empty-portfolio-linear
+--- stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- stdout ---
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+teardown portfolio-linear-stale-ticket-reconcile-s1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-portfolio-linear/wt)
+Backlog: portfolio-linear-stale-ticket-reconcile-s1 just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-portfolio-linear/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-portfolio-linear/data/backlog.md - move portfolio-linear-stale-ticket-reconcile-s1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+Persisted task records after case: (none)
+
+CASE empty-scout-backlog
+--- stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- stdout ---
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-backlog/wt)
+Backlog: task-x1 is closed in /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-backlog/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+
+Persisted task records after case: (none)
+Persisted backlog:
+# Backlog
+
+## In flight
+## Queued
+## Done
+- [x] task-x1 - teardown fixture task (kind: scout) (done 2026-09-10)
+
+
+CASE empty-scout-index-flags
+--- clean.stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 3s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- clean.stdout ---
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-index-flags/wt)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-index-flags/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-index-flags/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+--- stderr ---
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+
+--- stdout ---
+
+Persisted task records after case: (none)
+
+CASE empty-scout-nested-submodule
+--- assume-unchanged.stderr ---
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+
+--- assume-unchanged.stdout ---
+
+--- clean.stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 6s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- clean.stdout ---
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-nested-submodule/wt)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-nested-submodule/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-nested-submodule/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+--- ignored.stderr ---
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+
+--- ignored.stdout ---
+
+--- tracked.stderr ---
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+
+--- tracked.stdout ---
+
+--- untracked.stderr ---
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+
+--- untracked.stdout ---
+
+Persisted task records after case: (none)
+
+CASE empty-scout-submodule
+--- clean.stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 3s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- clean.stdout ---
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-submodule/wt)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-submodule/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/empty-scout-submodule/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+--- stderr ---
+REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
+
+--- stdout ---
+
+Persisted task records after case: (none)
+
+CASE forced-scout-discard
+--- stderr ---
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
 ●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
@@ -34,18 +158,45 @@ Backlog: task-x1 just finished (this home keeps no backlog at /Users/christiando
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
-REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
-exit_code=1
-recovery_record=retained
+--- stdout ---
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/forced-scout-discard/wt)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/forced-scout-discard/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/forced-scout-discard/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
-Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
-teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-submodule/wt)
-Backlog: task-x1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-submodule/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-submodule/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+Persisted task records after case: (none)
+
+CASE fresh-default-branch-scout
+--- stderr ---
+REFUSED: cleanup classification REFUSED - isolated scout copy has task commits beyond the current upstream default branch.
+
+--- stdout ---
+
+Persisted task records after case: fresh-default-branch-scout.meta
+
+CASE lost-scout-work
+--- faulty.err ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- faulty.out ---
+Cleanup classification: EMPTY - FAULTY missing copy treated as empty
+teardown lost-scout-unpreserved-commit complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/lost-scout-work/wt)
+Backlog: lost-scout-unpreserved-commit just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/lost-scout-work/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/lost-scout-work/data/backlog.md - move lost-scout-unpreserved-commit to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+--- stderr ---
+REFUSED: cleanup classification REFUSED - missing isolated scout copy is not proof of emptiness.
+
+--- stdout ---
+
+Persisted task records after case: (none)
+
+CASE nm-unpushed
+--- stderr ---
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
 ●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
@@ -53,33 +204,167 @@ Backlog: task-x1 just finished (this home keeps no backlog at /Users/christiando
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
+REFUSED: worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/nm-unpushed/wt has work not on any remote and not landed.
+unpushed commits:
+2993aea unpushed work
+Push the branch, land its PR, or get the captain's explicit OK to discard, then --force.
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
-REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
-exit_code=1
-recovery_record=retained
+--- stdout ---
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
-REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
-exit_code=1
-recovery_record=retained
+Persisted task records after case: task-x1.meta
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
-REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
-exit_code=1
-recovery_record=retained
+CASE provably-landed-api-unavailable
+--- stderr ---
+REFUSED: cleanup classification REFUSED - GitHub API could not authenticate or resolve the recorded pull request.
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
-REFUSED: cleanup classification REFUSED - isolated scout copy contains tracked, untracked, or ignored material.
-exit_code=1
-recovery_record=retained
+--- stdout ---
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
+Persisted task records after case: reports-pr43-api-unavailable.meta
+
+CASE provably-landed-api-unconfirmed
+--- pr-api.json ---
+{"merged":false,"merged_at":"2026-09-01T14:12:35Z","html_url":"https://github.com/abtex/abtex-epicor-reports/pull/43","base":{"repo":{"full_name":"abtex/abtex-epicor-reports"}},"head":{"ref":"fix/epicor-malish-canonical-cred-path","sha":"55b3ad333f8a6d9078a1f9f8ff9abde0620da834"}}
+
+--- stderr ---
+REFUSED: cleanup classification REFUSED - GitHub API did not confirm the identified upstream pull request as merged at the recorded task head.
+
+--- stdout ---
+
+Persisted task records after case: reports-pr43-api-unconfirmed.meta
+
+CASE provably-landed-missing-submitted-head
+--- pr-api.json ---
+{"merged":true,"merged_at":"2026-09-01T14:12:35Z","html_url":"https://github.com/abtex/abtex-epicor-reports/pull/43","base":{"repo":{"full_name":"abtex/abtex-epicor-reports"}},"head":{"ref":"fix/epicor-malish-canonical-cred-path","sha":"55b3ad333f8a6d9078a1f9f8ff9abde0620da834"}}
+
+--- stderr ---
+REFUSED: cleanup classification REFUSED - ship recovery identity is missing or ambiguous.
+
+--- stdout ---
+
+Persisted task records after case: reports-pr43-missing-submitted-head.meta
+
+CASE provably-landed-reports-43
+--- pr-api.json ---
+{"merged":true,"merged_at":"2026-09-01T14:12:35Z","html_url":"https://github.com/abtex/abtex-epicor-reports/pull/43","base":{"repo":{"full_name":"abtex/abtex-epicor-reports"}},"head":{"ref":"fix/epicor-malish-canonical-cred-path","sha":"55b3ad333f8a6d9078a1f9f8ff9abde0620da834"}}
+
+--- stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- stdout ---
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/provably-landed-reports-43/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
+teardown reports-canonical-malish-credential-vault-v1 complete (window , worktree )
+Backlog: reports-canonical-malish-credential-vault-v1 just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/provably-landed-reports-43/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/provably-landed-reports-43/data/backlog.md - move reports-canonical-malish-credential-vault-v1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+Persisted task records after case: (none)
+
+CASE provably-landed-unrelated-merge
+--- pr-api.json ---
+{"merged":true,"merged_at":"2026-09-01T14:12:35Z","html_url":"https://github.com/abtex/abtex-epicor-reports/pull/43","base":{"repo":{"full_name":"abtex/abtex-epicor-reports"}},"head":{"ref":"fix/epicor-malish-canonical-cred-path","sha":"55b3ad333f8a6d9078a1f9f8ff9abde0620da834"}}
+
+--- stderr ---
+REFUSED: cleanup classification REFUSED - GitHub API did not confirm the identified upstream pull request as merged at the recorded task head.
+
+--- stdout ---
+
+Persisted task records after case: reports-pr43-unrelated-merge.meta
+
+CASE reportless-scout-endpoint
+--- stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: scout task reportless-scout-with-endpoint has no report at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/reportless-scout-endpoint/data/reportless-scout-with-endpoint/report.md.
+The report is the work product. Have the crewmate write it, or use --force after explicit discard approval.
+
+--- stdout ---
+
+Persisted task records after case: reportless-scout-with-endpoint.meta
+
+CASE sparse-legacy-EMPTY-absent
+--- stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- stdout ---
 Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
-teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-nested-submodule/wt)
-Backlog: task-x1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-nested-submodule/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-nested-submodule/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/sparse-legacy-EMPTY-absent/wt)
+Backlog: task-x1 just finished (sparse EMPTY recovery record has no spawned incarnation). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/sparse-legacy-EMPTY-absent/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+Persisted task records after case: (none)
+Persisted backlog:
+# Backlog
+
+## In flight
+
+## Queued
+
+## Done
+
+
+CASE sparse-legacy-EMPTY-done
+--- stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 3s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- stdout ---
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/sparse-legacy-EMPTY-done/wt)
+Backlog: task-x1 just finished (sparse EMPTY recovery record has no spawned incarnation). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/sparse-legacy-EMPTY-done/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+Persisted task records after case: (none)
+Persisted backlog:
+# Backlog
+
+## In flight
+## Queued
+## Done
+- [x] task-x1 - teardown fixture task (kind: ship) (done 2026-09-10)
+
+
+CASE sparse-legacy-EMPTY-in_flight
+--- stderr ---
+REFUSED: cleanup classification EMPTY cannot retire an in-flight backlog row without an exact spawned incarnation.
+
+--- stdout ---
+Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
+
+Persisted task records after case: task-x1.meta
+Persisted backlog:
+# Backlog
+
+## In flight
+- [ ] task-x1 - teardown fixture task (kind: ship) (since 2026-09-10)
+
+## Queued
+## Done
+
+
+CASE sparse-legacy-PROVABLY-LANDED-absent
+--- pr-api.json ---
+{"merged":true,"merged_at":"2026-09-01T14:12:35Z","html_url":"https://github.com/abtex/abtex-epicor-reports/pull/43","base":{"repo":{"full_name":"abtex/abtex-epicor-reports"}},"head":{"ref":"fix/epicor-malish-canonical-cred-path","sha":"55b3ad333f8a6d9078a1f9f8ff9abde0620da834"}}
+
+--- stderr ---
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
 ●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 4s ago).
@@ -87,27 +372,29 @@ Backlog: task-x1 just finished (this home keeps no backlog at /Users/christiando
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
-Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
-teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/sparse-legacy-EMPTY-absent/wt)
-Backlog: task-x1 just finished (sparse EMPTY recovery record has no spawned incarnation). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/sparse-legacy-EMPTY-absent/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
+--- stdout ---
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/sparse-legacy-PROVABLY-LANDED-absent/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
+teardown task-x1 complete (window , worktree )
+Backlog: task-x1 just finished (sparse PROVABLY-LANDED recovery record has no spawned incarnation). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/sparse-legacy-PROVABLY-LANDED-absent/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
-Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
-teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/sparse-legacy-EMPTY-done/wt)
-Backlog: task-x1 just finished (sparse EMPTY recovery record has no spawned incarnation). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/sparse-legacy-EMPTY-done/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+Persisted task records after case: (none)
+Persisted backlog:
+# Backlog
+
+## In flight
+
+## Queued
+
+## Done
+
+
+CASE sparse-legacy-PROVABLY-LANDED-done
+--- pr-api.json ---
+{"merged":true,"merged_at":"2026-09-01T14:12:35Z","html_url":"https://github.com/abtex/abtex-epicor-reports/pull/43","base":{"repo":{"full_name":"abtex/abtex-epicor-reports"}},"head":{"ref":"fix/epicor-malish-canonical-cred-path","sha":"55b3ad333f8a6d9078a1f9f8ff9abde0620da834"}}
+
+--- stderr ---
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
 ●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
@@ -115,178 +402,59 @@ Backlog: task-x1 just finished (sparse EMPTY recovery record has no spawned inca
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
-Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
-REFUSED: cleanup classification EMPTY cannot retire an in-flight backlog row without an exact spawned incarnation.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
+--- stdout ---
 Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
-/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/sparse-legacy-PROVABLY-LANDED-absent/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
+/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/sparse-legacy-PROVABLY-LANDED-done/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
 teardown task-x1 complete (window , worktree )
-Backlog: task-x1 just finished (sparse PROVABLY-LANDED recovery record has no spawned incarnation). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/sparse-legacy-PROVABLY-LANDED-absent/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
+Backlog: task-x1 just finished (sparse PROVABLY-LANDED recovery record has no spawned incarnation). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/sparse-legacy-PROVABLY-LANDED-done/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
 
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
-Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
-/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/sparse-legacy-PROVABLY-LANDED-done/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
-teardown task-x1 complete (window , worktree )
-Backlog: task-x1 just finished (sparse PROVABLY-LANDED recovery record has no spawned incarnation). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/sparse-legacy-PROVABLY-LANDED-done/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --legacy-record
-Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
-REFUSED: cleanup classification PROVABLY-LANDED cannot retire an in-flight backlog row without an exact spawned incarnation.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1
-Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
-teardown task-x1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-backlog/wt)
-Backlog: task-x1 is closed in /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-scout-backlog/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh portfolio-linear-stale-ticket-reconcile-s1
-Cleanup classification: EMPTY - no report, no task commits, and a clean isolated copy at an ancestor of origin/main
-teardown portfolio-linear-stale-ticket-reconcile-s1 complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-portfolio-linear/wt)
-Backlog: portfolio-linear-stale-ticket-reconcile-s1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-portfolio-linear/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/empty-portfolio-linear/data/backlog.md - move portfolio-linear-stale-ticket-reconcile-s1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reports-canonical-malish-credential-vault-v1
-Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
-/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/provably-landed-reports-43/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
-teardown reports-canonical-malish-credential-vault-v1 complete (window , worktree )
-Backlog: reports-canonical-malish-credential-vault-v1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/provably-landed-reports-43/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/provably-landed-reports-43/data/backlog.md - move reports-canonical-malish-credential-vault-v1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reports-pr43-api-unavailable
-REFUSED: cleanup classification REFUSED - GitHub API could not authenticate or resolve the recorded pull request.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reports-pr43-api-unconfirmed
-REFUSED: cleanup classification REFUSED - GitHub API did not confirm the identified upstream pull request as merged.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reportless-scout-with-endpoint
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REFUSED: scout task reportless-scout-with-endpoint has no report at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/reportless-scout-endpoint/data/reportless-scout-with-endpoint/report.md.
-The report is the work product. Have the crewmate write it, or use --force after explicit discard approval.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh ambiguous-scout-recovery
-REFUSED: cleanup classification REFUSED - scout recovery identity is missing or ambiguous.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh reports-canonical-malish-credential-vault-v1
-Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
-/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.qF8A7r/live-reports-pr43/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
-teardown reports-canonical-malish-credential-vault-v1 complete (window , worktree )
-Backlog: reports-canonical-malish-credential-vault-v1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.qF8A7r/live-reports-pr43/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.qF8A7r/live-reports-pr43/data/backlog.md - move reports-canonical-malish-credential-vault-v1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh task-x1 --force
-teardown task-x1 complete (window firstmate:fm-task-x1, worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/forced-scout-discard/wt)
-Backlog: task-x1 just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/forced-scout-discard/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/forced-scout-discard/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh fresh-default-branch-scout
-REFUSED: cleanup classification REFUSED - isolated scout copy has task commits beyond the current upstream default branch.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/bin/fm-teardown.sh lost-scout-unpreserved-commit
-REFUSED: cleanup classification REFUSED - missing isolated scout copy is not proof of emptiness.
-exit_code=1
-recovery_record=retained
-
-$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/lost-scout-work/faulty-bin/fm-teardown.sh lost-scout-unpreserved-commit
-Cleanup classification: EMPTY - FAULTY missing copy treated as empty
-teardown lost-scout-unpreserved-commit complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/lost-scout-work/wt)
-Backlog: lost-scout-unpreserved-commit just finished (this home keeps no backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/lost-scout-work/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M23G30T6JZCS7857Z0JYRV92/.test-phase-tmp/fm-teardown-tests.UejuBb/lost-scout-work/data/backlog.md - move lost-scout-unpreserved-commit to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-exit_code=0
-recovery_record=removed
-
-Persisted EMPTY scout backlog after cleanup:
+Persisted task records after case: (none)
+Persisted backlog:
 # Backlog
 
 ## In flight
 ## Queued
 ## Done
-- [x] task-x1 - teardown fixture task (kind: scout) (done 2026-09-09)
+- [x] task-x1 - teardown fixture task (kind: ship) (done 2026-09-10)
+
+
+CASE sparse-legacy-PROVABLY-LANDED-in_flight
+--- pr-api.json ---
+{"merged":true,"merged_at":"2026-09-01T14:12:35Z","html_url":"https://github.com/abtex/abtex-epicor-reports/pull/43","base":{"repo":{"full_name":"abtex/abtex-epicor-reports"}},"head":{"ref":"fix/epicor-malish-canonical-cred-path","sha":"55b3ad333f8a6d9078a1f9f8ff9abde0620da834"}}
+
+--- stderr ---
+REFUSED: cleanup classification PROVABLY-LANDED cannot retire an in-flight backlog row without an exact spawned incarnation.
+
+--- stdout ---
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+
+Persisted task records after case: task-x1.meta
+Persisted backlog:
+# Backlog
+
+## In flight
+- [ ] task-x1 - teardown fixture task (kind: ship) (since 2026-09-10)
+
+## Queued
+## Done
+
+
+CASE truly-unpushed
+--- stderr ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: local-only worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.jDM3pW/truly-unpushed/wt has work not yet merged into main and not on any remote.
+commits not yet on main:
+bc40c0b unpushed work
+Merge the branch into local main first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force.
+
+--- stdout ---
+
+Persisted task records after case: task-x1.meta
+

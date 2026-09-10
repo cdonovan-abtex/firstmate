@@ -1,0 +1,15 @@
+Live GitHub API; isolated metadata/project; simulated endpoint/treehouse operations.
+$ bin/fm-teardown.sh reports-canonical-malish-credential-vault-v1
+Cleanup classification: PROVABLY-LANDED - GitHub API confirmed https://github.com/abtex/abtex-epicor-reports/pull/43 merged
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 3s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.J9Rz5R/live-reports-pr43/project: STUCK: on diverged main, 150 commits behind origin/main - needs attention
+teardown reports-canonical-malish-credential-vault-v1 complete (window , worktree )
+Backlog: reports-canonical-malish-credential-vault-v1 just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.J9Rz5R/live-reports-pr43/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.J9Rz5R/live-reports-pr43/data/backlog.md - move reports-canonical-malish-credential-vault-v1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+Exit status: 0
+Persisted state: recovery metadata removed.

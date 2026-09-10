@@ -1,0 +1,11 @@
+ok - lost scout refusal becomes red against a faulty absence-is-emptiness classifier
+
+Production guard output (exit 1 asserted by fixture):
+REFUSED: cleanup classification REFUSED - missing isolated scout copy is not proof of emptiness.
+
+Repeat the same refusal expectation against the faulty executable:
+Cleanup classification: EMPTY - FAULTY missing copy treated as empty
+teardown lost-scout-unpreserved-commit complete (window , worktree /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.iwhxcx/lost-scout-work/wt)
+Backlog: lost-scout-unpreserved-commit just finished (this home keeps no markdown backlog at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.iwhxcx/lost-scout-work/data/backlog.md). Update /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25ZDC899VCS736C4111NH64/.test-tmp/fm-teardown-tests.iwhxcx/lost-scout-work/data/backlog.md - move lost-scout-unpreserved-commit to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+not ok - Lost-work refusal must reject the faulty absence-is-empty guard: expected exit 1, got 0
+Counterfactual assertion exit: 1 (expected failure). Faulty guard removed recovery metadata.
