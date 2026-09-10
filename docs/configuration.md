@@ -156,7 +156,7 @@ A reportless, endpoint-less scout may instead report `EMPTY` only after the tear
 The copy must be registered to its recorded project, and cleanliness includes tracked edits, untracked and ignored material, and every populated submodule recursively, even when Git index flags or submodule ignore settings hide changes from ordinary status.
 A sparse, endpoint-less ship record with an explicitly empty worktree field may instead report `PROVABLY-LANDED` only when an explicitly selected `gh-axi api` response confirms its recorded canonical GitHub pull request is merged, matches the recorded project's upstream repository, and has the same head SHA as the task's unambiguous, valid `pr_head` record.
 Records with endpoint metadata remain subject to ordinary endpoint retirement, and explicit `--force` keeps its existing discard authorization.
-Missing, empty, duplicate, malformed, backend-inconsistent, task-mismatched, unverified, or otherwise ambiguous endpoint and recovery evidence is preserved and refused.
+Teardown preserves and refuses records whose required endpoint or recovery evidence is missing, empty, duplicate, malformed, backend-inconsistent, task-mismatched, unverified, or otherwise ambiguous.
 [`tests/fm-teardown.test.sh`](../tests/fm-teardown.test.sh) covers both recovery categories, hidden scout material, unavailable merge evidence, and a lost-work refusal that detects a deliberately faulty absence-as-emptiness guard.
 Legacy tmux metadata remains cleanup-compatible when its exact window name is `fm-<id>`; opaque non-tmux endpoints require their recorded `endpoint_task_id=` binding.
 `FM_HOME` determines Herdr's home label: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.

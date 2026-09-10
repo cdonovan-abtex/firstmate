@@ -18,6 +18,7 @@
 # data/backlog.md; those cases print the manual follow-up. A configured
 # non-markdown adapter remains active without a markdown file; any active
 # automatic backend without compatible tasks-axi refuses before cleanup.
+# docs/configuration.md "Backlog backend" owns recovery exceptions to this transition.
 # None of this loosens the landed-work gates below: the transition runs only on
 # the paths that already proceed to remove the record.
 # The close - and only the close - is replaced by `tasks-axi reopen` with the
