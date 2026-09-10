@@ -459,9 +459,9 @@ def _measure_entrypoints(repo: Path) -> list[tuple[str, str]]:
             pass
     bin_dir = repo / "bin"
     if bin_dir.is_dir():
-        for item in sorted(bin_dir.iterdir())[:8]:
-            if item.is_file() and os.access(item, os.X_OK):
-                entries.append((f"bin/{item.name}", ""))
+        executables = sorted(item for item in bin_dir.iterdir() if item.is_file() and os.access(item, os.X_OK))
+        for item in executables[:8]:
+            entries.append((f"bin/{item.name}", ""))
     unique: list[tuple[str, str]] = []
     seen: set[str] = set()
     for command, description in entries:

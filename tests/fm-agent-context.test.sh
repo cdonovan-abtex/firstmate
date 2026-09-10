@@ -109,6 +109,37 @@ test_non_satellite_repeat_identity_and_drift() {
   pass "fm-agent-context.py: non-satellite emit is byte-identical and compare-only detects measured drift"
 }
 
+test_bin_entrypoints_filter_before_limit() {
+  local variant repo name
+  for variant in clean cluttered; do
+    repo="$TMP_ROOT/bin-$variant"
+    make_repo "$repo"
+    mkdir "$repo/bin"
+    for name in run-9 run-8 run-7 run-6 run-5 run-4 run-3 run-2 run; do
+      printf '#!/bin/sh\nexit 0\n' > "$repo/bin/$name"
+      chmod +x "$repo/bin/$name"
+    done
+    if [ "$variant" = cluttered ]; then
+      mkdir "$repo/bin/00-directory"
+      for name in a b c d e f g h; do
+        printf 'not executable\n' > "$repo/bin/$name"
+      done
+    fi
+    "$EMITTER" emit --repo "$repo" >/dev/null || fail "bin entrypoint emit failed"
+    assert_grep '`bin/run`' "$repo/AGENTS.md" "executable hidden by unrelated bin entries"
+    python3 - "$repo/AGENTS.md" <<'PY' || fail "bin entrypoint ordering or limit is incorrect"
+from pathlib import Path
+import sys
+lines = Path(sys.argv[1]).read_text().splitlines()
+entrypoints = [line for line in lines if line.startswith("- Entrypoints: ")]
+commands = ["bin/run"] + [f"bin/run-{i}" for i in range(2, 9)]
+assert entrypoints == ["- Entrypoints: " + "; ".join(f"`{command}`" for command in commands)]
+PY
+    "$EMITTER" check --repo "$repo" >/dev/null || fail "bin entrypoints did not compare cleanly"
+  done
+  pass "fm-agent-context.py: bin discovery filters executable files before its sorted eight-entry limit"
+}
+
 test_repeat_identity() {
   local repo="$TMP_ROOT/repeat"
   make_repo "$repo"
@@ -476,6 +507,7 @@ fi
 test_guarantee_mutations_are_detected
 test_repeat_identity
 test_non_satellite_repeat_identity_and_drift
+test_bin_entrypoints_filter_before_limit
 test_targeted_replacement_preserves_surrounding_prose
 test_malformed_and_duplicate_markers_are_refused
 test_remote_userinfo_is_redacted_with_positive_control
