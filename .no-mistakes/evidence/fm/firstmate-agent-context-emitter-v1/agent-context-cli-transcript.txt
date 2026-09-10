@@ -1,0 +1,189 @@
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-source init -q
+exit: 0
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-source add .
+exit: 0
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-source -c 'user.name=Acceptance Test' -c user.email=test@example.invalid commit -qm fixture
+exit: 0
+$ git clone -q --no-local /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-source /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+exit: 0
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy remote set-url origin https://user:token@example.test/org/repo.git
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+error: legacy marker pair present; migrate deliberately with emit --migrate-legacy
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+error: legacy marker pair present; rerun with emit --migrate-legacy
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy --migrate-legacy
+wrote: satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy --migrate-legacy
+error: no legacy marker pair remains to migrate
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+ok: satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+unchanged: satellite-copy
+exit: 0
+Repeat byte identity (satellite): SHA-256 c11632d676806d2234cc84c81bffc1e5d77e6474d876442c8bed3e732d416331
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+error: drift: AGENT-CONTEXT differs; run fm-agent-context.py emit
+exit: 1
+Compare-only drift preserved AGENTS.md: SHA-256 c11632d676806d2234cc84c81bffc1e5d77e6474d876442c8bed3e732d416331
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+wrote: satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+ok: satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+error: context validation failed:
+- $.domain_summary: must contain at least 100 character(s)
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+error: $.properties.absent.pattern: unsupported schema keyword
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+wrote: satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+ok: satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy remote set-url origin https://example.test/org/repo.git
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-copy
+wrote: satellite-copy
+exit: 0
+Ordinary-origin positive control in generated AGENTS.md: https://example.test/org/repo.git
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/satellite-source status --porcelain
+exit: 0
+satellite migration source remains unchanged. Only its disposable clone was migrated.
+
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-source init -q
+exit: 0
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-source add .
+exit: 0
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-source -c 'user.name=Acceptance Test' -c user.email=test@example.invalid commit -qm fixture
+exit: 0
+$ git clone -q --no-local /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-source /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+exit: 0
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy remote set-url origin https://user:token@example.test/org/repo.git
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+error: legacy marker pair present; migrate deliberately with emit --migrate-legacy
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+error: legacy marker pair present; rerun with emit --migrate-legacy
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy --migrate-legacy
+wrote: non-satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy --migrate-legacy
+error: no legacy marker pair remains to migrate
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+ok: non-satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+unchanged: non-satellite-copy
+exit: 0
+Repeat byte identity (non-satellite): SHA-256 a0c8246714e85f1d1ffb77d3b62c1fc4437b5c7cbd02b30146f0280fdd62aae9
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+error: drift: AGENT-CONTEXT differs; run fm-agent-context.py emit
+exit: 1
+Compare-only drift preserved AGENTS.md: SHA-256 a0c8246714e85f1d1ffb77d3b62c1fc4437b5c7cbd02b30146f0280fdd62aae9
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+wrote: non-satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+ok: non-satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+wrote: non-satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+ok: non-satellite-copy
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+error: malformed or duplicate AGENT-CONTEXT marker pair
+exit: 1
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy remote set-url origin https://example.test/org/repo.git
+exit: 0
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-copy
+wrote: non-satellite-copy
+exit: 0
+Ordinary-origin positive control in generated AGENTS.md: https://example.test/org/repo.git
+$ git -C /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/.test-agent-context-tmp/manual-ff0tjykb/non-satellite-source status --porcelain
+exit: 0
+non-satellite migration source remains unchanged. Only its disposable clone was migrated.
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M25V752NXJK6AXNFHGG7SZJZ/bin/fm-agent-context.py --help
+usage: fm-agent-context.py {emit|check} [--repo DIR] [--context PATH] [--schema PATH] [--migrate-legacy]
+
+Emit or compare the one generated AGENT-CONTEXT envelope in DIR/AGENTS.md.
+
+Format
+  The only generated markers are:
+    <!-- AGENT-CONTEXT:BEGIN -->
+    <!-- AGENT-CONTEXT:END -->
+  Exactly one complete pair is valid. emit replaces only that byte range and
+  leaves prose before and after it untouched. It creates AGENTS.md when absent.
+
+Inputs
+  Repository shape is measured from Git, graphify-out/graph.json, package.json,
+  Makefile, pyproject.toml, executable bin/ entries, and conventional docs.
+  Stable shape is stored; volatile HEAD, dirty count, upstream divergence, and
+  graph freshness are intentionally omitted. context.yaml is optional. When it
+  exists, context.schema.json is required and validated strictly, followed by
+  the satellite semantic checks, before its domain facts are rendered.
+  The dependency-free schema subset supports type, enum, minLength, minimum,
+  maximum, minItems, items (object schema), required, properties, and boolean
+  additionalProperties. Draft-07 declarations and title/description annotations
+  are accepted. Unsupported keywords or malformed schemas are refused in full,
+  including constraints on absent properties, before writing.
+
+Modes
+  emit   write the expected envelope if needed.
+  check  compare only; exits nonzero for missing, malformed, legacy, duplicate,
+         or different generated content and never writes.
+
+Legacy migration
+  DOMAIN SPECIALIZATION and GROUND-TRUTH markers are refused normally. Use
+  emit --migrate-legacy only for a deliberate one-time conversion. Migration
+  requires no current AGENT-CONTEXT pair and exactly one complete pair for each
+  legacy type present; it can convert either legacy type or both together.
+  It removes only their generated regions, preserves surrounding prose, and
+  emits one current envelope. It never runs during check or ordinary emit.
+
+Redaction
+  Origin URLs are redacted while measured. URL userinfo, including a synthetic
+  user:token@host authority, becomes <redacted>@host before rendering.
+
+Tenant scope
+  The inherited satellite schema remains fixed to primary plus secondary_sandbox.
+  Adding a third tenant still needs a schema and renderer migration, so this
+  merged emitter makes that change unchanged in cost from today's contract.
+exit: 0
+Tenant scope: third-tenant work remains unchanged in cost; schema and renderer migration are still required.
