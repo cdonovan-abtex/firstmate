@@ -1,17 +1,4 @@
 #!/usr/bin/env bash
-# Behavior tests for bin/fm-tasks-axi.sh home addressing and bootstrap's
-# shadow-backlog check, over the split layout where the operational home lives
-# outside the code root that carries the tracked .tasks.toml.
-#
-# The fork these guard against: .tasks.toml names data/backlog.md relative to
-# the caller's working directory, and tasks-axi writes by renaming a temp file
-# over its target, so a bare tasks-axi run from the code root turns a code-root
-# symlink into the home's backlog into a private regular copy. The suite proves
-# that every write through bin/fm-tasks-axi.sh lands in $FM_HOME/data from the
-# code root (including archiving and relative --body-file arguments),
-# that the command refuses addressing it cannot keep correct, and that bootstrap
-# reports any code-root copy that is not this home's own file while staying
-# silent for a link into the home, an absent copy, and the single-home layout.
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -66,7 +53,7 @@ bootstrap_backlog_lines() {  # <code-root> [<home>]
   fi
 }
 
-test_guard_reports_regular_code_root_backlog() {
+test_guard_preserves_independent_code_root_backlog() {
   local dir out
   dir=$(make_split guard-regular)
   out=$(bootstrap_backlog_lines "$dir/code" "$dir/home")
@@ -79,13 +66,14 @@ test_guard_reports_regular_code_root_backlog() {
   printf '## In flight\n\n## Queued\n\n- [ ] stray: written from the code root\n\n## Done\n' \
     > "$dir/code/data/backlog.md"
   out=$(bootstrap_backlog_lines "$dir/code" "$dir/home")
-  assert_contains "$out" "BACKLOG_RECONCILE: code-root $dir/code/data/backlog.md is not this home's $dir/home/data/backlog.md" \
-    "a regular code-root backlog beside a separate home was not reported"
-  assert_not_contains "$out" "done-archive.md" "an absent code-root archive was reported"
-  pass "bootstrap reports a regular code-root backlog and stays silent for a link into the home or no copy"
+  assert_equals "" "$out" "independently owned code-root backlog must not be reconciled"
+  assert_grep "stray" "$dir/code/data/backlog.md" "bootstrap changed the independent backlog"
+  assert_no_grep "stray" "$dir/home/data/backlog.md" "bootstrap merged independent home data"
+  pass "bootstrap preserves separate code-root and operational home queues"
+
 }
 
-test_guard_reports_foreign_link_and_archive() {
+test_guard_preserves_foreign_link_and_archive() {
   local dir out
   dir=$(make_split guard-foreign)
   empty_backlog "$dir/elsewhere.md"
@@ -93,11 +81,11 @@ test_guard_reports_foreign_link_and_archive() {
   ln -s "$dir/elsewhere.md" "$dir/code/data/backlog.md"
   printf '## Done\n' > "$dir/code/data/done-archive.md"
   out=$(bootstrap_backlog_lines "$dir/code" "$dir/home")
-  assert_contains "$out" "code-root $dir/code/data/backlog.md is not this home's" \
-    "a code-root backlog linked outside this home was not reported"
-  assert_contains "$out" "code-root $dir/code/data/done-archive.md is not this home's $dir/home/data/done-archive.md" \
-    "a regular code-root archive beside a separate home was not reported"
-  pass "bootstrap reports a code-root backlog linked elsewhere and a forked archive"
+  assert_equals "" "$out" "a foreign queue or archive must not be assigned to this home"
+  [ -L "$dir/code/data/backlog.md" ] || fail "bootstrap replaced the foreign backlog link"
+  assert_present "$dir/code/data/done-archive.md" "bootstrap moved the independent archive"
+  pass "bootstrap preserves independently owned linked queues and archives"
+
 }
 
 test_guard_silent_for_single_home() {
@@ -114,10 +102,7 @@ test_guard_silent_for_single_home() {
   pass "bootstrap stays silent when the code root is the home"
 }
 
-# The end-to-end fork: a bare tasks-axi write from the code root. Whatever the
-# installed tasks-axi does to the link, bootstrap must agree with the result:
-# a replaced link is reported, a written-through link is not.
-test_bare_tasks_axi_fork_is_detected() {
+test_different_files_do_not_prove_backlog_ownership() {
   local dir out
   dir=$(make_split bare-fork)
   (cd "$dir/code" && tasks-axi add bare-1 "written from the code root" >/dev/null 2>&1) \
@@ -129,9 +114,9 @@ test_bare_tasks_axi_fork_is_detected() {
     pass "bare tasks-axi wrote through the code-root link and bootstrap stayed silent"
   else
     assert_no_grep "bare-1" "$dir/home/data/backlog.md" "the replaced link still reached the home"
-    assert_contains "$out" "code-root $dir/code/data/backlog.md is not this home's" \
-      "bootstrap missed the fork a bare tasks-axi write left behind"
-    pass "bare tasks-axi replaced the code-root link and bootstrap reported the fork"
+    assert_equals "" "$out" "different files alone cannot prove common backlog ownership"
+    pass "bootstrap does not infer backlog ownership from different paths"
+
   fi
 }
 
@@ -216,11 +201,11 @@ test_wrapper_single_home() {
   pass "fm-tasks-axi.sh keeps the single-home layout addressing its own code-root backlog"
 }
 
-test_guard_reports_regular_code_root_backlog
-test_guard_reports_foreign_link_and_archive
+test_guard_preserves_independent_code_root_backlog
+test_guard_preserves_foreign_link_and_archive
 test_guard_silent_for_single_home
 if [ "$HAVE_TASKS_AXI" = 1 ]; then
-  test_bare_tasks_axi_fork_is_detected
+  test_different_files_do_not_prove_backlog_ownership
   test_wrapper_writes_through_to_home
   test_wrapper_overrides_ambient_file
   test_wrapper_refusals

@@ -11,6 +11,7 @@
 #   fm-procevent-when.sh source-id <name>
 #   fm-procevent-when.sh retire <name>
 #   fm-procevent-when.sh rebind-all
+#   fm-procevent-when.sh fast-forward <commit>
 #   fm-procevent-when.sh run <source-id>
 #
 # arm        Bind a (condition, action) pair as process-event source
@@ -364,6 +365,11 @@ cmd_run() {
     exit 0
   fi
 
+  if ! fm_procevent_source_lock_acquire "$sid"; then
+    emit_doc "$sid" rejected "refused without executing anything: cannot lock the watch source" 0 '' ''
+    exit 0
+  fi
+  trap 'fm_procevent_source_lock_release "$sid"' EXIT
   if ! spec_load "$sid"; then
     emit_doc "$sid" rejected "refused without executing anything: $SPEC_ERROR" 0 '' ''
     exit 0
@@ -378,6 +384,7 @@ cmd_run() {
     exit 0
   fi
 
+  fm_procevent_source_lock_release "$sid"
   if ! out=$(umask 077; mktemp "$WHEN_DIR/.run-out.XXXXXX"); then
     emit_doc "$sid" rejected "cannot stage command output; nothing was executed" 0 '' ''
     exit 0
@@ -543,49 +550,65 @@ publish_spec() {
 
 # rebind_one <source-id>: 0 = rebound, 1 = failed (reported to stderr), 2 =
 # unchanged or the action lives outside FM_ROOT (skipped, not an error).
-rebind_one() {
+rebind_one_locked() {
   local sid=$1 action_path action_hash device
-  if ! fm_procevent_source_lock_acquire "$sid"; then
-    printf 'skip: %s (cannot lock)\n' "$sid" >&2
-    return 1
-  fi
   if ! spec_load "$sid"; then
     printf 'skip: %s (%s)\n' "$sid" "$SPEC_ERROR" >&2
-    fm_procevent_source_lock_release "$sid"
     return 1
   fi
   if ! action_path=$(action_executable "${ACT_ARGV[0]}"); then
     printf 'skip: %s (action executable is unavailable: %s)\n' "$sid" "${ACT_ARGV[0]}" >&2
-    fm_procevent_source_lock_release "$sid"
     return 1
   fi
   case "$action_path" in
     "$FM_ROOT_REAL"/*) ;;
-    *) fm_procevent_source_lock_release "$sid"; return 2 ;;
+    *) return 2 ;;
   esac
   if ! action_hash=$(fm_pr_sha256 "$action_path"); then
     printf 'skip: %s (cannot hash the action executable)\n' "$sid" >&2
-    fm_procevent_source_lock_release "$sid"
     return 1
   fi
   if [ "$action_hash" = "$SPEC_ACTION_SHA256" ]; then
-    fm_procevent_source_lock_release "$sid"
     return 2
   fi
   if ! device=$(fm_pr_file_device "$WHEN_DIR"); then
     printf 'skip: %s (cannot inspect the watch directory)\n' "$sid" >&2
-    fm_procevent_source_lock_release "$sid"
     return 1
   fi
   if ! publish_spec "$sid" "$device" "$action_hash"; then
     printf 'skip: %s (could not publish the refreshed trust binding)\n' "$sid" >&2
-    fm_procevent_source_lock_release "$sid"
     return 1
   fi
-  fm_procevent_source_lock_release "$sid"
   printf 'rebound: %s\n' "$sid"
   return 0
 }
+
+rebind_one() {
+  local sid=$1 rc=0
+  fm_procevent_source_lock_acquire "$sid" || return 1
+  rebind_one_locked "$sid" || rc=$?
+  fm_procevent_source_lock_release "$sid"
+  return "$rc"
+}
+
+cmd_fast_forward() (
+  [ "$#" -eq 1 ] || usage
+  local spec sid rc=0
+  local -a locked=()
+  trap 'for sid in "${locked[@]+"${locked[@]}"}"; do fm_procevent_source_lock_release "$sid"; done' EXIT
+  for spec in "$WHEN_DIR"/when-*.spec; do
+    [ -e "$spec" ] || continue
+    sid=$(basename "$spec" .spec)
+    fm_procevent_source_lock_acquire "$sid" || exit 1
+    locked+=("$sid")
+  done
+  git -C "$FM_ROOT" merge --ff-only "$1" || exit $?
+  for sid in "${locked[@]+"${locked[@]}"}"; do
+    rc=0
+    rebind_one_locked "$sid" || rc=$?
+    [ "$rc" -ne 1 ] || printf 'warning: watch %s could not be rebound after the update\n' "$sid" >&2
+  done
+)
 
 cmd_rebind_all() {
   [ "$#" -eq 0 ] || usage
@@ -633,6 +656,7 @@ case "${1-}" in
   source-id) shift; cmd_source_id "$@" ;;
   retire)    shift; cmd_retire "$@" ;;
   rebind-all) shift; cmd_rebind_all "$@" ;;
+  fast-forward) shift; cmd_fast_forward "$@" ;;
   ''|-h|--help|help) usage ;;
   *) die "unknown command: $1" ;;
 esac

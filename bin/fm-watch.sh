@@ -2025,7 +2025,10 @@ while :; do
           path=$FM_PR_POLL_SNAPSHOT_PATH
           number=$FM_PR_POLL_SNAPSHOT_NUMBER
           PR_POLL_CONTROL_LOCK="$STATE/.control-$id.lock"
-          fm_lock_acquire_wait "$PR_POLL_CONTROL_LOCK" || exit 1
+          if ! fm_lock_try_acquire "$PR_POLL_CONTROL_LOCK"; then
+            PR_POLL_CONTROL_LOCK=
+            continue
+          fi
           if ! fm_pr_poll_snapshot_matches "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
             pr_poll_control_release || exit 1
             triage_log "PR poll for $id changed before its validated check; skipping the stale snapshot"

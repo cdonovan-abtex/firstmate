@@ -66,6 +66,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
 . "$SCRIPT_DIR/fm-gemini-lib.sh"
+# shellcheck source=bin/fm-session-lock-lib.sh
+. "$SCRIPT_DIR/fm-session-lock-lib.sh"
 
 # Print the harness named by a verified environment marker, or nothing when no
 # marker is present. Markers only report what the environment CLAIMS; detect_own
@@ -168,7 +170,7 @@ ancestry_names_omp() {
 #          (any node process holding a harness-shaped path matches it), so it is
 #          used only when no marker is present.
 harness_process_verdict() {  # <pid>
-  local pid=$1 comm args argv0
+  local pid=$1 comm args argv0 name
   comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 0
   argv0=$(fm_cursor_argv0_for_pid "$pid" "$comm" 2>/dev/null || true)
   if fm_cursor_process_matches "$comm" '' "$argv0"; then
@@ -177,6 +179,11 @@ harness_process_verdict() {  # <pid>
   fi
   if fm_gemini_path_is_gemini "$comm"; then
     echo "comm gemini"
+    return
+  fi
+  if name=$(fm_harness_path_name "$comm") || name=$(fm_harness_path_name "$argv0"); then
+    [ "$name" != pi-signed ] || name=pi
+    printf 'comm %s\n' "$name"
     return
   fi
   case "$(basename -- "$comm")" in

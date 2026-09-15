@@ -12,7 +12,7 @@
 # live at merge time rather than taken from recorded metadata: the pull request
 # is open, not a draft, mergeable, free of conflicts, and every unwaived check
 # is green at the exact current head commit, where github_checks_not_green below
-# owns what makes a check green and judges each one by its current run.
+# owns what makes each reported check green.
 # Every failing condition is reported, not
 # just the first. The verified head is then passed to gh as
 # --match-head-commit, so a push that lands between that read and the merge
@@ -491,76 +491,19 @@ FIELDS
 # SUCCESS, or a check run that completed with SUCCESS, NEUTRAL, or SKIPPED (so
 # a pending check is not green either). Exits nonzero when the rollup cannot be
 # read, so a malformed answer is a failed read and never an empty red set.
-#
-# The rollup can hold several runs of one check name at the same head, because
-# GitHub cancels a pull request's in-flight run when the base branch advances
-# and re-triggers it; the cancelled run stays in the rollup beside the passing
-# re-run. A check is therefore judged by its current run rather than by any run
-# that a later one superseded, which is what makes this agree with GitHub's own
-# CLEAN mergeStateStatus instead of refusing a pull request GitHub considers
-# mergeable.
-#
-# Supersession applies only among check runs with the same reported name. A
-# name is dropped from the red set only when every non-green run is COMPLETED,
-# has a whole-second UTC startedAt, and started strictly before a green run.
-# Status contexts are never grouped or superseded, and every non-green one is
-# reported independently. A still-running, queued, undated, or tied check run
-# stays red. A name whose runs are all green needs no timestamp, while a name
-# with no green run stays red.
-#
-# The reported name is also what --allow-red matches. An unnamed check run is
-# grouped alone and can neither supersede nor be superseded, because unrelated
-# unnamed checks must not be treated as one.
 github_checks_not_green() {
   local json=$1
   printf '%s' "$json" | jq -r '
-    def settled_at:
-      if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
-      then . else null end;
     if (.statusCheckRollup | type) != "array" then error("no check rollup") else . end
-    | [ .statusCheckRollup
-        | to_entries[]
-        | .key as $i
-        | .value
-        | if .__typename == "CheckRun" then
-            {
-              kind: "check_run",
-              name: (.name // ""),
-              completed: (.status == "COMPLETED"),
-              ok: (.status == "COMPLETED" and (.conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED")),
-              at: (.startedAt | settled_at)
-            }
-            | . + {group: (if .name == "" then ["", $i] else [.name, -1] end)}
-          else
-            {kind: "status_context", name: (.context // ""), ok: (.state == "SUCCESS")}
-          end
-      ]
-    | . as $entries
-    | (
-        ($entries[]
-          | select(.kind == "status_context" and (.ok | not))
-          | .name
-        ),
-        ($entries
-          | [.[] | select(.kind == "check_run")]
-          | group_by(.group)[]
-          | {
-              name: .[0].name,
-              reds: [.[] | select(.ok | not)],
-              newest_green: ([.[] | select(.ok) | .at | select(. != null)] | max)
-            }
-          | select(
-              (.reds | length) > 0
-              and (
-                .newest_green == null
-                or any(.reds[]; (.completed | not) or .at == null)
-                or ([.reds[] | .at] | max) >= .newest_green
-              )
-            )
-          | .name
-        )
-      )
-    | if . == "" then "(unnamed check)" else . end
+    | .statusCheckRollup[]
+    | if .__typename == "CheckRun" then
+        select(.status != "COMPLETED" or
+          (.conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED"))
+        | .name
+      else
+        select(.state != "SUCCESS") | .context
+      end
+    | if . == null or . == "" then "(unnamed check)" else . end
   ' 2>/dev/null || return 1
 }
 
@@ -1124,6 +1067,27 @@ gitlab_confirm_merged() {
 # Record before either forge call. This arms the merge poll without claiming a
 # landed outcome, so even a provider read failure after a real merge cannot
 # leave teardown without the PR identity it needs to verify the result.
+if [ "$PROVIDER" = github ]; then
+  native_args=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --method)
+        [ "$#" -ge 2 ] || { echo 'error: --method requires merge, squash, or rebase' >&2; exit 1; }
+        method=$2
+        shift
+        ;;
+      --method=*) method=${1#--method=} ;;
+      *) native_args+=("$1"); shift; continue ;;
+    esac
+    case "$method" in
+      merge|squash|rebase) native_args+=("--$method") ;;
+      *) echo 'error: --method requires merge, squash, or rebase' >&2; exit 1 ;;
+    esac
+    shift
+  done
+  set -- "${native_args[@]+"${native_args[@]}"}"
+fi
+
 away_status=0
 require_current_away_authority || away_status=$?
 [ "$away_status" -eq 0 ] || exit "$away_status"

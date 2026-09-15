@@ -759,3 +759,25 @@ test_descent_probe_ignores_a_sibling_branch_the_walk_cannot_reach
 test_descent_probe_tolerates_an_args_only_foreign_verdict_at_the_deepest_vantage
 test_descent_probe_prefers_comm_strength_when_deepest_leaves_tie
 test_supervision_protocol_follows_corrected_verdict
+
+test_native_versioned_claude_beneath_another_harness() {
+  local dir outer inner got
+  dir="$TMP_ROOT/versioned-claude"
+  outer=$(named_bin "$dir/outer" codex)
+  inner=$(named_bin "$dir/claude/versions" 2.1.220)
+  got=$(under_process "$outer" CLAUDECODE=1)
+  [ "$got" = codex ] || fail "outer harness control did not identify Codex"
+  got=$(under_process "$inner")
+  [ "$got" = claude ] || fail "versioned native path did not identify Claude: $got"
+  cat > "$dir/nested.sh" <<'SH'
+#!/usr/bin/env bash
+r=$("$1" -c 'r=$("$1"); printf "%s" "$r"' _ "$2")
+printf '%s' "$r"
+SH
+  got=$(env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u PI_CODING_AGENT CLAUDECODE=1 \
+    "$outer" "$dir/nested.sh" "$inner" "$HARNESS")
+  [ "$got" = claude ] || fail "outer Codex overrode native Claude: $got"
+  pass "versioned Claude executable outranks its outer harness"
+}
+
+test_native_versioned_claude_beneath_another_harness

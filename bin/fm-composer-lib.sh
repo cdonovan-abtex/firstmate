@@ -1475,6 +1475,42 @@ _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <i
 # is drawn above the separator pair, so the composer region looks free while the
 # keys would answer the prompt instead of composing (issue #2797). Structure
 # cannot disprove that, so a blocked pi defers rather than claiming empty.
+_fm_composer_agy_verdict() {
+  local screen=$1 row line seen=0 pending=0 footer=0
+  row=$((FM_COMPOSER_SCAN_PI_OPEN + 1))
+  while [ "$row" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; do
+    line=$(_fm_composer_screen_row "$row" "$screen")
+    fm_composer_normalize_trim_var line
+    if [ -n "$line" ]; then
+      if [ "$seen" = 0 ]; then
+        case "$line" in '>'*) line=${line#>}; seen=1 ;; *) printf 'unknown'; return ;; esac
+        fm_composer_normalize_trim_var line
+      fi
+      [ -z "$line" ] || pending=1
+    fi
+    row=$((row + 1))
+  done
+  [ "$seen" = 1 ] || { printf 'unknown'; return; }
+  row=0
+  while IFS= read -r line; do
+    if [ "$row" -gt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
+      fm_composer_normalize_trim_var line
+      if [ -n "$line" ]; then
+        if [ "$footer" = 0 ]; then
+          case "$line" in '? for shortcuts'|'? for shortcuts  '*) footer=1 ;; *) printf 'unknown'; return ;; esac
+        else
+          printf 'unknown'; return
+        fi
+      fi
+    fi
+    row=$((row + 1))
+  done <<EOF
+$screen
+EOF
+  [ "$footer" = 1 ] || { printf 'unknown'; return; }
+  if [ "$pending" = 1 ]; then printf 'pending'; else printf 'empty'; fi
+}
+
 _fm_composer_pi_verdict() {  # <screen> <styled> <has_identity> <identity>
   local screen=$1 styled=$2 has_identity=$3 identity=$4 agent agent_status state
   if [ "$has_identity" != 1 ]; then
@@ -1491,6 +1527,13 @@ _fm_composer_pi_verdict() {  # <screen> <styled> <has_identity> <identity>
   fi
   agent=${identity%%$'\t'*}
   agent_status=${identity#*$'\t'}
+  if [ "$agent" = agy ] && [ "$FM_COMPOSER_SCAN_PI_PAIR_VALID" = 1 ]; then
+    case "$agent_status" in
+      idle|done|live) _fm_composer_agy_verdict "$(printf '%s\n' "$screen" | fm_composer_strip_ansi)" ;;
+      *) printf 'unknown' ;;
+    esac
+    return 0
+  fi
   if [ "$agent" != pi ] || [ "$FM_COMPOSER_SCAN_PI_PAIR_VALID" != 1 ]; then
     printf 'unknown'
     return 0

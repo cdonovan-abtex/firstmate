@@ -562,7 +562,8 @@ pass "rebind-all reaches a watch whose run process was already polling when the 
 # trust violation. This test builds that torn state under a held per-sid lock
 # (the same lock rebind_one takes) so the reload's timing is deterministic,
 # not a race that only sometimes reproduces.
-H="$TMP_ROOT/h-torn-race"; new_home "$H"
+for torn_phase in polling startup; do
+H="$TMP_ROOT/h-torn-race-$torn_phase"; new_home "$H"
 TORN_ACT="$TMP_ROOT/torn-act.sh"
 cat > "$TORN_ACT" <<'SH'
 #!/usr/bin/env bash
@@ -570,8 +571,8 @@ echo v1 >> "$1"
 echo "v1 ran against $1"
 SH
 chmod +x "$TORN_ACT"
-TORN_TRIGGER="$TMP_ROOT/torn-race-trigger"
-TORN_COUNTER="$TMP_ROOT/torn-race-count"
+TORN_TRIGGER="$TMP_ROOT/torn-race-trigger-$torn_phase"
+TORN_COUNTER="$TMP_ROOT/torn-race-count-$torn_phase"
 TORN_LOG="$TMP_ROOT/torn-race.log"
 when "$H" arm torn-race --interval 0.05 --stable 1 \
   --condition "$COND" "$TORN_TRIGGER" "$TORN_COUNTER" \
@@ -583,8 +584,10 @@ TRUST_TORN="$H/state/when/$SID.trust"
 # Start the poller now, with the condition still false, so reconcile's own
 # brief use of this same per-sid lock (to claim and launch the source) is
 # already done and released well before the holder below ever takes it.
-pe "$H" reconcile >/dev/null
-wait_for_file "$TORN_COUNTER" || fail "the torn-race poller never evaluated its condition"
+if [ "$torn_phase" = polling ]; then
+  pe "$H" reconcile >/dev/null
+  wait_for_file "$TORN_COUNTER" || fail "the torn-race poller never evaluated its condition"
+fi
 
 # Simulate the self-update, then build the rebound (v2) spec+trust pair ahead
 # of time exactly as publish_spec would (same fields, only action_sha256
@@ -632,18 +635,32 @@ grep -qx "action_sha256=$NEW_HASH" "$SPEC_TORN" \
 # The still-running poller now sees its condition go true and reaches the
 # fire-time reload while the torn state above is live and the lock is held.
 : > "$TORN_TRIGGER"
+if [ "$torn_phase" = startup ]; then
+  when "$H" run "$SID" > "$TMP_ROOT/startup.result" &
+  STARTUP_PID=$!
+fi
 sleep 0.3
+if [ "$torn_phase" = startup ] && [ -s "$TMP_ROOT/startup.result" ]; then
+  fail "initial spec read observed a torn trust pair"
+fi
 if first_result "$H" "$SID" >/dev/null 2>&1; then
   fail "the reload must block on the source lock instead of reading the torn spec/trust pair"
 fi
 
 : > "$TORN_RELEASE"
 wait "$HOLDER_PID" 2>/dev/null || true
-wait_for_result "$H" "$SID" || fail "the watch never captured an outcome after the torn window closed"
-RESULT=$(first_result "$H" "$SID")
+if [ "$torn_phase" = startup ]; then
+  wait "$STARTUP_PID" || fail "startup runner failed"
+  RESULT="$TMP_ROOT/startup.result"
+else
+  wait_for_result "$H" "$SID" || fail "the watch never captured an outcome after the torn window closed"
+  RESULT=$(first_result "$H" "$SID")
+fi
 assert_grep 'status: fired' "$RESULT" \
   "the reload must wait past the torn spec/trust window, not reject a legitimate rebind mid-publish"
 assert_grep 'v2 ran against' "$RESULT" "the fired action ran the rebound (v2) bytes, not a rejection from a torn read"
 pass "the fire-time reload never observes rebind_one's spec/trust publish mid-rename"
+
+done
 
 printf 'all fm-procevent-when tests passed\n'

@@ -367,10 +367,13 @@ ff_target() {
 
   instr=$(changed_instr "$dir" "$base")
   before=$(git -C "$dir" rev-parse --short HEAD)
-  if ! out=$(git -C "$dir" merge --ff-only "$base" 2>&1); then
+  local merge_command=git
+  if type fm_ff_merge >/dev/null 2>&1; then merge_command=fm_ff_merge; fi
+  if ! out=$("$merge_command" -C "$dir" merge --ff-only "$base" 2>&1); then
     echo "$label: skipped: fast-forward failed: $(first_line "$out")"
     return 0
   fi
+  [ "$merge_command" = git ] || printf '%s\n' "$out"
   after=$(git -C "$dir" rev-parse --short HEAD)
   FF_STATUS="updated"
   FF_INSTR="$instr"

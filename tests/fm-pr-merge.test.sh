@@ -1497,8 +1497,13 @@ test_method_equals_merge_method_not_overridden() {
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/23 -- --method=merge \
     > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "method-equals-merge-method: fm-pr-merge failed"
 
-  assert_logged_gh_merge "$case_dir" 23 example/repo --method=merge
+  assert_logged_gh_merge "$case_dir" 23 example/repo --merge
   pass "fm-pr-merge respects --method=<value> as an explicit merge method"
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/23 -- --method merge \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "split --method failed"
+  assert_logged_gh_merge "$case_dir" 23 example/repo --merge
+  assert_no_grep '--method' "$case_dir/gh.log" "unsupported native gh method option escaped normalization"
+
 }
 
 test_parses_pr_url_for_gh_axi() {
@@ -2401,11 +2406,7 @@ test_github_red_checks_refuse_and_allow_red_waives_named() {
   pass "fm-pr-merge refuses red GitHub checks and waives only a named --allow-red check"
 }
 
-# When the base branch advances, GitHub cancels a pull request's in-flight run
-# and re-triggers it, leaving the cancelled run in the rollup beside the passing
-# re-run while reporting the pull request itself CLEAN. The merge must follow the
-# current run rather than the one that re-run replaced.
-test_superseded_failed_check_run_no_longer_refuses() {
+test_same_name_failure_is_not_superseded() {
   local case_dir head
   head=cccccccccccccccccccccccccccccccccccccccc
   case_dir=$(make_case github-superseded-red)
@@ -2415,11 +2416,13 @@ test_superseded_failed_check_run_no_longer_refuses() {
     "$(check_run ci COMPLETED CANCELLED 2026-01-01T00:00:01Z)" \
     "$(check_run ci COMPLETED SUCCESS 2026-01-01T00:00:09Z)"
 
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/90 \
-    > "$case_dir/stdout" 2> "$case_dir/stderr" \
-    || fail "github-superseded-red: a failed run replaced by a passing re-run must merge"$'\n'"$(cat "$case_dir/stderr")"
-  assert_logged_gh_merge "$case_dir" 90 example/repo --squash
-  pass "fm-pr-merge merges when a failed check run was replaced by a passing re-run"
+  if run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/90 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"; then
+    fail "a newer same-name pass hid an unrelated non-green check"
+  fi
+  assert_no_grep 'pr merge' "$case_dir/gh.log" "a same-name success authorized a merge"
+  pass "fm-pr-merge preserves every non-green check without proven lineage"
+
 }
 
 # Legacy status contexts remain independent from check runs, even when their
@@ -2496,8 +2499,7 @@ test_late_finishing_old_success_does_not_hide_current_failure() {
   pass "fm-pr-merge uses start order when the old success finishes last"
 }
 
-# A cancelled old run may settle after the passing re-run that superseded it.
-test_late_finishing_old_cancellation_is_superseded() {
+test_older_cancellation_is_not_superseded() {
   local case_dir head
   head=dfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdf
   case_dir=$(make_case github-old-cancellation-finishes-last)
@@ -2507,11 +2509,13 @@ test_late_finishing_old_cancellation_is_superseded() {
     "$(check_run ci COMPLETED CANCELLED 2026-01-01T00:00:01Z 2026-01-01T00:00:10Z)" \
     "$(check_run ci COMPLETED SUCCESS 2026-01-01T00:00:09Z 2026-01-01T00:00:09Z)"
 
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/99 \
-    > "$case_dir/stdout" 2> "$case_dir/stderr" \
-    || fail "github-old-cancellation-finishes-last: the passing re-run must merge"$'\n'"$(cat "$case_dir/stderr")"
-  assert_logged_gh_merge "$case_dir" 99 example/repo --squash
-  pass "fm-pr-merge supersedes an old cancellation that finishes last"
+  if run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/90 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"; then
+    fail "a newer same-name pass hid an unrelated non-green check"
+  fi
+  assert_no_grep 'pr merge' "$case_dir/gh.log" "a same-name success authorized a merge"
+  pass "fm-pr-merge preserves every non-green check without proven lineage"
+
 }
 
 # A re-run that has not finished proves nothing, so it can neither be superseded
@@ -2602,10 +2606,7 @@ test_undated_runs_never_supersede() {
   pass "fm-pr-merge clears a failure only on a proven later pass of the same check"
 }
 
-# A superseded failure changes nothing about the waiver: --allow-red still covers
-# exactly the named check, still needs every other check green, and the merge is
-# still bound to the verified head.
-test_allow_red_still_waives_only_the_current_failure() {
+test_allow_red_still_waives_only_the_named_failure() {
   local case_dir rc head
   head=0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b
   case_dir=$(make_case github-superseded-allow-red-wrong-name)
@@ -2631,14 +2632,13 @@ test_allow_red_still_waives_only_the_current_failure() {
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
   write_github_rollup_json "$case_dir" "$head" \
-    "$(check_run ci COMPLETED FAILURE 2026-01-01T00:00:01Z)" \
     "$(check_run ci COMPLETED SUCCESS 2026-01-01T00:00:09Z)" \
     "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)"
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/96 \
     --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr" \
     || fail "superseded-allow-red-named: the named waiver should merge"$'\n'"$(cat "$case_dir/stderr")"
   assert_logged_gh_merge "$case_dir" 96 example/repo --squash
-  pass "fm-pr-merge keeps --allow-red scoped to its named check beside a superseded failure"
+  pass "fm-pr-merge keeps --allow-red scoped to its named check"
 }
 
 test_allow_red_is_refused_while_away() {
@@ -3087,15 +3087,15 @@ test_untraversable_user_backend_config_directory_refuses_the_merge
 test_absent_user_backend_config_directory_and_backlog_still_merge
 test_backend_override_bypasses_unreadable_user_config
 test_github_red_checks_refuse_and_allow_red_waives_named
-test_superseded_failed_check_run_no_longer_refuses
+test_same_name_failure_is_not_superseded
 test_check_runs_never_supersede_status_contexts
 test_current_failed_check_run_still_refuses
 test_late_finishing_old_success_does_not_hide_current_failure
-test_late_finishing_old_cancellation_is_superseded
+test_older_cancellation_is_not_superseded
 test_unfinished_rerun_keeps_a_check_red
 test_supersession_never_crosses_check_names
 test_undated_runs_never_supersede
-test_allow_red_still_waives_only_the_current_failure
+test_allow_red_still_waives_only_the_named_failure
 test_allow_red_is_refused_while_away
 test_allow_red_requires_one_separate_name
 test_away_grant_and_yolo_and_hold_for_return

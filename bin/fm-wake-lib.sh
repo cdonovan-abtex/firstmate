@@ -1300,15 +1300,14 @@ fm_treehouse_slot_owner_claim() {  # <worktree> <task-id> <home>
 
 # Read the claim on a pool slot and compare it with a task id.
 # Sets FM_TREEHOUSE_SLOT_OWNER to one of:
-#   mine   - the claim names this task
-#   other  - the claim names a different task, so the slot was reassigned
+#   mine   - the claim names this task and canonical home
+#   other  - the claim names a different task in this canonical home
 #   absent - no claim: the slot was taken before claims existed, or returned since
-#   unsafe - a claim file exists but cannot be read as a claim
+#   unsafe - the claim cannot prove canonical home ownership
 # FM_TREEHOUSE_SLOT_OWNER_ID and FM_TREEHOUSE_SLOT_OWNER_HOME carry the recorded
-# claimant as evidence. The home is reported, never matched: a home that moved
-# must not turn a task's own slot into a refusal.
-fm_treehouse_slot_owner_state() {  # <worktree> <task-id>
-  local worktree=$1 id=$2 marker line owner_id='' owner_home=''
+# claimant as evidence.
+fm_treehouse_slot_owner_state() {  # <worktree> <task-id> [home]
+  local worktree=$1 id=$2 marker line owner_id='' owner_home='' home fields=0 expected_home=${3-${FM_HOME:-}}
   FM_TREEHOUSE_SLOT_OWNER=unsafe
   FM_TREEHOUSE_SLOT_OWNER_ID=
   FM_TREEHOUSE_SLOT_OWNER_HOME=
@@ -1322,13 +1321,20 @@ fm_treehouse_slot_owner_state() {  # <worktree> <task-id>
     case "$line" in
       task=*) owner_id=${line#task=} ;;
       home=*) owner_home=${line#home=} ;;
+      *) return 0 ;;
     esac
+    fields=$((fields + 1))
   done < "$marker" || return 0
-  [ -n "$owner_id" ] || return 0
+  [ "$fields" -eq 2 ] && [ -n "$owner_id" ] || return 0
   # shellcheck disable=SC2034 # Output globals, read by the sourcing caller.
   FM_TREEHOUSE_SLOT_OWNER_ID=$owner_id
   # shellcheck disable=SC2034 # Output globals, read by the sourcing caller.
   FM_TREEHOUSE_SLOT_OWNER_HOME=$owner_home
+  [ -n "$owner_home" ] && [ -n "$expected_home" ] || return 0
+  case "$owner_home" in /*) ;; *) return 0 ;; esac
+  owner_home=$(cd "$owner_home" 2>/dev/null && pwd -P) || return 0
+  home=$(cd "$expected_home" 2>/dev/null && pwd -P) || return 0
+  [ "$owner_home" = "$home" ] || return 0
   if [ "$owner_id" = "$id" ]; then
     FM_TREEHOUSE_SLOT_OWNER=mine
   else
@@ -1339,9 +1345,9 @@ fm_treehouse_slot_owner_state() {  # <worktree> <task-id>
 # Drop a task's own claim once its slot is back in the pool. Never removes
 # another task's claim, so a misdirected release cannot strip the evidence that
 # protects the slot's real owner.
-fm_treehouse_slot_owner_release() {  # <worktree> <task-id>
+fm_treehouse_slot_owner_release() {  # <worktree> <task-id> [home]
   local worktree=$1 id=$2 marker
-  fm_treehouse_slot_owner_state "$worktree" "$id"
+  fm_treehouse_slot_owner_state "$worktree" "$id" "${3-${FM_HOME:-}}"
   [ "$FM_TREEHOUSE_SLOT_OWNER" = mine ] || return 0
   marker=$(fm_treehouse_slot_owner_marker "$worktree") || return 0
   rm -f "$marker" 2>/dev/null || true

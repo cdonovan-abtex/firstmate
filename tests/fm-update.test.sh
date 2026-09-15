@@ -34,6 +34,7 @@ UPDATE="$ROOT/bin/fm-update.sh"
 fm_git_identity fmtest fmtest@example.com
 
 TMP_ROOT=$(fm_test_tmproot fm-update-tests)
+export FM_PROCEVENT_CLAIM_ROOT="$TMP_ROOT/claims"
 
 # Build a fresh world: a bare origin seeded with one commit, a firstmate repo
 # clone checked out on main, and a home dir with state/ and data/. Echoes the
@@ -476,7 +477,7 @@ test_unsafe_secondmate_home_skipped_before_git_update() {
 # fm-procevent-when watch's trust binding was hashed against with no
 # tampering involved; without a rebind the very next fire would be refused.
 test_primary_update_rebinds_local_watch() {
-  local w before_hash after_hash out spec
+  local w before_hash after_hash out spec runner updater i real_git
   w=$(new_world t12)
   mkdir -p "$w/seed/bin"
   printf "#!/usr/bin/env bash\necho v1 >> \"\$1\"\n" > "$w/seed/bin/watched-action.sh"
@@ -486,18 +487,60 @@ test_primary_update_rebinds_local_watch() {
   git -C "$w/seed" push -q origin main
   git -C "$w/main" pull -q origin main
 
+  cat > "$w/condition.sh" <<'SH'
+#!/usr/bin/env bash
+touch "$2"
+[ -e "$1" ]
+SH
+  chmod +x "$w/condition.sh"
   FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/home" "$ROOT/bin/fm-procevent-when.sh" \
-    arm rebind-primary --interval 60 --stable 1 \
-    --condition true --action "$w/main/bin/watched-action.sh" "$w/rebind.log" >/dev/null
+    arm rebind-primary --interval 0.05 --stable 1 \
+    --condition "$w/condition.sh" "$w/trigger" "$w/polling" --action "$w/main/bin/watched-action.sh" "$w/rebind.log" >/dev/null
   spec="$w/home/state/when/when-rebind-primary.spec"
   before_hash=$(grep '^action_sha256=' "$spec")
+  FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/home" "$ROOT/bin/fm-procevent-when.sh" \
+    run when-rebind-primary > "$w/runner.out" &
+  runner=$!
+  i=0
+  while [ ! -e "$w/polling" ] && [ "$i" -lt 200 ]; do sleep 0.02; i=$((i + 1)); done
+  [ -e "$w/polling" ] || fail "watch did not start polling"
 
   printf "#!/usr/bin/env bash\necho v2 >> \"\$1\"\n" > "$w/seed/bin/watched-action.sh"
   git -C "$w/seed" add -A
   git -C "$w/seed" commit -qm bump-watched-action
   git -C "$w/seed" push -q origin main
 
-  out=$(run_update "$w")
+  real_git=$(command -v git)
+  cat > "$w/fakebin/git" <<'SH'
+#!/usr/bin/env bash
+"$FM_TEST_REAL_GIT" "$@" || exit $?
+case " $* " in
+  *' merge --ff-only '*)
+    touch "$FM_TEST_UPDATE_WORLD/updated"
+    while [ ! -e "$FM_TEST_UPDATE_WORLD/release" ]; do sleep 0.02; done
+    ;;
+esac
+SH
+  chmod +x "$w/fakebin/git"
+  FM_TEST_REAL_GIT="$real_git" FM_TEST_UPDATE_WORLD="$w" run_update "$w" > "$w/update.out" &
+  updater=$!
+  i=0
+  while [ ! -e "$w/updated" ] && [ "$i" -lt 300 ]; do sleep 0.02; i=$((i + 1)); done
+  [ -e "$w/updated" ] || fail "update did not reach the post-merge barrier"
+  touch "$w/trigger"
+  sleep 0.3
+  if [ -s "$w/runner.out" ]; then
+    touch "$w/release"
+    wait "$updater" || true
+    wait "$runner" || true
+    fail "watch retired while update had not rebound its action"
+  fi
+  touch "$w/release"
+  wait "$updater" || fail "update process failed"
+  wait "$runner" || fail "watch process failed"
+  out=$(cat "$w/update.out")
+  assert_grep 'status: fired' "$w/runner.out" "watch failed after update"
+  [ "$(cat "$w/rebind.log")" = v2 ] || fail "updated action did not run exactly once"
 
   assert_contains "$out" "firstmate: updated " "the primary still advanced"
   assert_contains "$out" "rebound: when-rebind-primary" "the primary self-update rebound its own locally armed watch"

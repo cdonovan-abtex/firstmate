@@ -2450,3 +2450,35 @@ test_bootstrap_leaves_unauthenticated_checks
 test_custom_snapshot_cleanup_on_signal
 test_returned_custom_check_descendants_are_drained
 test_teardown_removes_poll_artifacts
+
+test_contended_pr_poll_defers_to_sibling_check() {
+  local dir state holder rc=0 i=0
+  dir=$(make_case contended-pr-poll)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null \
+    || fail "could not arm contended poll"
+  printf '#!/usr/bin/env bash\nprintf "sibling-ready\\n"\n' > "$state/z-sibling.check.sh"
+  chmod 700 "$state/z-sibling.check.sh"
+  FM_HOME="$dir/home" "$REGISTER" z-sibling >/dev/null || fail "could not register sibling"
+  (
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$state/.control-task-a.lock" || exit 1
+    trap 'fm_lock_release "$state/.control-task-a.lock"' EXIT
+    touch "$dir/locked"
+    while [ ! -e "$dir/release" ]; do sleep 0.02; done
+  ) &
+  holder=$!
+  while [ ! -e "$dir/locked" ] && [ "$i" -lt 100 ]; do sleep 0.02; i=$((i + 1)); done
+  [ -e "$dir/locked" ] || fail "could not hold PR lock"
+  run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err" || rc=$?
+  touch "$dir/release"
+  wait "$holder" || fail "PR lock holder failed"
+  [ "$rc" -eq 0 ] || fail "contended PR starved sibling check: $rc $(cat "$dir/watch.err")"
+  assert_grep 'sibling-ready' "$dir/watch.out" "sibling check never ran"
+  assert_present "$state/task-a.pr-poll" "deferred PR poll lost registration"
+  assert_present "$state/.last-watcher-beat" "watcher failed to update heartbeat"
+  pass "contended PR poll defers without starving sibling checks"
+}
+
+test_contended_pr_poll_defers_to_sibling_check

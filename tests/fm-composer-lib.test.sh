@@ -740,3 +740,33 @@ test_queued_enter_verdict_does_not_convert_other_states() {
 test_queued_enter_verdict_busy_pending_is_empty
 test_queued_enter_verdict_idle_pending_stays_pending
 test_queued_enter_verdict_does_not_convert_other_states
+
+test_agy_identity_and_complete_composer() {
+  local screen caps got cursor identity text
+  for cursor in 0 1; do
+    caps=$(printf 'styled=1\ncursor=%s\nidentity=1' "$cursor")
+    screen=$(printf 'transcript\n────────────────\n>\n────────────────\n? for shortcuts    Gemini 3.8 Flash · low\n')
+    got=$(fm_composer_classify_screen "$caps" "$screen" 2)
+    [ "$got" = need-identity ] || fail "AGY shape must request native identity: $got"
+    for identity in $'agy\tidle' $'agy\tlive'; do
+      got=$(fm_composer_classify_screen "$caps" "$screen" 2 "$identity")
+      [ "$got" = empty ] || fail "live AGY empty input refused: $got"
+    done
+    for identity in probe-absent $'bash\tidle' $'agy\tblocked' $'agy\tworking'; do
+      got=$(fm_composer_classify_screen "$caps" "$screen" 2 "$identity")
+      [ "$got" = unknown ] || fail "unproven AGY identity accepted: $identity $got"
+    done
+    for text in 'draft' $'\033[2mdraft\033[0m' $'draft\ncontinued'; do
+      screen=$(printf 'transcript\n────────────────\n> %s\n────────────────\n? for shortcuts    Gemini 3.8 Flash · low\n' "$text")
+      got=$(fm_composer_classify_screen "$caps" "$screen" 2 $'agy\tidle')
+      [ "$got" = pending ] || fail "AGY pending input was not preserved: $got"
+    done
+    for screen in $'>\n? for shortcuts' $'────────────────\n>\n────────────────' $'────────────────\n>\n────────────────\n? for shortcuts\n$'; do
+      got=$(fm_composer_classify_screen "$caps" "$screen" 1 $'agy\tidle')
+      [ "$got" != empty ] || fail "incomplete or stale AGY shape proved empty"
+    done
+  done
+  pass "AGY empty proof requires native identity and complete idle composer"
+}
+
+test_agy_identity_and_complete_composer
