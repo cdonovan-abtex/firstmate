@@ -1,0 +1,35 @@
+bearings
+0
+NEED YOU
+2
+UNDERWAY
+0
+LANDED RECENTLY
+2
+CHARTED NEXT
+CAPTAIN'S CALL
+NOTHING NEEDS YOU, CAPTAIN
+Nothing needs your action right now.
+-
+CHARTED NEXT
+Newest queued verification
+Most recently filed work · firstmate
+WAITING
+Older queued verification
+Awaiting a free slot · firstmate
+WAITING
+Main inventory integrity
+Unowned work needs metadata repair · firstmate
+NEEDS REPAIR
+PICK QUEUED WORK TO DISPATCH
+Queue dispatch order
+UNDERWAY
+WORKING
+Reconcile canonical Firstmate histories
+Verify both input ancestries · ship · firstmate
+WORKING
+Verify action trust during source updates
+Exercise tracked and modified actions · ship · firstmate
+RECENTLY LANDED
+No recent completions are in the current baseline.
+fm-bearings-board.v1 · 2026-09-15T00:00Z

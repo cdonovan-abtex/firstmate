@@ -1,0 +1,10 @@
+input="by pass"
+error: config/claude-permission-mode holds 'by pass'; accepted values are: bypass (--dangerously-skip-permissions, the default when the file is absent), auto (--permission-mode auto)
+exit=1
+input="by\npass"
+error: config/claude-permission-mode holds 'by
+pass'; accepted values are: bypass (--dangerously-skip-permissions, the default when the file is absent), auto (--permission-mode auto)
+exit=1
+input="AUTO"
+error: config/claude-permission-mode holds 'AUTO'; accepted values are: bypass (--dangerously-skip-permissions, the default when the file is absent), auto (--permission-mode auto)
+exit=1

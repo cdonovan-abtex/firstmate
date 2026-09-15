@@ -1,0 +1,144 @@
+{
+  "candidate": "c6c1c64f11188a1190db75522545ff2478ae1b88",
+  "parents_preserved": [
+    "c781bb13857b76210faf2ff8288b9a0bcaedc4ef",
+    "a6618ddc690b4e613b62c6c4a3f6df4808a778b1"
+  ],
+  "live_checks": [
+    {
+      "name": "Both lineages fast-forward to candidate",
+      "result": "pass",
+      "evidence": "live-cli.log"
+    },
+    {
+      "name": "Diverged local history is preserved on refusal",
+      "result": "pass",
+      "evidence": "refusal-controls.log"
+    },
+    {
+      "name": "Emitter preservation, redaction, drift, schema and migration guards",
+      "result": "pass",
+      "evidence": [
+        "live-cli.log",
+        "refusal-controls.log",
+        "emitted-agent-context.md",
+        "migrated-agent-context.md"
+      ]
+    },
+    {
+      "name": "Tracked-action update and untracked/symlink mutation refusal",
+      "result": "pass",
+      "evidence": [
+        "watch-tracked.result",
+        "watch-untracked.result",
+        "watch-symlink.result"
+      ]
+    },
+    {
+      "name": "Malformed permission tokens refuse before state publication",
+      "result": "pass",
+      "evidence": "permission-refusal.log"
+    },
+    {
+      "name": "Bearings preserves quiet mode and refuses away mode",
+      "result": "pass",
+      "evidence": "bearings-live.log"
+    },
+    {
+      "name": "Inventory warning remains visible beyond ordinary queue bound",
+      "result": "pass",
+      "evidence": "bearings-inventory.json"
+    },
+    {
+      "name": "Recovered and unresolved supervision states produce distinct briefs",
+      "result": "pass",
+      "evidence": [
+        "return-brief.txt",
+        "return-unresolved-brief.txt"
+      ]
+    },
+    {
+      "name": "Real Chrome renders named work, queue ordering and repair warning",
+      "result": "pass",
+      "evidence": [
+        "bearings-board.png",
+        "bearings-board.html",
+        "board-visible-text.txt"
+      ],
+      "rendered_viewport": {
+        "width": 1440,
+        "height": 1400,
+        "scrollWidth": 1440
+      }
+    }
+  ],
+  "setup_corrections": [
+    "Added a Git repository boundary to Bearings disposable fixtures so nested TMPDIR cannot inherit the surrounding checkout origin; stock Bash rerun passed all 61 cases.",
+    "Ran spawn fixtures with TMPDIR outside the isolated source root, preserving the real guard against nesting a secondmate inside the source repository. One retry was invalidated by a concurrent history control; the final retry uses a fixed candidate checkout.",
+    "Resolved the real Lavish CLI through a worktree-local launcher because the installed launcher derives its module path from HOME. Used isolated Lavish state and port; ended and retired the session afterward.",
+    "Replaced a timed-out Chrome command-line capture with real Chrome DevTools capture using an isolated profile and mock keychain; corrected an uppercase display assertion and stale-port reuse in the evidence driver."
+  ],
+  "test_fix": "tests/fm-bearings-snapshot.test.sh:21",
+  "not_driven_live": [
+    "Credentialed Claude/Antigravity lifecycle and composer behavior, and Rovo: isolated credentialed vendor sessions were not provided and Rovo/acli are not installed.",
+    "Remote Mini updates or live cross-home endpoint ownership: no disposable remote host was provided and operating the running installations is forbidden in this task."
+  ],
+  "targeted_tests": [
+    {
+      "suite": "fm-agent-context",
+      "result": "pass",
+      "log": "fm-agent-context.log"
+    },
+    {
+      "suite": "fm-procevent-when",
+      "result": "pass",
+      "log": "fm-procevent-when.log"
+    },
+    {
+      "suite": "fm-afk-return",
+      "result": "pass",
+      "log": "fm-afk-return.log"
+    },
+    {
+      "suite": "fm-bearings-snapshot",
+      "result": "pass",
+      "log": "fm-bearings-snapshot-retry.log"
+    },
+    {
+      "suite": "fm-brief",
+      "result": "pass",
+      "log": "fm-brief.log"
+    },
+    {
+      "suite": "fm-quiet-entry",
+      "result": "pass",
+      "log": "fm-quiet-entry.log"
+    },
+    {
+      "suite": "fm-claude-stop-autoarm",
+      "result": "pass",
+      "log": "fm-claude-stop-autoarm.log"
+    },
+    {
+      "suite": "fm-spawn-dispatch-profile",
+      "result": "pass",
+      "log": "fm-spawn-dispatch-profile-final.log"
+    },
+    {
+      "suite": "fm-pr-check-security",
+      "result": "pass",
+      "log": "fm-pr-check-security.log"
+    },
+    {
+      "suite": "fm-teardown-endpoint-safety",
+      "result": "pass",
+      "log": "fm-teardown-endpoint-safety.log"
+    },
+    {
+      "suite": "fm-agy-signals-isolation",
+      "result": "pass",
+      "log": "fm-agy-signals-isolation.log"
+    }
+  ],
+  "cleanup": "All test-owned watch and board registrations retired; isolated Lavish server stopped; no test-owned browser/source processes remained; .test-phase removed."
+}

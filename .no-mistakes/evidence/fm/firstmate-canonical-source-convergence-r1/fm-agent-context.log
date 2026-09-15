@@ -1,0 +1,20 @@
+ok - fm-agent-context.py: identity mutant is rejected by its behavioral assertion
+ok - fm-agent-context.py: above mutant is rejected by its behavioral assertion
+ok - fm-agent-context.py: below mutant is rejected by its behavioral assertion
+ok - fm-agent-context.py: malformed mutant is rejected by its behavioral assertion
+ok - fm-agent-context.py: duplicate mutant is rejected by its behavioral assertion
+ok - fm-agent-context.py: redaction mutant is rejected by its behavioral assertion
+ok - fm-agent-context.py: no-context mutant is rejected by its behavioral assertion
+ok - fm-agent-context.py: drift mutant is rejected by its behavioral assertion
+ok - fm-agent-context.py: check-write mutant is rejected by its behavioral assertion
+ok - fm-agent-context.py: repeat emission preserves exact bytes
+ok - fm-agent-context.py: non-satellite emit is byte-identical and compare-only detects measured drift
+ok - fm-agent-context.py: bin discovery filters executable files before its sorted eight-entry limit
+ok - fm-agent-context.py: targeted replacement preserves prose above and below
+ok - fm-agent-context.py: malformed and duplicate marker pairs are refused without a write
+ok - fm-agent-context.py: remote userinfo is redacted at measurement while ordinary origins remain visible
+ok - fm-agent-context.py: guarded migration converts disposable copies and leaves source repositories unchanged
+ok - fm-agent-context.py: optional context.yaml is strictly schema-validated before writing
+ok - fm-agent-context.py: schema constraints are enforced or refused before any write
+ok - fm-agent-context.py: rendered values cannot introduce current or legacy markers
+ok - fm-agent-context.py: candidate validation refuses a broken renderer without writing

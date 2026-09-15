@@ -1,0 +1,5 @@
+ok - pi: quiet entry refuses without state mutation while ordinary away entry remains supported
+ok - pi-signed: quiet entry refuses without state mutation while ordinary away entry remains supported
+fm-afk-launch: away-posture record archived at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/tmp/fm-quiet-entry.UhgfFZ/claude/state/afk-contracts/1789448706.afk-contract
+fm-afk-launch: away mode stopped; daemon terminal torn down, .afk cleared, and the posture record archived
+ok - supported quiet entry persists its mode and exits through the existing lifecycle

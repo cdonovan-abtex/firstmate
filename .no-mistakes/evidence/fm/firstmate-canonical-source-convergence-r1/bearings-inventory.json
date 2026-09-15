@@ -1,0 +1,217 @@
+{
+  "schema": "fm-bearings.v1",
+  "home": ".test-phase/bearings-home",
+  "generated": "2026-09-15T05:04:11Z",
+  "prs": "not_requested (run: /bearings include PRs)",
+  "in_flight": [],
+  "secondmates": [],
+  "secondmate_reconcile": [],
+  "decisions_open": [],
+  "landed": [],
+  "gates": [
+    {
+      "id": "(main-inventory)",
+      "title": "in-flight backlog item has no child metadata",
+      "blocked_by": "-",
+      "reason": "main inventory",
+      "owner": "(main)",
+      "filed": null
+    },
+    {
+      "id": "queued-21",
+      "title": "Queued work 21",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-21"
+    },
+    {
+      "id": "queued-20",
+      "title": "Queued work 20",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-20"
+    },
+    {
+      "id": "queued-19",
+      "title": "Queued work 19",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-19"
+    },
+    {
+      "id": "queued-18",
+      "title": "Queued work 18",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-18"
+    },
+    {
+      "id": "queued-17",
+      "title": "Queued work 17",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-17"
+    },
+    {
+      "id": "queued-16",
+      "title": "Queued work 16",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-16"
+    },
+    {
+      "id": "queued-15",
+      "title": "Queued work 15",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-15"
+    },
+    {
+      "id": "queued-14",
+      "title": "Queued work 14",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-14"
+    },
+    {
+      "id": "queued-13",
+      "title": "Queued work 13",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-13"
+    },
+    {
+      "id": "queued-12",
+      "title": "Queued work 12",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-12"
+    },
+    {
+      "id": "queued-11",
+      "title": "Queued work 11",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-11"
+    },
+    {
+      "id": "queued-10",
+      "title": "Queued work 10",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-10"
+    },
+    {
+      "id": "queued-09",
+      "title": "Queued work 09",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-09"
+    },
+    {
+      "id": "queued-08",
+      "title": "Queued work 08",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-08"
+    },
+    {
+      "id": "queued-07",
+      "title": "Queued work 07",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-07"
+    },
+    {
+      "id": "queued-06",
+      "title": "Queued work 06",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-06"
+    },
+    {
+      "id": "queued-05",
+      "title": "Queued work 05",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-05"
+    },
+    {
+      "id": "queued-04",
+      "title": "Queued work 04",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-04"
+    },
+    {
+      "id": "queued-03",
+      "title": "Queued work 03",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-03"
+    },
+    {
+      "id": "queued-02",
+      "title": "Queued work 02",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-02"
+    }
+  ],
+  "reports": [],
+  "recorded_prs": [],
+  "omitted": [
+    {
+      "surface": "backlog item bodies",
+      "reveal": "--fields bodies"
+    },
+    {
+      "surface": "task paths",
+      "reveal": "--fields paths"
+    },
+    {
+      "surface": "watch/steer actions",
+      "reveal": "--fields actions"
+    },
+    {
+      "surface": "healthy endpoint detail",
+      "reveal": "--fields endpoints"
+    },
+    {
+      "surface": "full scout-report inventory",
+      "reveal": "--all-reports"
+    },
+    {
+      "surface": "main in-flight backlog item(s) have no child metadata: 1",
+      "reveal": "inspect main data/backlog.md In flight vs state/*.meta"
+    },
+    {
+      "surface": "gates showing 20 of 21",
+      "reveal": "--all-queued"
+    },
+    {
+      "surface": "live PR discovery + checks",
+      "reveal": "--include-prs"
+    }
+  ]
+}

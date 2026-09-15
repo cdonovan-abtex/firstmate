@@ -1,0 +1,473 @@
+$ git init -q -b candidate-test
+[exit 0]
+
+$ git fetch --quiet /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C c6c1c64f11188a1190db75522545ff2478ae1b88
+[exit 0]
+
+$ git merge-base --is-ancestor c781bb13857b76210faf2ff8288b9a0bcaedc4ef c6c1c64f11188a1190db75522545ff2478ae1b88
+[exit 0]
+
+$ git checkout -q -b fork c781bb13857b76210faf2ff8288b9a0bcaedc4ef
+[exit 0]
+
+$ git merge --ff-only c6c1c64f11188a1190db75522545ff2478ae1b88
+Updating c781bb1..c6c1c64
+Fast-forward
+ .agents/skills/afk/SKILL.md                        |   13 +-
+ .agents/skills/bearings/SKILL.md                   |    9 +-
+ .agents/skills/bearings/assets/board-template.html |   20 +-
+ .agents/skills/bootstrap-diagnostics/SKILL.md      |    7 +-
+ .../skills/firstmate-coding-guidelines/SKILL.md    |    2 +-
+ .agents/skills/fmx-respond/SKILL.md                |    2 +-
+ .agents/skills/harness-adapters/SKILL.md           |   10 +-
+ .../references/common/control-and-recovery.md      |    7 +-
+ .../harness-adapters/references/harness/agy.md     |   55 +
+ .../harness-adapters/references/harness/claude.md  |   34 +-
+ .../harness-adapters/references/harness/codex.md   |    1 +
+ .../harness-adapters/references/harness/cursor.md  |    1 +
+ .../harness-adapters/references/harness/kimi.md    |    2 +-
+ .../harness-adapters/references/harness/muse.md    |    2 +-
+ .../references/harness/opencode.md                 |    1 +
+ .../harness-adapters/references/harness/rovo.md    |   16 +-
+ .agents/skills/process-event-sources/SKILL.md      |   20 +-
+ .agents/skills/quiet/SKILL.md                      |   72 +
+ .agents/skills/stow/SKILL.md                       |    4 +-
+ .github/workflows/ci.yml                           |   38 +-
+ AGENTS.md                                          |   47 +-
+ CONTRIBUTING.md                                    |    5 +-
+ README.md                                          |    1 +
+ bin/backends/herdr.sh                              |  401 +++++-
+ bin/backends/tmux.sh                               |   62 +-
+ bin/fm-afk-contract.sh                             |  214 ++-
+ bin/fm-afk-launch.sh                               |   26 +-
+ bin/fm-afk-return.sh                               |   86 +-
+ bin/fm-afk-start.sh                                |   22 +-
+ bin/fm-agent-process-lib.sh                        |  111 ++
+ bin/fm-agy-trust.sh                                |  185 +++
+ bin/fm-backend.sh                                  |   18 +-
+ bin/fm-backlog-handoff.sh                          |    2 +-
+ bin/fm-backlog-transition-lib.sh                   |   65 +-
+ bin/fm-bearings-board.sh                           |   21 +-
+ bin/fm-bearings-snapshot.sh                        |   96 +-
+ bin/fm-bootstrap.sh                                |   32 +-
+ bin/fm-branch-prompt.sh                            |    4 +-
+ bin/fm-brief.sh                                    |   15 +-
+ bin/fm-busy-lib.sh                                 |   55 +-
+ bin/fm-captain-hold.sh                             |  135 +-
+ bin/fm-classify-lib.sh                             |   22 +
+ bin/fm-claude-stop-autoarm.sh                      |   41 +
+ bin/fm-claude-trust.sh                             |  381 +++++-
+ bin/fm-composer-lib.sh                             |  130 +-
+ bin/fm-config-inherit-lib.sh                       |    5 +-
+ bin/fm-control-lib.sh                              |   26 +-
+ bin/fm-control.sh                                  |   15 +-
+ bin/fm-crew-state.sh                               |    6 +-
+ bin/fm-decision-hold.sh                            |    4 +-
+ bin/fm-dod-lib.sh                                  |   34 +-
+ bin/fm-ff-lib.sh                                   |   20 +-
+ bin/fm-fleet-snapshot.sh                           |   21 +-
+ bin/fm-guard.sh                                    |    1 +
+ bin/fm-harness.sh                                  |  434 ++++--
+ bin/fm-herdr-lab-viewer.py                         |  204 +++
+ bin/fm-herdr-lab.sh                                |  241 +++-
+ bin/fm-inactive-reconcile.sh                       |   20 +-
+ bin/fm-merge-authority-lib.sh                      |  201 +++
+ bin/fm-merge-outcome-lib.sh                        |   19 +-
+ bin/fm-pr-merge.sh                                 |  541 +++++++-
+ bin/fm-procevent-lib.sh                            |   92 +-
+ bin/fm-procevent-when.sh                           |  181 ++-
+ bin/fm-procevent.sh                                |  282 +++-
+ bin/fm-promote.sh                                  |    7 +-
+ bin/fm-public-followup.sh                          |   12 +-
+ bin/fm-send.sh                                     |   27 +-
+ bin/fm-session-lock-lib.sh                         |    7 +-
+ bin/fm-session-start.sh                            |   36 +-
+ bin/fm-sessionstart-nudge.sh                       |   13 +-
+ bin/fm-spawn.sh                                    |  395 +++++-
+ bin/fm-supervise-daemon.sh                         |   11 +-
+ bin/fm-supervision-instructions.sh                 |   27 +-
+ bin/fm-tasks-axi.sh                                |  127 ++
+ bin/fm-teardown.sh                                 |  109 +-
+ bin/fm-test-isolation-proof.sh                     |    1 +
+ bin/fm-test-run.sh                                 |  205 ++-
+ bin/fm-tmux-lib.sh                                 |   15 +-
+ bin/fm-turnend-guard.sh                            |   40 +-
+ bin/fm-update.sh                                   |    8 +-
+ bin/fm-wake-lib.sh                                 |  126 ++
+ bin/fm-watch.sh                                    |  109 +-
+ bin/fm-x-link.sh                                   |    2 +-
+ docs/agent-control.md                              |    9 +-
+ docs/architecture.md                               |   26 +-
+ docs/captain-hold-lifecycle.md                     |    1 +
+ docs/cd-guard.md                                   |    2 +-
+ docs/configuration.md                              |   71 +-
+ docs/documentation-audiences.json                  |   12 +
+ docs/fm-test-isolation-proof.md                    |    6 +-
+ docs/fm-test-portable-shards.md                    |   85 +-
+ docs/gitlab-merge-watch.md                         |    2 +-
+ docs/herdr-backend.md                              |   30 +-
+ docs/scripts.md                                    |    6 +-
+ docs/sessionstart-nudge.md                         |    3 +-
+ docs/tmux-backend.md                               |    4 +-
+ docs/trace-context.md                              |    2 +-
+ docs/turnend-guard.md                              |   19 +-
+ docs/verification/agy.md                           |  171 +++
+ docs/verification/muse.md                          |    3 +-
+ docs/verification/process-event-sources.md         |   17 +-
+ docs/verification/rovo.md                          |    2 +-
+ docs/verification/runtime-backends.md              |  296 ++++-
+ docs/watcher-continuity.md                         |    2 +-
+ tests/assets/board-render-harness.mjs              |   35 +-
+ tests/fm-afk-contract.test.sh                      |  158 +++
+ tests/fm-afk-launch.test.sh                        |  110 ++
+ tests/fm-afk-pi-herdr-return-e2e.test.sh           |   21 +-
+ tests/fm-afk-return.test.sh                        |  150 ++-
+ tests/fm-agy-harness.test.sh                       |  916 +++++++++++++
+ tests/fm-agy-signals-isolation.test.sh             |   67 +
+ tests/fm-agy-signals-live-e2e.test.sh              |  193 +++
+ .../fm-backend-herdr-agent-exit-shell-e2e.test.sh  |  213 +++
+ tests/fm-backend-herdr-presentation-e2e.test.sh    |   54 +-
+ .../fm-backend-herdr-stale-active-tab-e2e.test.sh  |   92 ++
+ tests/fm-backend-herdr.test.sh                     |  513 +++++++-
+ tests/fm-backlog-read-bound.test.sh                |  430 ++++++
+ tests/fm-bearings-board-render.test.sh             |   84 +-
+ tests/fm-bearings-board.test.sh                    |   14 +
+ tests/fm-bearings-snapshot.test.sh                 |  185 +++
+ tests/fm-bootstrap.test.sh                         |   28 +-
+ tests/fm-brief.test.sh                             |  215 +--
+ tests/fm-captain-hold-lifecycle.test.sh            |   96 +-
+ tests/fm-ci-workflow.test.sh                       |  159 +++
+ tests/fm-claude-stop-autoarm.test.sh               |   75 ++
+ tests/fm-claude-trust.test.sh                      |  390 +++++-
+ tests/fm-composer-lib.test.sh                      |   95 +-
+ tests/fm-control-herdr-smoke.test.sh               |  116 +-
+ tests/fm-control-relaunch.test.sh                  |   49 +-
+ tests/fm-control.test.sh                           |   47 +
+ tests/fm-crew-state.test.sh                        |   65 +-
+ tests/fm-cursor-harness.test.sh                    |   56 +-
+ tests/fm-daemon.test.sh                            |  129 +-
+ tests/fm-gemini-harness.test.sh                    |   13 +-
+ tests/fm-gitignore-config.test.sh                  |    2 +
+ tests/fm-guard-stale-banner.test.sh                |   28 +-
+ tests/fm-harness-liveness-drift-live-e2e.test.sh   |  102 +-
+ tests/fm-harness-precedence.test.sh                |  783 +++++++++++
+ tests/fm-herdr-attached-viewer-live-e2e.test.sh    |  259 ++++
+ tests/fm-herdr-lab.test.sh                         |  274 ++++
+ ...fm-herdr-pi-stale-registration-live-e2e.test.sh |  159 +++
+ tests/fm-inactive-reconcile.test.sh                |   39 +-
+ tests/fm-kimi-harness.test.sh                      |   16 +-
+ tests/fm-omp-harness.test.sh                       |    8 +-
+ tests/fm-pr-check-security.test.sh                 |  342 ++++-
+ tests/fm-pr-merge.test.sh                          | 1378 +++++++++++++++-----
+ tests/fm-procevent-when.test.sh                    |  461 +++++++
+ tests/fm-procevent.test.sh                         |  472 +++++++
+ tests/fm-public-followup.test.sh                   |   50 +
+ tests/fm-quiet-entry.test.sh                       |   57 +
+ tests/fm-rovo-harness.test.sh                      |   13 +-
+ tests/fm-secondmate-harness.test.sh                |  114 +-
+ tests/fm-secondmate-restart.test.sh                |    2 +-
+ tests/fm-secondmate-sync.test.sh                   |   58 +
+ tests/fm-send-agy-confirm.test.sh                  |  165 +++
+ tests/fm-session-lock-ancestry.test.sh             |   47 +
+ tests/fm-session-start.test.sh                     |   57 +-
+ tests/fm-sessionstart-nudge.test.sh                |   35 +
+ tests/fm-spawn-dispatch-profile.test.sh            |  169 ++-
+ tests/fm-spawn-pool-base-freshen.test.sh           |   68 +
+ tests/fm-supervision-instructions.test.sh          |   26 +
+ tests/fm-task-delivery.test.sh                     |   89 +-
+ tests/fm-tasks-axi.test.sh                         |  215 +++
+ tests/fm-teardown-endpoint-safety.test.sh          |  208 +++
+ tests/fm-teardown.test.sh                          |    2 +-
+ tests/fm-test-fixtures.test.sh                     |  141 ++
+ tests/fm-test-run.test.sh                          |  170 ++-
+ tests/fm-tmux-agent-liveness.test.sh               |    6 +-
+ tests/fm-trace-context-spawn.test.sh               |   12 +-
+ tests/fm-turnend-guard.test.sh                     |  138 +-
+ tests/fm-update.test.sh                            |   80 ++
+ tests/fm-watch-arm.test.sh                         |   43 +
+ tests/fm-watch-triage.test.sh                      |  119 ++
+ tests/fm-watcher-lock.test.sh                      |   14 +-
+ tests/fm-x-mode.test.sh                            |   10 +-
+ tests/git-config-helpers.sh                        |   26 +
+ tests/herdr-client-pair-fixture.sh                 |    4 +
+ tests/herdr-test-safety.sh                         |    3 +
+ tests/lib.sh                                       |   43 +
+ tests/remote-herdr-fixture.sh                      |    7 +-
+ 180 files changed, 16611 insertions(+), 1557 deletions(-)
+ create mode 100644 .agents/skills/harness-adapters/references/harness/agy.md
+ create mode 100644 .agents/skills/quiet/SKILL.md
+ create mode 100644 bin/fm-agent-process-lib.sh
+ create mode 100755 bin/fm-agy-trust.sh
+ create mode 100755 bin/fm-herdr-lab-viewer.py
+ create mode 100755 bin/fm-merge-authority-lib.sh
+ create mode 100755 bin/fm-tasks-axi.sh
+ create mode 100644 docs/verification/agy.md
+ create mode 100755 tests/fm-agy-harness.test.sh
+ create mode 100755 tests/fm-agy-signals-isolation.test.sh
+ create mode 100755 tests/fm-agy-signals-live-e2e.test.sh
+ create mode 100755 tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh
+ create mode 100755 tests/fm-backend-herdr-stale-active-tab-e2e.test.sh
+ create mode 100755 tests/fm-backlog-read-bound.test.sh
+ create mode 100755 tests/fm-ci-workflow.test.sh
+ create mode 100755 tests/fm-harness-precedence.test.sh
+ create mode 100755 tests/fm-herdr-attached-viewer-live-e2e.test.sh
+ create mode 100755 tests/fm-herdr-pi-stale-registration-live-e2e.test.sh
+ create mode 100755 tests/fm-quiet-entry.test.sh
+ create mode 100755 tests/fm-send-agy-confirm.test.sh
+ create mode 100755 tests/fm-tasks-axi.test.sh
+ create mode 100644 tests/git-config-helpers.sh
+[exit 0]
+
+$ git rev-parse HEAD
+c6c1c64f11188a1190db75522545ff2478ae1b88
+[exit 0]
+
+$ git merge-base --is-ancestor a6618ddc690b4e613b62c6c4a3f6df4808a778b1 c6c1c64f11188a1190db75522545ff2478ae1b88
+[exit 0]
+
+$ git checkout -q -b upstream a6618ddc690b4e613b62c6c4a3f6df4808a778b1
+[exit 0]
+
+$ git merge --ff-only c6c1c64f11188a1190db75522545ff2478ae1b88
+Updating a6618dd..c6c1c64
+Fast-forward
+ .agents/skills/bootstrap-diagnostics/SKILL.md      |   3 -
+ .../harness-adapters/references/harness/agy.md     |   2 +-
+ .../harness-adapters/references/harness/rovo.md    |  16 +-
+ .agents/skills/quiet/SKILL.md                      |  26 +-
+ .github/workflows/ci.yml                           |   6 +-
+ CONTRIBUTING.md                                    |   2 +-
+ bin/fm-afk-launch.sh                               |  14 +-
+ bin/fm-afk-return.sh                               |   5 +-
+ bin/fm-agent-context.py                            | 656 +++++++++++++++++++++
+ bin/fm-bearings-snapshot.sh                        |   8 +-
+ bin/fm-bootstrap.sh                                |  18 -
+ bin/fm-classify-lib.sh                             |  22 +
+ bin/fm-claude-stop-autoarm.sh                      |   8 +
+ bin/fm-composer-lib.sh                             |  69 ++-
+ bin/fm-ff-lib.sh                                   |  20 +-
+ bin/fm-harness.sh                                  |   9 +-
+ bin/fm-pr-merge.sh                                 |  98 +--
+ bin/fm-procevent-when.sh                           |  73 ++-
+ bin/fm-spawn.sh                                    |   4 +-
+ bin/fm-teardown.sh                                 | 135 +----
+ bin/fm-test-run.sh                                 |   4 +-
+ bin/fm-tmux-lib.sh                                 |  15 +-
+ bin/fm-update.sh                                   |  26 +-
+ bin/fm-wake-lib.sh                                 |  47 +-
+ bin/fm-watch.sh                                    |   5 +-
+ docs/architecture.md                               |   4 +-
+ docs/configuration.md                              |   3 +-
+ docs/scripts.md                                    |   1 +
+ docs/verification/agy.md                           |   7 +-
+ tests/fm-afk-return.test.sh                        |  41 +-
+ tests/fm-agent-context.test.sh                     | 518 ++++++++++++++++
+ tests/fm-agy-signals-isolation.test.sh             |  67 +++
+ tests/fm-agy-signals-live-e2e.test.sh              |   2 +-
+ tests/fm-bearings-snapshot.test.sh                 |  49 ++
+ tests/fm-brief.test.sh                             | 171 +-----
+ tests/fm-claude-stop-autoarm.test.sh               |  39 ++
+ tests/fm-composer-lib.test.sh                      |  61 ++
+ tests/fm-control.test.sh                           |  47 ++
+ tests/fm-harness-precedence.test.sh                |  22 +
+ tests/fm-pr-check-security.test.sh                 |  32 +
+ tests/fm-pr-merge.test.sh                          |  54 +-
+ tests/fm-procevent-when.test.sh                    | 219 ++++++-
+ tests/fm-quiet-entry.test.sh                       |  57 ++
+ tests/fm-secondmate-sync.test.sh                   |  58 ++
+ tests/fm-spawn-dispatch-profile.test.sh            |  27 +-
+ tests/fm-tasks-axi.test.sh                         |  53 +-
+ tests/fm-teardown-endpoint-safety.test.sh          | 121 +++-
+ tests/fm-update.test.sh                            |  51 +-
+ 48 files changed, 2409 insertions(+), 586 deletions(-)
+ create mode 100755 bin/fm-agent-context.py
+ create mode 100755 tests/fm-agent-context.test.sh
+ create mode 100755 tests/fm-agy-signals-isolation.test.sh
+ create mode 100755 tests/fm-quiet-entry.test.sh
+[exit 0]
+
+$ git rev-parse HEAD
+c6c1c64f11188a1190db75522545ff2478ae1b88
+[exit 0]
+
+$ git log -1 '--format=%H %P %s' 357aeabd9b22dd47d02ee4804f59b3382c1b2475
+357aeabd9b22dd47d02ee4804f59b3382c1b2475 c781bb13857b76210faf2ff8288b9a0bcaedc4ef a6618ddc690b4e613b62c6c4a3f6df4808a778b1 Merge upstream main while preserving agent context emitter
+[exit 0]
+
+Both isolated lineage branches advanced by fast-forward to the exact candidate.
+
+$ git init -q -b candidate-test
+[exit 0]
+
+$ git add .
+[exit 0]
+
+$ git commit -qm 'sample project'
+[exit 0]
+
+$ git rev-parse HEAD
+1f1e29d4cfa1dabe07370d52f067f0c0fbad65b4
+[exit 0]
+
+$ git remote add origin https://synthetic:credential@example.invalid/org/sample.git
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+wrote: emitter
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+ok: emitter
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+unchanged: emitter
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+error: drift: AGENT-CONTEXT differs; run fm-agent-context.py emit
+[exit 1]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+wrote: emitter
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+ok: emitter
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+error: malformed or duplicate AGENT-CONTEXT marker pair
+[exit 1]
+
+Prose, repeat identity and refusal bytes verified; check detected drift without writing.
+
+$ git init -q -b candidate-test
+[exit 0]
+
+$ git add .
+[exit 0]
+
+$ git commit -qm 'old tracked executable'
+[exit 0]
+
+$ git rev-parse HEAD
+89326f0ab7306ed212ab2ffbf33268e182138ab6
+[exit 0]
+
+$ git clone -q /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-source /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent-when.sh arm tracked --interval 0.1 --stable 1 --condition /bin/test -f /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/trigger --action /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/validation-action.sh /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/tracked.executed
+armed: when-tracked
+starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+reminder: deterministic, safe, reversible actions only; judgment and destructive actions stay on the wake-and-decide path
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent-when.sh arm untracked --interval 0.1 --stable 1 --condition /bin/test -f /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/trigger --action /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/data/untracked-action.sh /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/untracked.executed
+armed: when-untracked
+starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+reminder: deterministic, safe, reversible actions only; judgment and destructive actions stay on the wake-and-decide path
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent-when.sh arm symlink --interval 0.1 --stable 1 --condition /bin/test -f /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/trigger --action /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/linked-action.sh /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/symlink.executed
+armed: when-symlink
+starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+reminder: deterministic, safe, reversible actions only; judgment and destructive actions stay on the wake-and-decide path
+[exit 0]
+
+$ git config --local core.excludesFile /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/excludes
+[exit 0]
+
+$ git add .
+[exit 0]
+
+$ git commit -qm 'new tracked executable'
+[exit 0]
+
+$ git rev-parse HEAD
+f2fb9720cd621cb35057c34a9aa5e1d9e934f46d
+[exit 0]
+
+$ git fetch -q origin
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent-when.sh fast-forward f2fb9720cd621cb35057c34a9aa5e1d9e934f46d
+Updating 89326f0..f2fb972
+Fast-forward
+ bin/validation-action.sh | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+rebound: when-tracked
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent.sh reconcile
+reconciled: published=0 started=3 stopped=0 uncertain=0 failed=0
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent.sh classify /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/procevent-inbox/when-tracked.1.result
+fired
+[exit 0]
+
+when: when-tracked
+status: fired
+detail: the condition held and the action exited 0
+condition_polls: 1
+action_exit: 0
+output:
+ran v2
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent.sh handled when-tracked 1
+handled: when-tracked 1
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent.sh classify /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/procevent-inbox/when-untracked.1.result
+rejected
+[exit 0]
+
+when: when-untracked
+status: rejected
+detail: refused without executing the action: its bytes do not match the registered trust binding
+condition_polls: 1
+output:
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent.sh handled when-untracked 1
+handled: when-untracked 1
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent.sh classify /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/state/procevent-inbox/when-symlink.1.result
+rejected
+[exit 0]
+
+when: when-symlink
+status: rejected
+detail: refused without executing the action: its bytes do not match the registered trust binding
+condition_polls: 1
+output:
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent.sh handled when-symlink 1
+handled: when-symlink 1
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent.sh reconcile
+reconciled: published=0 started=0 stopped=0 uncertain=0 failed=0
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent-when.sh retire tracked
+retired: when-tracked
+retired: when-tracked
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent-when.sh retire untracked
+retired: when-untracked
+retired: when-untracked
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent-when.sh retire symlink
+retired: when-symlink
+retired: when-symlink
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/watch-home/bin/fm-procevent.sh stop
+error: unknown command: stop
+[exit 1]
+

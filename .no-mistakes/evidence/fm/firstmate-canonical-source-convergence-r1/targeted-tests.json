@@ -1,0 +1,92 @@
+[
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-agent-context.test.sh"
+    ],
+    "exit": 0,
+    "seconds": 10.7,
+    "skips": []
+  },
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-procevent-when.test.sh"
+    ],
+    "exit": 0,
+    "seconds": 61.6,
+    "skips": []
+  },
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-afk-return.test.sh"
+    ],
+    "exit": 0,
+    "seconds": 35.9,
+    "skips": []
+  },
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-bearings-snapshot.test.sh"
+    ],
+    "exit": 1,
+    "seconds": 175.3,
+    "skips": []
+  },
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-brief.test.sh"
+    ],
+    "exit": 0,
+    "seconds": 6.7,
+    "skips": []
+  },
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-quiet-entry.test.sh"
+    ],
+    "exit": 0,
+    "seconds": 2.3,
+    "skips": []
+  },
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-claude-stop-autoarm.test.sh"
+    ],
+    "exit": 0,
+    "seconds": 47.9,
+    "skips": []
+  },
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-spawn-dispatch-profile.test.sh"
+    ],
+    "exit": 1,
+    "seconds": 16.2,
+    "skips": []
+  },
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-pr-check-security.test.sh"
+    ],
+    "exit": 0,
+    "seconds": 239.6,
+    "skips": []
+  },
+  {
+    "command": [
+      "/bin/bash",
+      "tests/fm-teardown-endpoint-safety.test.sh"
+    ],
+    "exit": 0,
+    "seconds": 37.5,
+    "skips": []
+  }
+]

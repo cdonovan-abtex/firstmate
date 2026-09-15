@@ -1,0 +1,51 @@
+$ git checkout -qb divergent-control c781bb13857b76210faf2ff8288b9a0bcaedc4ef
+[exit 0]
+
+$ git add local-work.txt
+[exit 0]
+
+$ git commit -qm 'isolated divergent work'
+[exit 0]
+
+$ git rev-parse HEAD
+e315123db4a925a564e6a42495efd6281fc4c494
+[exit 0]
+
+$ git merge --ff-only c6c1c64f11188a1190db75522545ff2478ae1b88
+hint: Diverging branches can't be fast-forwarded, you need to either:
+hint:
+hint: 	git merge --no-ff
+hint:
+hint: or:
+hint:
+hint: 	git rebase
+hint:
+hint: Disable this message with "git config set advice.diverging false"
+fatal: Not possible to fast-forward, aborting.
+[exit 128]
+
+$ git rev-parse HEAD
+e315123db4a925a564e6a42495efd6281fc4c494
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+error: legacy marker pair present; rerun with emit --migrate-legacy
+[exit 1]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py emit --migrate-legacy --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+wrote: emitter
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py check --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+ok: emitter
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py emit --migrate-legacy --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+error: no legacy marker pair remains to migrate
+[exit 1]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-agent-context.py emit --repo /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter
+error: context schema is required with context.yaml: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/live/emitter/context.schema.json
+[exit 1]
+
+Divergent history remained intact; legacy migration was explicit and one-time; missing schema refused without writing.

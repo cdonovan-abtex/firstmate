@@ -1,0 +1,8 @@
+[
+  {
+    "name": "Fleet board renders durable work names, dated queue order, and an explicit repair warning",
+    "result": "fail",
+    "live": true,
+    "error": "Command '['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '--headless', '--disable-gpu', '--disable-background-networking', '--no-first-run', '--no-default-browser-check', '--user-data-dir=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/chrome-profile', '--window-size=1440,1400', '--virtual-time-budget=2500', '--screenshot=/Users/christiandonovan/.no-mistakes/evidence/01M2HFBS0PSJJP586FSE1NY79C/bearings-board.png', '--dump-dom', 'file:///Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/.lavish/bearings-board.html']' timed out after 90 seconds"
+  }
+]

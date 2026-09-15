@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Both Git lineages fast-forward to the reconciliation candidate",
+    "result": "pass",
+    "live": true
+  },
+  {
+    "name": "Context emission preserves prose, redacts credentials, and refuses malformed input",
+    "result": "pass",
+    "live": true
+  },
+  {
+    "name": "Updating tracked actions rebinds watches while modified untracked and linked actions refuse",
+    "result": "pass",
+    "live": true
+  }
+]

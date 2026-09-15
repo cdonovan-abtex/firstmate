@@ -1,0 +1,733 @@
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-launch.sh propose
+Away posture read-back (proposed, not yet confirmed):
+  entered: 2026-09-15T05:04:09Z
+  expected return: not given
+  spend cap: 4 concurrent workers
+  merge when green (task ids): (none)
+  reach: hold-for-return only. No phone channel is configured; anything that needs you waits for your return.
+  your words: (none)
+  accepted clauses:
+    (none)
+  refused clauses:
+    (none)
+  everything else waits for your return: no red merge without its named check, no discard without a named object and condition, never credentials, legal, financial, or attended prompts, nothing by analogy, and every clause expires at return.
+  hard rule: forbidden, destructive, irreversible, and security-sensitive actions are never pre-authorizable regardless of clause text; no recorded clause is authority by itself.
+  recorded clauses are held for the return brief and are not executed by this release.
+Say go to confirm; restate any refused clause first if you want it recorded.
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-launch.sh confirm
+Away posture confirmed at 2026-09-15T05:04:09Z: hold-for-return only. No phone channel is configured; anything that needs you waits for your return. No mandate clauses recorded. Forbidden, destructive, irreversible, and security-sensitive actions are never pre-authorizable regardless of clause text, and no recorded clause is authority by itself. Expected return: not given. Spend cap: 4 concurrent workers.
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-launch.sh start-native
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-bearings-snapshot.sh --json
+{
+  "schema": "fm-bearings.v1",
+  "home": ".test-phase/bearings-home",
+  "generated": "2026-09-15T05:04:10Z",
+  "prs": "not_requested (run: /bearings include PRs)",
+  "in_flight": [],
+  "secondmates": [],
+  "secondmate_reconcile": [],
+  "decisions_open": [],
+  "landed": [],
+  "gates": [],
+  "reports": [],
+  "recorded_prs": [],
+  "omitted": [
+    {
+      "surface": "backlog item bodies",
+      "reveal": "--fields bodies"
+    },
+    {
+      "surface": "task paths",
+      "reveal": "--fields paths"
+    },
+    {
+      "surface": "watch/steer actions",
+      "reveal": "--fields actions"
+    },
+    {
+      "surface": "healthy endpoint detail",
+      "reveal": "--fields endpoints"
+    },
+    {
+      "surface": "full scout-report inventory",
+      "reveal": "--all-reports"
+    },
+    {
+      "surface": "live PR discovery + checks",
+      "reveal": "--include-prs"
+    }
+  ]
+}
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-launch.sh stop
+fm-afk-launch: away-posture record archived at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/state/afk-contracts/1789448649.afk-contract
+fm-afk-launch: away mode stopped; daemon terminal torn down, .afk cleared, and the posture record archived
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-launch.sh propose
+Away posture read-back (proposed, not yet confirmed):
+  entered: 2026-09-15T05:04:10Z
+  expected return: not given
+  spend cap: 4 concurrent workers
+  merge when green (task ids): (none)
+  reach: hold-for-return only. No phone channel is configured; anything that needs you waits for your return.
+  your words: (none)
+  accepted clauses:
+    (none)
+  refused clauses:
+    (none)
+  everything else waits for your return: no red merge without its named check, no discard without a named object and condition, never credentials, legal, financial, or attended prompts, nothing by analogy, and every clause expires at return.
+  hard rule: forbidden, destructive, irreversible, and security-sensitive actions are never pre-authorizable regardless of clause text; no recorded clause is authority by itself.
+  recorded clauses are held for the return brief and are not executed by this release.
+Say go to confirm; restate any refused clause first if you want it recorded.
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-launch.sh confirm
+Away posture confirmed at 2026-09-15T05:04:11Z: hold-for-return only. No phone channel is configured; anything that needs you waits for your return. No mandate clauses recorded. Forbidden, destructive, irreversible, and security-sensitive actions are never pre-authorizable regardless of clause text, and no recorded clause is authority by itself. Expected return: not given. Spend cap: 4 concurrent workers.
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-launch.sh start-native
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-bearings-snapshot.sh --json
+fm-afk-return: away mode is still active; run bin/fm-afk-return.sh before ordinary captain work
+[exit 3]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-launch.sh stop
+fm-afk-launch: away-posture record archived at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/state/afk-contracts/1789448651.afk-contract
+fm-afk-launch: away mode stopped; daemon terminal torn down, .afk cleared, and the posture record archived
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-bearings-snapshot.sh --json
+{
+  "schema": "fm-bearings.v1",
+  "home": ".test-phase/bearings-home",
+  "generated": "2026-09-15T05:04:11Z",
+  "prs": "not_requested (run: /bearings include PRs)",
+  "in_flight": [],
+  "secondmates": [],
+  "secondmate_reconcile": [],
+  "decisions_open": [],
+  "landed": [],
+  "gates": [
+    {
+      "id": "(main-inventory)",
+      "title": "in-flight backlog item has no child metadata",
+      "blocked_by": "-",
+      "reason": "main inventory",
+      "owner": "(main)",
+      "filed": null
+    },
+    {
+      "id": "queued-21",
+      "title": "Queued work 21",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-21"
+    },
+    {
+      "id": "queued-20",
+      "title": "Queued work 20",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-20"
+    },
+    {
+      "id": "queued-19",
+      "title": "Queued work 19",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-19"
+    },
+    {
+      "id": "queued-18",
+      "title": "Queued work 18",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-18"
+    },
+    {
+      "id": "queued-17",
+      "title": "Queued work 17",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-17"
+    },
+    {
+      "id": "queued-16",
+      "title": "Queued work 16",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-16"
+    },
+    {
+      "id": "queued-15",
+      "title": "Queued work 15",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-15"
+    },
+    {
+      "id": "queued-14",
+      "title": "Queued work 14",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-14"
+    },
+    {
+      "id": "queued-13",
+      "title": "Queued work 13",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-13"
+    },
+    {
+      "id": "queued-12",
+      "title": "Queued work 12",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-12"
+    },
+    {
+      "id": "queued-11",
+      "title": "Queued work 11",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-11"
+    },
+    {
+      "id": "queued-10",
+      "title": "Queued work 10",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-10"
+    },
+    {
+      "id": "queued-09",
+      "title": "Queued work 09",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-09"
+    },
+    {
+      "id": "queued-08",
+      "title": "Queued work 08",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-08"
+    },
+    {
+      "id": "queued-07",
+      "title": "Queued work 07",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-07"
+    },
+    {
+      "id": "queued-06",
+      "title": "Queued work 06",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-06"
+    },
+    {
+      "id": "queued-05",
+      "title": "Queued work 05",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-05"
+    },
+    {
+      "id": "queued-04",
+      "title": "Queued work 04",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-04"
+    },
+    {
+      "id": "queued-03",
+      "title": "Queued work 03",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-03"
+    },
+    {
+      "id": "queued-02",
+      "title": "Queued work 02",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-02"
+    }
+  ],
+  "reports": [],
+  "recorded_prs": [],
+  "omitted": [
+    {
+      "surface": "backlog item bodies",
+      "reveal": "--fields bodies"
+    },
+    {
+      "surface": "task paths",
+      "reveal": "--fields paths"
+    },
+    {
+      "surface": "watch/steer actions",
+      "reveal": "--fields actions"
+    },
+    {
+      "surface": "healthy endpoint detail",
+      "reveal": "--fields endpoints"
+    },
+    {
+      "surface": "full scout-report inventory",
+      "reveal": "--all-reports"
+    },
+    {
+      "surface": "main in-flight backlog item(s) have no child metadata: 1",
+      "reveal": "inspect main data/backlog.md In flight vs state/*.meta"
+    },
+    {
+      "surface": "gates showing 20 of 21",
+      "reveal": "--all-queued"
+    },
+    {
+      "surface": "live PR discovery + checks",
+      "reveal": "--include-prs"
+    }
+  ]
+}
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-bearings-snapshot.sh
+schema: fm-bearings.v1
+home: .test-phase/bearings-home
+generated: "2026-09-15T05:04:12Z"
+prs: "not_requested (run: /bearings include PRs)"
+in_flight: []
+secondmates: []
+secondmate_reconcile: []
+decisions_open: []
+landed: []
+gates[21]{id,title,blocked_by,reason,owner,filed}:
+  (main-inventory),in-flight backlog item has no child metadata,"-",main inventory,(main),null
+  queued-21,Queued work 21,"-","-",(main),2026-06-21
+  queued-20,Queued work 20,"-","-",(main),2026-06-20
+  queued-19,Queued work 19,"-","-",(main),2026-06-19
+  queued-18,Queued work 18,"-","-",(main),2026-06-18
+  queued-17,Queued work 17,"-","-",(main),2026-06-17
+  queued-16,Queued work 16,"-","-",(main),2026-06-16
+  queued-15,Queued work 15,"-","-",(main),2026-06-15
+  queued-14,Queued work 14,"-","-",(main),2026-06-14
+  queued-13,Queued work 13,"-","-",(main),2026-06-13
+  queued-12,Queued work 12,"-","-",(main),2026-06-12
+  queued-11,Queued work 11,"-","-",(main),2026-06-11
+  queued-10,Queued work 10,"-","-",(main),2026-06-10
+  queued-09,Queued work 09,"-","-",(main),2026-06-09
+  queued-08,Queued work 08,"-","-",(main),2026-06-08
+  queued-07,Queued work 07,"-","-",(main),2026-06-07
+  queued-06,Queued work 06,"-","-",(main),2026-06-06
+  queued-05,Queued work 05,"-","-",(main),2026-06-05
+  queued-04,Queued work 04,"-","-",(main),2026-06-04
+  queued-03,Queued work 03,"-","-",(main),2026-06-03
+  queued-02,Queued work 02,"-","-",(main),2026-06-02
+reports: []
+recorded_prs: []
+omitted[8]{surface,reveal}:
+  backlog item bodies,"--fields bodies"
+  task paths,"--fields paths"
+  watch/steer actions,"--fields actions"
+  healthy endpoint detail,"--fields endpoints"
+  full scout-report inventory,"--all-reports"
+  "main in-flight backlog item(s) have no child metadata: 1",inspect main data/backlog.md In flight vs state/*.meta
+  gates showing 20 of 21,"--all-queued"
+  live PR discovery + checks,"--include-prs"
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-bearings-snapshot.sh --json --all-queued
+{
+  "schema": "fm-bearings.v1",
+  "home": ".test-phase/bearings-home",
+  "generated": "2026-09-15T05:04:12Z",
+  "prs": "not_requested (run: /bearings include PRs)",
+  "in_flight": [],
+  "secondmates": [],
+  "secondmate_reconcile": [],
+  "decisions_open": [],
+  "landed": [],
+  "gates": [
+    {
+      "id": "(main-inventory)",
+      "title": "in-flight backlog item has no child metadata",
+      "blocked_by": "-",
+      "reason": "main inventory",
+      "owner": "(main)",
+      "filed": null
+    },
+    {
+      "id": "queued-21",
+      "title": "Queued work 21",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-21"
+    },
+    {
+      "id": "queued-20",
+      "title": "Queued work 20",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-20"
+    },
+    {
+      "id": "queued-19",
+      "title": "Queued work 19",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-19"
+    },
+    {
+      "id": "queued-18",
+      "title": "Queued work 18",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-18"
+    },
+    {
+      "id": "queued-17",
+      "title": "Queued work 17",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-17"
+    },
+    {
+      "id": "queued-16",
+      "title": "Queued work 16",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-16"
+    },
+    {
+      "id": "queued-15",
+      "title": "Queued work 15",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-15"
+    },
+    {
+      "id": "queued-14",
+      "title": "Queued work 14",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-14"
+    },
+    {
+      "id": "queued-13",
+      "title": "Queued work 13",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-13"
+    },
+    {
+      "id": "queued-12",
+      "title": "Queued work 12",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-12"
+    },
+    {
+      "id": "queued-11",
+      "title": "Queued work 11",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-11"
+    },
+    {
+      "id": "queued-10",
+      "title": "Queued work 10",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-10"
+    },
+    {
+      "id": "queued-09",
+      "title": "Queued work 09",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-09"
+    },
+    {
+      "id": "queued-08",
+      "title": "Queued work 08",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-08"
+    },
+    {
+      "id": "queued-07",
+      "title": "Queued work 07",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-07"
+    },
+    {
+      "id": "queued-06",
+      "title": "Queued work 06",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-06"
+    },
+    {
+      "id": "queued-05",
+      "title": "Queued work 05",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-05"
+    },
+    {
+      "id": "queued-04",
+      "title": "Queued work 04",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-04"
+    },
+    {
+      "id": "queued-03",
+      "title": "Queued work 03",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-03"
+    },
+    {
+      "id": "queued-02",
+      "title": "Queued work 02",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-02"
+    },
+    {
+      "id": "queued-01",
+      "title": "Queued work 01",
+      "blocked_by": "-",
+      "reason": "-",
+      "owner": "(main)",
+      "filed": "2026-06-01"
+    }
+  ],
+  "reports": [],
+  "recorded_prs": [],
+  "omitted": [
+    {
+      "surface": "backlog item bodies",
+      "reveal": "--fields bodies"
+    },
+    {
+      "surface": "task paths",
+      "reveal": "--fields paths"
+    },
+    {
+      "surface": "watch/steer actions",
+      "reveal": "--fields actions"
+    },
+    {
+      "surface": "healthy endpoint detail",
+      "reveal": "--fields endpoints"
+    },
+    {
+      "surface": "full scout-report inventory",
+      "reveal": "--all-reports"
+    },
+    {
+      "surface": "main in-flight backlog item(s) have no child metadata: 1",
+      "reveal": "inspect main data/backlog.md In flight vs state/*.meta"
+    },
+    {
+      "surface": "live PR discovery + checks",
+      "reveal": "--include-prs"
+    }
+  ]
+}
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-contract.sh propose
+Away posture read-back (proposed, not yet confirmed):
+  entered: 2026-09-15T05:04:12Z
+  expected return: not given
+  spend cap: 4 concurrent workers
+  merge when green (task ids): (none)
+  reach: hold-for-return only. No phone channel is configured; anything that needs you waits for your return.
+  your words: (none)
+  accepted clauses:
+    (none)
+  refused clauses:
+    (none)
+  everything else waits for your return: no red merge without its named check, no discard without a named object and condition, never credentials, legal, financial, or attended prompts, nothing by analogy, and every clause expires at return.
+  hard rule: forbidden, destructive, irreversible, and security-sensitive actions are never pre-authorizable regardless of clause text; no recorded clause is authority by itself.
+  recorded clauses are held for the return brief and are not executed by this release.
+Say go to confirm; restate any refused clause first if you want it recorded.
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-contract.sh confirm
+Away posture confirmed at 2026-09-15T05:04:12Z: hold-for-return only. No phone channel is configured; anything that needs you waits for your return. No mandate clauses recorded. Forbidden, destructive, irreversible, and security-sensitive actions are never pre-authorizable regardless of clause text, and no recorded clause is authority by itself. Expected return: not given. Spend cap: 4 concurrent workers.
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-return.sh begin
+fm-afk-launch: away-posture record archived at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/state/afk-contracts/1789448652.afk-contract
+fm-afk-launch: away mode stopped; daemon terminal torn down, .afk cleared, and the posture record archived
+=== Return brief (away 2026-09-15T05:04:12Z -> 2026-09-15T05:04:13Z, 1s) ===
+Supervisor health:
+  - no unresolved gap in supervision at return (watcher beat 1s old)
+Mandate clauses:
+  (none recorded)
+Waiting on you:
+  (nothing)
+Tried and failed, or could not be fixed:
+  (nothing)
+Handled while away:
+  (no routine outcomes recorded in the store for this window)
+Cost: 0 supervision outcome(s) recorded (0 routine, 0 captain); 0 task(s) live at return.
+catch-up health: no unresolved gap in supervision at return (watcher beat 1s old)
+fm-afk-return: catch-up clear; ordinary captain work may proceed
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-contract.sh propose
+Away posture read-back (proposed, not yet confirmed):
+  entered: 2026-09-15T05:04:14Z
+  expected return: not given
+  spend cap: 4 concurrent workers
+  merge when green (task ids): (none)
+  reach: hold-for-return only. No phone channel is configured; anything that needs you waits for your return.
+  your words: (none)
+  accepted clauses:
+    (none)
+  refused clauses:
+    (none)
+  everything else waits for your return: no red merge without its named check, no discard without a named object and condition, never credentials, legal, financial, or attended prompts, nothing by analogy, and every clause expires at return.
+  hard rule: forbidden, destructive, irreversible, and security-sensitive actions are never pre-authorizable regardless of clause text; no recorded clause is authority by itself.
+  recorded clauses are held for the return brief and are not executed by this release.
+Say go to confirm; restate any refused clause first if you want it recorded.
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-contract.sh confirm
+Away posture confirmed at 2026-09-15T05:04:14Z: hold-for-return only. No phone channel is configured; anything that needs you waits for your return. No mandate clauses recorded. Forbidden, destructive, irreversible, and security-sensitive actions are never pre-authorizable regardless of clause text, and no recorded clause is authority by itself. Expected return: not given. Spend cap: 4 concurrent workers.
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-afk-return.sh begin
+fm-afk-launch: away-posture record archived at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/state/afk-contracts/1789448654.afk-contract
+fm-afk-launch: away mode stopped; daemon terminal torn down, .afk cleared, and the posture record archived
+=== Return brief (away 2026-09-15T05:04:14Z -> 2026-09-15T05:04:15Z, 1s) ===
+Supervisor health:
+  - GAP: watcher downtime was detected during the away window (recovery marker present)
+Mandate clauses:
+  (none recorded)
+Waiting on you:
+  (nothing)
+Tried and failed, or could not be fixed:
+  (nothing)
+Handled while away:
+  (no routine outcomes recorded in the store for this window)
+Cost: 0 supervision outcome(s) recorded (0 routine, 0 captain); 0 task(s) live at return.
+catch-up health: GAP: watcher downtime was detected during the away window (recovery marker present)
+fm-afk-return: catch-up clear; ordinary captain work may proceed
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-bearings-board.sh build /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/board-payload.json
+board: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/.lavish/bearings-board.html
+fm-bearings-board: cannot establish the board Lavish session
+[exit 1]
+
+$ lavish-axi end /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/.lavish/bearings-board.html
+node:internal/modules/cjs/loader:1478
+  throw err;
+  ^
+
+Error: Cannot find module '/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/home/.lavish-tools/lib/node_modules/lavish-axi/dist/cli.mjs'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1475:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1048:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1072:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1093:12)
+    at Module._load (node:internal/modules/cjs/loader:1261:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v25.9.0
+[exit 1]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-procevent-lavish.sh retire /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/.lavish/bearings-board.html
+retired: lavish-ee38bd7d4b86c54d
+[exit 0]
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/bin/fm-procevent.sh stop
+error: unknown command: stop
+[exit 1]
+
+$ lavish-axi stop
+node:internal/modules/cjs/loader:1478
+  throw err;
+  ^
+
+Error: Cannot find module '/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/home/.lavish-tools/lib/node_modules/lavish-axi/dist/cli.mjs'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1475:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1048:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1072:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1093:12)
+    at Module._load (node:internal/modules/cjs/loader:1261:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v25.9.0
+[exit 1]
+

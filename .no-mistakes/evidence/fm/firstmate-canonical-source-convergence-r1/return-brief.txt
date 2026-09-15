@@ -1,0 +1,16 @@
+fm-afk-launch: away-posture record archived at /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2HFBS0PSJJP586FSE1NY79C/.test-phase/bearings-home/state/afk-contracts/1789448652.afk-contract
+fm-afk-launch: away mode stopped; daemon terminal torn down, .afk cleared, and the posture record archived
+=== Return brief (away 2026-09-15T05:04:12Z -> 2026-09-15T05:04:13Z, 1s) ===
+Supervisor health:
+  - no unresolved gap in supervision at return (watcher beat 1s old)
+Mandate clauses:
+  (none recorded)
+Waiting on you:
+  (nothing)
+Tried and failed, or could not be fixed:
+  (nothing)
+Handled while away:
+  (no routine outcomes recorded in the store for this window)
+Cost: 0 supervision outcome(s) recorded (0 routine, 0 captain); 0 task(s) live at return.
+catch-up health: no unresolved gap in supervision at return (watcher beat 1s old)
+fm-afk-return: catch-up clear; ordinary captain work may proceed
