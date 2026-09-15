@@ -663,4 +663,133 @@ pass "the fire-time reload never observes rebind_one's spec/trust publish mid-re
 
 done
 
+make_update_repo() {
+  local repo=$1
+  fm_git_init_commit "$repo"
+  mkdir -p "$repo/bin"
+  printf '#!/usr/bin/env bash\nprintf "v1\\n" >> "$1"\n' > "$repo/bin/action.sh"
+  chmod +x "$repo/bin/action.sh"
+  git -C "$repo" add bin/action.sh
+  git -C "$repo" -c user.name=Tests -c user.email=tests@example.invalid commit -qm action-v1
+  git -C "$repo" tag action-before
+  printf '#!/usr/bin/env bash\nprintf "v2\\n" >> "$1"\n' > "$repo/bin/action.sh"
+  git -C "$repo" add bin/action.sh
+  git -C "$repo" -c user.name=Tests -c user.email=tests@example.invalid commit -qm action-v2
+  git -C "$repo" tag action-after
+  git -C "$repo" checkout -q --detach action-before
+}
+
+when_update_case() {
+  FM_HOME="$UPDATE_HOME" FM_ROOT_OVERRIDE="$UPDATE_REPO" \
+    "$ROOT/bin/fm-procevent-when.sh" "$@"
+}
+
+for order in update-first arm-first; do
+  WORLD="$TMP_ROOT/registration-$order"
+  UPDATE_HOME="$WORLD/home"
+  UPDATE_REPO="$UPDATE_HOME"
+  [ "$order" != arm-first ] || UPDATE_REPO="$WORLD/repo"
+  new_home "$UPDATE_HOME"
+  make_update_repo "$UPDATE_REPO"
+  FB=$(fm_fakebin "$WORLD")
+  REAL_GIT=$(command -v git)
+  REAL_SHASUM=$(command -v shasum || true)
+  REAL_SHA256SUM=$(command -v sha256sum || true)
+  cat > "$FB/git" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *' merge --ff-only '*)
+    : > "$FM_WHEN_TEST_WORLD/merge-ready"
+    if [ "$FM_WHEN_TEST_ORDER" = update-first ]; then
+      for _ in $(seq 1 500); do
+        [ ! -e "$FM_WHEN_TEST_WORLD/release-merge" ] || break
+        kill -0 "$FM_WHEN_TEST_PARENT" 2>/dev/null || exit 1
+        sleep 0.02
+      done
+      [ -e "$FM_WHEN_TEST_WORLD/release-merge" ] || exit 1
+    fi
+    ;;
+esac
+exec "$FM_WHEN_TEST_GIT" "$@"
+SH
+  cat > "$FB/shasum" <<'SH'
+#!/usr/bin/env bash
+if [ -n "$FM_WHEN_TEST_SHASUM" ]; then
+  "$FM_WHEN_TEST_SHASUM" "$@" || exit $?
+else
+  "$FM_WHEN_TEST_SHA256SUM" "${@: -1}" || exit $?
+fi
+if [ "$FM_WHEN_TEST_ORDER" = arm-first ] \
+  && [ "${@: -1}" = "$FM_WHEN_TEST_ACTION" ] \
+  && [ ! -e "$FM_WHEN_TEST_WORLD/hash-ready" ]; then
+  : > "$FM_WHEN_TEST_WORLD/hash-ready"
+  for _ in $(seq 1 500); do
+    [ ! -e "$FM_WHEN_TEST_WORLD/release-hash" ] || break
+    kill -0 "$FM_WHEN_TEST_PARENT" 2>/dev/null || exit 1
+    sleep 0.02
+  done
+  [ -e "$FM_WHEN_TEST_WORLD/release-hash" ] || exit 1
+fi
+SH
+  chmod +x "$FB/git" "$FB/shasum"
+  export FM_WHEN_TEST_WORLD="$WORLD" FM_WHEN_TEST_ORDER="$order" FM_WHEN_TEST_PARENT=$$
+  export FM_WHEN_TEST_GIT="$REAL_GIT" FM_WHEN_TEST_SHASUM="$REAL_SHASUM" FM_WHEN_TEST_SHA256SUM="$REAL_SHA256SUM"
+  export FM_WHEN_TEST_ACTION="$UPDATE_REPO/bin/action.sh"
+  if [ "$order" = update-first ]; then
+    PATH="$FB:$PATH" when_update_case fast-forward action-after > "$WORLD/update.out" 2>&1 &
+    UPDATER_PID=$!
+    wait_for_file "$WORLD/merge-ready" || fail "update never reached the pre-merge barrier"
+    PATH="$FB:$PATH" when_update_case arm "$order" --stable 1 \
+      --condition true --action "$UPDATE_REPO/bin/action.sh" "$WORLD/action.log" > "$WORLD/arm.out" 2>&1 &
+    ARMER_PID=$!
+    wait_for_file "$UPDATE_HOME/state/procevent/when-$order.source" 30 || true
+    : > "$WORLD/release-merge"
+  else
+    PATH="$FB:$PATH" when_update_case arm "$order" --stable 1 \
+      --condition true --action "$UPDATE_REPO/bin/action.sh" "$WORLD/action.log" > "$WORLD/arm.out" 2>&1 &
+    ARMER_PID=$!
+    wait_for_file "$WORLD/hash-ready" || fail "arm never reached the action-hash barrier"
+    PATH="$FB:$PATH" when_update_case fast-forward action-after > "$WORLD/update.out" 2>&1 &
+    UPDATER_PID=$!
+    wait_for_file "$WORLD/merge-ready" 30 || true
+    : > "$WORLD/release-hash"
+  fi
+  wait "$ARMER_PID" || fail "concurrent registration failed: $(cat "$WORLD/arm.out")"
+  wait "$UPDATER_PID" || fail "concurrent update failed: $(cat "$WORLD/update.out")"
+  [ "$(git -C "$UPDATE_REPO" rev-parse HEAD)" = "$(git -C "$UPDATE_REPO" rev-parse action-after)" ] \
+    || fail "concurrent registration prevented the authorized fast-forward"
+  when_update_case run "when-$order" > "$WORLD/result"
+  assert_grep 'status: fired' "$WORLD/result" "$order: a newly armed watch retained an obsolete action binding"
+  [ "$(cat "$WORLD/action.log")" = v2 ] || fail "$order: the updated action did not execute exactly once"
+  assert_present "$UPDATE_HOME/state/procevent/when-$order.source" "$order: the watch registration was lost"
+  when_update_case retire "$order" >/dev/null 2>&1
+  pass "$order: concurrent registration and update bind and execute the updated action exactly once"
+done
+
+WORLD="$TMP_ROOT/registration-refusals"
+UPDATE_HOME="$WORLD/home"
+UPDATE_REPO="$WORLD/repo"
+new_home "$UPDATE_HOME"
+make_update_repo "$UPDATE_REPO"
+if when_update_case arm refused --stable 1 --condition true \
+  --action "$WORLD/missing-action" > "$WORLD/arm.out" 2>&1; then
+  fail "an unavailable action was accepted during registration"
+fi
+assert_absent "$UPDATE_HOME/state/procevent/when-refused.source" "failed arm published a registration"
+if when_update_case fast-forward missing-ref > "$WORLD/update.out" 2>&1; then
+  fail "an unavailable update target was accepted"
+fi
+[ "$(git -C "$UPDATE_REPO" rev-parse HEAD)" = "$(git -C "$UPDATE_REPO" rev-parse action-before)" ] \
+  || fail "refused update changed the checkout"
+when_update_case arm refused --stable 1 --condition true \
+  --action "$UPDATE_REPO/bin/action.sh" "$WORLD/action.log" >/dev/null \
+  || fail "failed entry left registration locked or unpublishable"
+when_update_case fast-forward action-after > "$WORLD/retry.out" 2>&1 \
+  || fail "failed entry left the authorized update locked or unusable"
+when_update_case run when-refused > "$WORLD/result"
+assert_grep 'status: fired' "$WORLD/result" "refusal recovery left a stale watch binding"
+[ "$(cat "$WORLD/action.log")" = v2 ] || fail "refusal recovery did not execute the updated action exactly once"
+when_update_case retire refused >/dev/null 2>&1
+pass "registration and update refusals preserve the checkout and release the shared transaction"
+
 printf 'all fm-procevent-when tests passed\n'

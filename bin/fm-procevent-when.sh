@@ -105,6 +105,7 @@ FM_ROOT_REAL=$(cd "$FM_ROOT" 2>/dev/null && pwd -P) || FM_ROOT_REAL=$FM_ROOT
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 
 WHEN_DIR="$STATE/when"
+WHEN_UPDATE_LOCK="$STATE/.when-update.lock"
 OUTPUT_TAIL_BYTES=${FM_WHEN_OUTPUT_TAIL_BYTES:-8192}
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
@@ -187,8 +188,9 @@ cmd_arm() {
   done
 
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || die "state directory is unavailable"
+  trap 'fm_procevent_source_lock_release "$sid"; fm_lock_release "$WHEN_UPDATE_LOCK"' EXIT
+  fm_lock_acquire_wait "$WHEN_UPDATE_LOCK" || die "cannot lock watch registration"
   fm_procevent_source_lock_acquire "$sid" || die "cannot lock the watch source"
-  trap 'fm_procevent_source_lock_release "$sid"' EXIT
   local leftover
   for leftover in "$(spec_file "$sid")" "$(trust_file "$sid")" "$(fired_file "$sid")" \
     "$(fm_procevent_registry_dir "$STATE")/$sid.source"; do
@@ -243,6 +245,7 @@ cmd_arm() {
     die "cannot register the watch source"
   fi
   fm_procevent_source_lock_release "$sid"
+  fm_lock_release "$WHEN_UPDATE_LOCK"
   trap - EXIT
   printf 'armed: %s\n' "$sid"
   printf 'starts on the watcher'"'"'s next cycle; or run: bin/fm-procevent.sh reconcile\n'
@@ -595,7 +598,9 @@ cmd_fast_forward() (
   [ "$#" -eq 1 ] || usage
   local spec sid rc=0
   local -a locked=()
-  trap 'for sid in "${locked[@]+"${locked[@]}"}"; do fm_procevent_source_lock_release "$sid"; done' EXIT
+  [ -d "$STATE" ] && [ ! -L "$STATE" ] || die "state directory is unavailable"
+  trap 'for sid in "${locked[@]+"${locked[@]}"}"; do fm_procevent_source_lock_release "$sid"; done; fm_lock_release "$WHEN_UPDATE_LOCK"' EXIT
+  fm_lock_acquire_wait "$WHEN_UPDATE_LOCK" || die "cannot lock watch registration"
   for spec in "$WHEN_DIR"/when-*.spec; do
     [ -e "$spec" ] || continue
     sid=$(basename "$spec" .spec)
