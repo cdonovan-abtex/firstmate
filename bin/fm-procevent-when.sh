@@ -554,7 +554,7 @@ publish_spec() {
 # rebind_one <source-id>: 0 = rebound, 1 = failed (reported to stderr), 2 =
 # unchanged or the action lives outside FM_ROOT (skipped, not an error).
 rebind_one_locked() {
-  local sid=$1 action_path action_hash device relative entry metadata mode kind blob= disk_hash
+  local sid=$1 action_path action_hash device relative entry metadata mode kind blob='' disk_hash
   if ! spec_load "$sid"; then
     printf 'skip: %s (%s)\n' "$sid" "$SPEC_ERROR" >&2
     return 1

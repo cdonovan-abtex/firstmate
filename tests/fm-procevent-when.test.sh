@@ -679,11 +679,13 @@ make_update_repo() {
   local repo=$1
   fm_git_init_commit "$repo"
   mkdir -p "$repo/bin"
+  # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
   printf '#!/usr/bin/env bash\nprintf "v1\\n" >> "$1"\n' > "$repo/bin/action.sh"
   chmod +x "$repo/bin/action.sh"
   git -C "$repo" add bin/action.sh
   git -C "$repo" -c user.name=Tests -c user.email=tests@example.invalid commit -qm action-v1
   git -C "$repo" tag action-before
+  # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
   printf '#!/usr/bin/env bash\nprintf "v2\\n" >> "$1"\n' > "$repo/bin/action.sh"
   git -C "$repo" add bin/action.sh
   git -C "$repo" -c user.name=Tests -c user.email=tests@example.invalid commit -qm action-v2
@@ -814,6 +816,7 @@ for ownership in ignored untracked symlink dirty-tracked; do
   printf 'data/\n' > "$UPDATE_REPO/.gitignore"
   MUTABLE="$UPDATE_REPO/bin/helper.sh"
   [ "$ownership" != ignored ] || MUTABLE="$UPDATE_REPO/data/helper.sh"
+  # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
   printf '#!/usr/bin/env bash\nprintf "v1\n" >> "$1"\n' > "$MUTABLE"
   chmod +x "$MUTABLE"
   printf 'before\n' > "$UPDATE_REPO/README.md"
@@ -837,6 +840,7 @@ for ownership in ignored untracked symlink dirty-tracked; do
   when_update_case arm refuse --stable 1 --condition true --action "$ACTION" "$WORLD/effect" >/dev/null
   OLD_SPEC=$(cat "$UPDATE_HOME/state/when/when-refuse.spec")
   OLD_TRUST=$(cat "$UPDATE_HOME/state/when/when-refuse.trust")
+  # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
   printf '#!/usr/bin/env bash\nprintf "mutated\n" >> "$1"\n' > "$MUTABLE"
   when_update_case fast-forward "$AFTER" > "$WORLD/update.out" 2>&1 \
     || fail "$ownership: unrelated update failed"

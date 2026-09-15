@@ -1383,6 +1383,7 @@ test_home_sync_rebinds_watches() {
   local lane w before after home old_spec result
   for lane in local remote; do
     w=$(new_remote_world "watch-sync-$lane")
+    # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
     printf '#!/usr/bin/env bash\nprintf "v1\n" >> "$1"\n' > "$w/main/bin/action.sh"
     chmod +x "$w/main/bin/action.sh"
     git -C "$w/main" add bin/action.sh
@@ -1399,6 +1400,7 @@ test_home_sync_rebinds_watches() {
       --stable 1 --condition true --action "$home/bin/action.sh" "$w/effect" >/dev/null \
       || fail "$lane: could not arm a home-owned action"
     old_spec=$(cat "$home/state/when/when-sync.spec")
+    # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
     printf '#!/usr/bin/env bash\nprintf "v2\n" >> "$1"\n' > "$w/main/bin/action.sh"
     git -C "$w/main" add bin/action.sh
     git -C "$w/main" commit -qm action-after
