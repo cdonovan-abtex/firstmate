@@ -48,7 +48,7 @@ WORKSPACE=$(cd "$LAB/workspace" && pwd -P) || fail "could not resolve the isolat
 AGY_HOME="$LAB/home"
 mkdir -p "$AGY_HOME" || fail "could not create the throwaway agy HOME"
 [ -d "$HOME/.gemini" ] || fail "no ~/.gemini to stage for the throwaway agy HOME"
-cp -R "$HOME/.gemini" "$AGY_HOME/.gemini" || fail "could not stage the throwaway agy credential copy"
+cp -RL "$HOME/.gemini" "$AGY_HOME/.gemini" || fail "could not stage the throwaway agy credential copy"
 
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-busy-lib.sh"

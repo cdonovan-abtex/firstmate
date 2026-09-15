@@ -551,15 +551,15 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          owner:"(main)",
          filed:null}]
      else [] end) as $return_catchup_gate
-  | ((if (.main_inventory.valid == false) then
+  | (if (.main_inventory.valid == false) then
         [{id:"(main-inventory)",
           title:((.main_inventory.reason // "main inventory invalid") | trunc(60)),
           blocked_by:"-",
           reason:"main inventory",
           owner:"(main)",
           filed:null}]
-      else [] end)
-     + [ .backlog.records[]
+      else [] end) as $main_inventory_gate
+  | ([ .backlog.records[]
          | . as $record
          | select(.structured and
              (.hold_bucket != null or .state == "queued" or
@@ -602,7 +602,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
       decisions_open: (if $all_decisions == 1 then $decisions_all else $decisions_all[:$decisions_n] end),
       landed: ($done | map({id, what:(.title | trunc(70)),
                             artifact:(landed_artifact // "-"),owner:.home_id})),
-      gates: ($return_catchup_gate
+      gates: ($return_catchup_gate + $main_inventory_gate
               + ($gates_all | newest_filed_first
                  | if $all_queued == 1 then . else .[:$gates_n] end)),
       reports: (if $all_reports == 1 then $reports_all else $reports_all[:$reports_n] end),

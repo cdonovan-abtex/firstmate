@@ -307,9 +307,6 @@ test_away_reentry_refuses_pending_return_gate() {
 }
 
 test_return_is_mode_agnostic_for_quiet_mode() {
-  # kunchenguid/firstmate#2356's /quiet off calls this exact script, unchanged
-  # - it must behave identically whether state/.afk declares "away" or
-  # "quiet", since return_guard/return_reconcile only ever test presence.
   local dir out
   dir="$TMP_ROOT/quiet-mode-return"
   install_runner "$dir"
@@ -655,6 +652,34 @@ test_return_guard_refuses_while_the_record_exists() {
   pass "the read-only guard treats the away-posture record as active away mode without the legacy flag"
 }
 
+test_return_guard_preserves_quiet_and_away_boundaries() {
+  local dir out rc flag before
+  dir="$TMP_ROOT/guard-quiet"
+  install_runner "$dir"
+  contract_in "$dir" propose >/dev/null 2>&1 || fail "could not propose quiet fixture"
+  contract_in "$dir" confirm >/dev/null 2>&1 || fail "could not confirm quiet fixture"
+  printf 'quiet\n1234\n' > "$dir/home/state/.afk"
+  cp -R "$dir/home/state" "$dir/before"
+  out=$(run_return "$dir" guard) || fail "guard refused ordinary work in quiet mode: $out"
+  diff -r "$dir/before" "$dir/home/state" >/dev/null || fail "quiet guard changed mode state"
+  [ ! -e "$dir/home/stop.log" ] || fail "quiet guard stopped the daemon"
+
+  printf 'schema\tfm-afk-return.v1\nphase\tblocked\n' > "$dir/home/state/.afk-return-catchup"
+  if out=$(run_return "$dir" guard); then rc=0; else rc=$?; fi
+  [ "$rc" -eq 4 ] || fail "quiet mode bypassed a pending catch-up gate: $out"
+  rm "$dir/home/state/.afk-return-catchup"
+  for flag in away '' 1234 unknown ' quiet'; do
+    printf '%s\n' "$flag" > "$dir/home/state/.afk"
+    if out=$(run_return "$dir" guard); then rc=0; else rc=$?; fi
+    [ "$rc" -eq 3 ] || fail "guard accepted an away or unproven mode '$flag': $out"
+  done
+  before="$dir/missing-state"
+  FM_HOME="$dir/absent-home" FM_STATE_OVERRIDE="$before" "$dir/bin/fm-afk-return.sh" guard \
+    || fail "guard refused an inactive home"
+  [ ! -e "$before" ] || fail "read-only guard created state"
+  pass "quiet guard preserves mode while away and catch-up gates remain enforced"
+}
+
 test_return_brief_health_leads_with_a_gap() {
   local dir out gap_line clean_line
   dir="$TMP_ROOT/brief-gap"
@@ -801,6 +826,7 @@ test_unreadable_outcome_store_keeps_catchup_gated
 test_failed_held_listing_keeps_catchup_gated
 test_unreadable_status_file_keeps_catchup_gated
 test_return_guard_refuses_while_the_record_exists
+test_return_guard_preserves_quiet_and_away_boundaries
 test_return_brief_health_leads_with_a_gap
 test_return_brief_does_not_report_an_acked_watcher_down_marker_as_a_gap
 test_return_brief_without_a_record_reports_the_legacy_flag

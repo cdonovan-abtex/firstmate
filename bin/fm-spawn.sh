@@ -443,7 +443,9 @@ if [ "$CLAUDE_PERM_PRESENT" = 1 ]; then
     echo "error: config/claude-permission-mode must be a readable regular file holding one of: bypass, auto" >&2
     exit 1
   fi
-  CLAUDE_PERMISSION_MODE=$(tr -d '[:space:]' < "$CONFIG/claude-permission-mode" || true)
+  CLAUDE_PERMISSION_MODE=$(cat "$CONFIG/claude-permission-mode" || true)
+  CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE#"${CLAUDE_PERMISSION_MODE%%[![:space:]]*}"}"
+  CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE%"${CLAUDE_PERMISSION_MODE##*[![:space:]]}"}"
   case "$CLAUDE_PERMISSION_MODE" in
     bypass|auto) ;;
     *)

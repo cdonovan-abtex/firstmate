@@ -724,7 +724,19 @@ fm_afk_launch_stop() {
 }
 
 fm_afk_launch_main() {
-  local result
+  local result harness
+  case "${1:-start}" in
+    propose|confirm|start|start-native)
+      if [ "${FM_AFK_MODE:-}" = quiet ]; then
+        harness=$(fm_afk_launch_primary_harness)
+        case "$harness" in
+          pi|pi-signed)
+            fm_afk_launch_log "quiet mode is unsupported on $harness; no mode state was changed"
+            return 1 ;;
+        esac
+      fi
+      ;;
+  esac
   # Traps first, lock second. Acquiring before the handlers exist leaves a
   # window where a signal terminates this process by default action and leaks
   # the lock directory, which then blocks the next away-mode launch until the

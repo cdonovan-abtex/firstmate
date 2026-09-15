@@ -1258,7 +1258,7 @@ test_claude_permission_mode_bypass_matches_absent_launch() {
   id=permmode-bypass-z19
   rec=$(make_spawn_case permmode-bypass claude "$id")
   read_case_record "$rec"
-  printf 'bypass\n' > "$HOME_DIR/config/claude-permission-mode"
+  printf '\n \tbypass \r\n' > "$HOME_DIR/config/claude-permission-mode"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
@@ -1275,7 +1275,7 @@ test_claude_permission_mode_auto_swaps_only_the_permission_flag() {
   rec=$(make_spawn_case permmode-auto claude "$id")
   read_case_record "$rec"
   # Surrounding whitespace is trimmed, so an editor's trailing newline or indent is fine.
-  printf '  auto\n' > "$HOME_DIR/config/claude-permission-mode"
+  printf '\n \tauto \r\n' > "$HOME_DIR/config/claude-permission-mode"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
@@ -1320,6 +1320,28 @@ test_claude_permission_mode_invalid_refuses_before_endpoint_or_metadata() {
   [ ! -s "$LAUNCH_LOG" ] || fail "an invalid permission mode must launch nothing (got: $(cat "$LAUNCH_LOG"))"
   assert_absent "$HOME_DIR/state/$id.meta" "refusal must happen before meta is written"
   pass "an unrecognized config/claude-permission-mode token refuses before any endpoint or metadata"
+}
+
+test_claude_permission_mode_internal_whitespace_refuses_before_mutation() {
+  local rec id out status token i=0 before
+  for token in 'by pass' $'by\npass' $'by\tpass' 'au to' $'au\nto'; do
+    i=$((i + 1))
+    id="permmode-split-$i"
+    rec=$(make_spawn_case "$id" claude "$id")
+    read_case_record "$rec"
+    printf '%s\n' "$token" > "$HOME_DIR/config/claude-permission-mode"
+    before="$TMP_ROOT/$id/before"
+    mkdir -p "$before"
+    cp -R "$HOME_DIR/state" "$HOME_DIR/data" "$before/"
+    out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+    status=$?
+    expect_code 1 "$status" "an internally split permission token must refuse"
+    assert_contains "$out" 'config/claude-permission-mode holds' "refusal must name the permission configuration"
+    [ ! -s "$LAUNCH_LOG" ] || fail "split permission token launched a worker"
+    diff -r "$before/state" "$HOME_DIR/state" >/dev/null || fail "split permission token changed task state"
+    diff -r "$before/data" "$HOME_DIR/data" >/dev/null || fail "split permission token changed task data"
+  done
+  pass "internal whitespace never promotes a permission token or mutates launch state"
 }
 
 test_non_claude_harness_ignores_claude_permission_mode() {
@@ -1375,6 +1397,7 @@ test_claude_permission_mode_bypass_matches_absent_launch
 test_claude_permission_mode_auto_swaps_only_the_permission_flag
 test_claude_permission_mode_auto_reaches_scout_launch
 test_claude_permission_mode_invalid_refuses_before_endpoint_or_metadata
+test_claude_permission_mode_internal_whitespace_refuses_before_mutation
 test_non_claude_harness_ignores_claude_permission_mode
 test_non_claude_harness_ignores_config_dir
 test_claude_task_launch_carries_control_channel_authority

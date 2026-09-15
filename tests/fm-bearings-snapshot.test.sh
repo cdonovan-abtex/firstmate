@@ -2435,6 +2435,53 @@ test_nameless_legacy_summary_uses_its_durable_identifier() {
   pass "blank legacy summary names use their durable identifier"
 }
 
+test_quiet_mode_bearings_preserves_posture() {
+  local home fakebin json rc out
+  home=$(make_home quiet-bearings)
+  : > "$home/data/secondmates.md"
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" propose >/dev/null || fail "quiet fixture proposal failed"
+  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" confirm >/dev/null || fail "quiet fixture confirmation failed"
+  printf 'quiet\n1234\n' > "$home/state/.afk"
+  cp "$home/state/.afk-contract" "$home/contract-before"
+  cp "$home/state/.afk" "$home/flag-before"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json) || fail "Bearings refused quiet mode"
+  printf '%s' "$json" | jq -e '.schema == "fm-bearings.v1"' >/dev/null || fail "quiet Bearings output is invalid: $json"
+  cmp "$home/flag-before" "$home/state/.afk" || fail "Bearings changed quiet mode"
+  cmp "$home/contract-before" "$home/state/.afk-contract" || fail "Bearings changed the quiet contract"
+  printf 'away\n1234\n' > "$home/state/.afk"
+  if out=$(run "$home" "$fakebin" --json 2>&1); then rc=0; else rc=$?; fi
+  [ "$rc" -eq 3 ] || fail "Bearings bypassed genuine away protection: $out"
+  pass "Bearings renders in quiet mode without exiting and still refuses away mode"
+}
+
+test_main_inventory_warning_survives_queue_bounds() {
+  local home fakebin json i
+  home=$(make_home inventory-before-bounds)
+  : > "$home/data/secondmates.md"
+  printf '## In flight\n- [ ] orphan - Unowned work (repo: sample) (kind: ship)\n\n## Queued\n' > "$home/data/backlog.md"
+  for i in $(seq 1 21); do
+    printf -- '- [ ] queued-%02d - Gate %02d (repo: sample) (kind: ship) (since 2026-06-%02d)\n' \
+      "$i" "$i" "$i" >> "$home/data/backlog.md"
+  done
+  printf '\n## Done\n' >> "$home/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    .gates[0].id == "(main-inventory)" and (.gates | length) == 21
+      and .gates[1].id == "queued-21"
+      and (.gates | any(.id == "queued-01") | not)
+      and (.omitted | any(.surface == "gates showing 20 of 21"))
+  ' >/dev/null || fail "queue bounds hid the inventory warning or changed ordinary selection: $json"
+  json=$(run "$home" "$fakebin" --json --all-queued)
+  printf '%s' "$json" | jq -e '
+    .gates[0].id == "(main-inventory)" and (.gates | length) == 22
+      and (.omitted | any(.reveal == "--all-queued") | not)
+  ' >/dev/null || fail "expanded queue lost or duplicated the inventory warning: $json"
+  pass "inventory repair warning remains visible before bounded and expanded queue rows"
+}
+
 test_newest_filed_gates_are_selected_before_snapshot_bounds() {
   local home mate fakebin json i
   home=$(make_home newest-before-bounds)
@@ -3348,6 +3395,8 @@ test_main_orphan_counterfactual_meta_clears_inventory_warning
 test_working_captain_holds_keep_their_bucket_surfaces
 test_active_children_project_independent_of_home_captain_hold
 test_nameless_legacy_summary_uses_its_durable_identifier
+test_quiet_mode_bearings_preserves_posture
+test_main_inventory_warning_survives_queue_bounds
 test_newest_filed_gates_are_selected_before_snapshot_bounds
 test_underway_and_gate_rows_carry_the_durable_name_and_filed_date
 test_mixed_secondmate_roles_partial_state_and_captain_readiness

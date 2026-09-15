@@ -282,7 +282,8 @@ catchup_summary() {
 
 return_guard() {
   local reasons
-  if [ -e "$STATE/.afk" ] || fm_afk_contract_present "$STATE"; then
+  if [ "$(fm_afk_flag_mode "$STATE")" != quiet ] \
+    && { [ -e "$STATE/.afk" ] || fm_afk_contract_present "$STATE"; }; then
     printf 'fm-afk-return: away mode is still active; run bin/fm-afk-return.sh before ordinary captain work\n' >&2
     return 3
   fi
