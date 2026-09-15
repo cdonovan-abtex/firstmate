@@ -405,7 +405,7 @@ test_return_brief_composes_from_record_store_and_held_set() {
   [ -e "$dir/home/state/afk-contracts" ] || fail "the return did not archive the away-posture record"
   [ ! -e "$dir/home/state/.afk-contract" ] || fail "the live away-posture record survived the return"
   assert_contains "$out" '=== Return brief (away ' "the brief did not open with the away window"
-  assert_contains "$out" 'supervision ran through the away window with no detected gap' "health did not report the clean window"
+  assert_contains "$out" 'no unresolved gap in supervision at return' "health did not report the absence of unresolved gaps"
   health_line=$(line_of "$out" 'Supervisor health:')
   clauses_line=$(line_of "$out" 'Mandate clauses:')
   waiting_line=$(line_of "$out" 'Waiting on you:')
@@ -439,7 +439,7 @@ test_return_brief_composes_from_record_store_and_held_set() {
   printf 'resolved [key=token]: the token was refreshed\n' >> "$dir/home/state/fix-windows.status"
   second=$(run_return "$dir" check) || fail "the remediated return did not clear: $second"
   assert_contains "$second" '1. merge task fix-windows PR when checks green - recorded, not executed by this release' "check did not re-render the mandate from the archived record"
-  assert_contains "$second" 'supervision ran through the away window with no detected gap' "check lost the health snapshot taken at begin"
+  assert_contains "$second" 'no unresolved gap in supervision at return' "check lost the health snapshot taken at begin"
   assert_contains "$second" 'catch-up clear' "check did not clear the gate"
   [ ! -e "$gate" ] || fail "the cleared check left the gate behind"
   FM_HOME="$dir/home" FM_STATE_OVERRIDE="$dir/home/state" "$dir/bin/fm-afk-return.sh" guard \
@@ -695,7 +695,7 @@ test_return_brief_health_leads_with_a_gap() {
   out=$(run_return "$dir" begin) || fail "a clean fleet with a supervision gap should still clear the gate: $out"
   assert_contains "$out" 'GAP: watcher downtime was detected during the away window' "the downtime marker was not reported as a gap"
   assert_contains "$out" 'GAP: the watcher beat was ' "the stale beacon was not reported as a gap"
-  assert_not_contains "$out" 'no detected gap' "a gap window was reported as clean"
+  assert_not_contains "$out" 'no unresolved gap' "an unresolved gap was reported as clear"
   gap_line=$(line_of "$out" 'GAP: watcher downtime')
   clean_line=$(line_of "$out" 'Mandate clauses:')
   [ "$gap_line" -lt "$clean_line" ] || fail "the gap was not reported before the mandate"
@@ -716,7 +716,8 @@ test_return_brief_does_not_report_an_acked_watcher_down_marker_as_a_gap() {
   : > "$dir/home/state/.fake-drain"
   out=$(run_return "$dir" begin) || fail "a clean fleet with only a handled marker should clear the gate: $out"
   assert_not_contains "$out" 'GAP: watcher downtime was detected' "an acked recovery marker was reported as an open gap"
-  assert_contains "$out" 'no detected gap' "a fully acked window was not reported as clean"
+  assert_contains "$out" 'no unresolved gap in supervision at return' "an acknowledged gap was not reported as resolved"
+  assert_not_contains "$out" 'no detected gap' "acknowledgement was mistaken for uninterrupted supervision"
   pass "the return brief does not report an already-acked watcher-down marker as an open gap"
 }
 

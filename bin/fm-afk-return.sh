@@ -342,7 +342,7 @@ GAP: the watcher beat was ${beat_age}s old at return (grace ${RETURN_GRACE}s)"
 delivery wedged: $(head -1 "$STATE/.subsuper-inject-wedged" 2>/dev/null || true)"
   fi
   if [ -z "$(printf '%s' "$lines" | tr -d '[:space:]')" ]; then
-    lines="supervision ran through the away window with no detected gap (watcher beat ${beat_age}s old at return)"
+    lines="no unresolved gap in supervision at return (watcher beat ${beat_age}s old)"
   fi
   append_evidence health "$lines" "$evidence"
 }
