@@ -30,8 +30,8 @@
 # Code's separate "Allow external CLAUDE.md file imports?" dialog, which
 # `--setting-sources project,local` (firstmate PR 10's minimal worker tool
 # surface) stopped suppressing: it renders whenever a loaded CLAUDE.md chain
-# reaches outside the project tree - which every crewmate's does, through the
-# captain's own `~/.claude/CLAUDE.md` importing `~/.claude/RTK.md` - and it is
+# reaches outside the project tree without prior approval, for example through
+# an import in the launching user's own `~/.claude/CLAUDE.md`, and it is
 # gated the same fail-closed way as trust: cursor on "No, disable", no arrow
 # navigation from firstmate's steering plane. Only worktree mode reaches this
 # second dialog's flags: a secondmate home has no separate "project" entry to
@@ -70,9 +70,9 @@
 # rather than flipping it, because doing so would grant every future
 # interactive session in that checkout silent external-file inclusion the
 # human declined, permanently and without being asked. The worktree entry is
-# left unwritten too: the spawn wedges on the dialog, which is the honest
-# outcome given a standing decline, not registered trust with a stripped
-# consent record. Approved===false with WarningShown false or absent is NOT
+# left unwritten too: the spawn refuses before launching Claude, preserving
+# the standing decline instead of registering trust with a stripped consent
+# record. Approved===false with WarningShown false or absent is NOT
 # that decision: Claude Code's default project entry carries both flags as
 # false before the dialog was ever shown, so that pair means "never asked" and
 # is treated like an absent flag - trust registered, no import consent.
@@ -408,9 +408,9 @@ fi
 # are left untouched on both entries: writing them to the worktree entry alone
 # would be a pure no-op (the imports check never reads it) that only obscures
 # the real state, so trust still registers normally but the import dialog is
-# left exactly as undecided as it already was - the worker wedges on it, the
-# same honest outcome as an explicit decline, rather than a spawn spending
-# consent the human was never asked for.
+# left exactly as undecided as it already was and may block the worker.
+# An explicit decline instead refuses registration before launch; neither path
+# spends consent the human never gave.
 TRUST_FLAG='hasTrustDialogAccepted'
 IMPORT_FLAGS='["hasClaudeMdExternalIncludesApproved","hasClaudeMdExternalIncludesWarningShown"]'
 if [ "$MODE" = worktree ]; then
@@ -453,8 +453,8 @@ const flagsLanded = (projects, key, flags) =>
 // which means never asked, not declined); flipping it to true would grant every future
 // interactive session in that checkout silent external-file inclusion the
 // human declined. Refuse the whole registration instead of overriding it -
-// the worktree entry is not written either, so the spawn wedges on the
-// dialog rather than the human's consent being spent without being asked.
+// the worktree entry is not written either, so the spawn refuses before
+// launching Claude rather than spending the human's consent without asking.
 const declinedExternalImports = (projects, key) =>
   projects?.[key]?.hasClaudeMdExternalIncludesApproved === false &&
   projects?.[key]?.hasClaudeMdExternalIncludesWarningShown === true;

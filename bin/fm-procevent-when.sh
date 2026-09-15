@@ -51,19 +51,19 @@
 #            record, and fired marker. Idempotent. Captured results and their
 #            handled acknowledgements are never touched. Warns when the action
 #            had already fired without a captured outcome.
-# rebind-all Refresh the trust binding of every registered watch whose action
-#            executable lives under this repo (FM_ROOT), re-hashing it against
-#            its CURRENT on-disk bytes. A self-update fast-forwards bin/ in
-#            place, which changes those bytes with no tampering involved; left
-#            alone, the next fire is refused as not matching the registered
-#            trust binding, and the watch dies silently. rebind-all is meant to
-#            run right after such an update. It still validates each watch's
-#            existing spec and trust chain exactly as an ordinary fire would
-#            (a watch already broken for some other reason is reported, not
-#            silently patched over), and it never touches an action executable
-#            outside FM_ROOT: rebinding follows this repo's own tracked
-#            update, never an arbitrary swapped action. Idempotent: a watch
-#            whose action bytes already match its binding is left alone.
+# rebind-all Refresh bindings only for regular, non-symlink action executables
+#            under resolved FM_ROOT, tracked as mode 100755 blobs in HEAD, whose
+#            on-disk bytes match that blob. Untracked, ignored, external, and
+#            symlink actions are skipped; dirty tracked actions or invalid
+#            spec/trust pairs report failure. Matching bindings stay unchanged.
+# fast-forward <commit> Serialize watch enumeration, git merge --ff-only, and
+#            eligible rebinding with arm's action hashing and publication under
+#            the target home's update lock. Per-source locks exclude startup
+#            and fire-time trust reads until each complete binding is visible.
+#            bin/fm-ff-lib.sh invokes this for primary and secondmate updates.
+#            A refused lock or merge leaves bindings unchanged; a rebind failure
+#            after the merge warns without undoing the advance. A changed action
+#            still lacking a valid binding produces a terminal rejected outcome.
 # run        The blocking child the generic runner executes; never run it in a
 #            conversational turn. It polls the condition on the registered
 #            cadence, requires the stable count of consecutive trues, claims a

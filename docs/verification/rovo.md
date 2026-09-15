@@ -66,7 +66,7 @@ Enter to queue, Ctrl+Enter to steer
 This is a rendered-tail fallback exactly like Grok's, not a semantic source: rovo's `eventHooks` (`~/.rovo/config.yml`) fire at tool granularity (`on_tool_start`/`on_tool_end`) only, never at turn-end, so no writer is armed and none is seeded.
 Grok was previously the only rendered-text arm the redesigned busy contract allowed; this task extends that same documented exception to rovo, scoped to `harness=rovo` exactly like Grok is scoped to `harness=grok`, and neither can classify the other (`tests/fm-rovo-harness.test.sh`'s isolation case).
 
-## Composer ghost text: measured, deliberately left unfixed
+## Composer ghost text: measured colors and scoped regression
 
 A live idle-composer capture over a raw PTY located the inline placeholder chip inside the actual bordered content row, not merely in a suggestion list below it:
 
@@ -77,11 +77,12 @@ row 12  ╰───────────────────────
 ```
 
 Real typed text in the same row, captured separately, renders at `38;2;206;207;210` (luminance ~207).
-Both values sit above `bin/fm-composer-lib.sh`'s default `FM_COMPOSER_GHOST_LUMA_MAX` of 128, so `fm_composer_strip_ghost` leaves the placeholder unstripped and a fresh rovo composer can misclassify as `pending` rather than `empty`.
+Both values sit above `bin/fm-composer-lib.sh`'s default `FM_COMPOSER_GHOST_LUMA_MAX` of 128, so the generic ghost stripper leaves the placeholder unstripped; before the Rovo-specific proof, a fresh composer could classify as `pending` rather than `empty`.
 Raising the shared default was considered and rejected: muse's own real, must-not-be-stripped prompt glyph measures luminance ~149.9 (`muse.md`), below rovo's ghost luminance of ~163, so no single global threshold can keep muse's glyph real while dropping rovo's ghost chip.
-This is recorded as a known gap rather than patched, because the safe fix needs a harness-scoped signal the shared composer classifier does not carry today, and a threshold change risks regressing muse's already-credentialed behavior for a rovo-scoped fix.
-The blast radius is bounded to composer-emptiness consumers such as steering delivery, which already retries through the doorbell ladder on a non-`empty` read.
-It does not block readiness: readiness leads with the `Welcome to Rovo!` banner, so the ghost chip is never the deciding signal there. Delivery, however, requires composer-empty as one conjunct (alongside the echoed pointer or a nonzero `Context:` percentage), and on the herdr backend this conjunct may fail to settle within its poll window (the composer read non-empty even mid-turn in the live herdr run below), so `rovo_wait_for_delivery` can fail the gate and tear the pane down there. tmux delivery is separately verified working (see the tmux backend-liveness section below). This is a known limitation whose fix is tracked as a separate follow-up, not fixed in this change.
+The [Rovo adapter reference](../../.agents/skills/harness-adapters/references/harness/rovo.md#composer-ghost-text) owns the current scoped empty-input proof.
+`tests/fm-composer-lib.test.sh` and `tests/fm-control.test.sh` cover the measured placeholder, actual pending text, and missing or foreign identity through the classifier and lifecycle boundary.
+The earlier live Herdr run below failed delivery because composer-empty did not settle within its poll window, even mid-turn, while the later tmux run confirmed delivery.
+Those dated observations do not constitute a fresh live verification of the scoped fix.
 
 ## Interrupt: confirmed under real tmux
 

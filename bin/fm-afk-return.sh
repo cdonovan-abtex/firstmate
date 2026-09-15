@@ -7,7 +7,7 @@
 #   fm-afk-return.sh begin    Same as the default command.
 #   fm-afk-return.sh check    Re-render the brief and close the gate only after blockers resolve.
 #   fm-afk-return.sh guard    Read-only consult: exit 3 while away mode is still
-#                            active, exit 4 while return catch-up is pending.
+#                            active (quiet is allowed), 4 while catch-up is pending.
 #   fm-afk-return.sh catchup-summary  Read-only catch-up projection for a reporting surface.
 #
 # THE RETURN BRIEF (stdout, on begin and on every check) is rendered from durable

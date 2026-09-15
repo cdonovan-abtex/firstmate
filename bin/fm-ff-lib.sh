@@ -21,9 +21,10 @@
 # never touches the network. A local standalone clone moves through that path
 # only when it already has the target; otherwise it is skipped until the origin
 # path updates it.
-# A tracked-files fast-forward never touches the gitignored operational dirs
-# (data/, state/, config/, projects/, .no-mistakes/), so it cannot disturb a
-# secondmate's backlog, projects, or in-flight work.
+# Git's tracked-files advance leaves the gitignored operational dirs intact.
+# The shared merge boundary also refreshes eligible watch bindings in the target
+# home's state for primary updates and local or remote secondmate syncs;
+# bin/fm-procevent-when.sh owns that transaction and its trust restrictions.
 # The seeded .fm-secondmate-home identity marker is gitignored too; the local
 # sync tolerates only that marker during the one-time upgrade of pre-ignore
 # linked-worktree homes.

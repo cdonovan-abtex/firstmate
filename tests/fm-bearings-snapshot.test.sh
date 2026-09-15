@@ -16,6 +16,9 @@ set -u
 BEARINGS="$ROOT/bin/fm-bearings-snapshot.sh"
 TASKS_AXI_BIN=$(command -v tasks-axi || true)
 TMP_ROOT=$(fm_test_tmproot fm-bearings)
+# Stop Git's parent discovery at the disposable fixture boundary, so worktree
+# directories without their own repository never inherit the source origin.
+git -C "$TMP_ROOT" init -q || fail "could not isolate fixture Git discovery"
 # Keep disposable homes outside the snapshot's fixture repo boundary even when
 # TMPDIR is inside an isolated source worktree.
 FM_ROOT_OVERRIDE="$TMP_ROOT/fixture-root"
