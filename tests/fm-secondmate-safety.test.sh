@@ -2001,6 +2001,7 @@ test_secondmate_force_teardown_preserves_child_on_unproven_lock() {
   fm_git_worktree "$childproj" "$childwt" force-child-lock
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$childwt" \
     > "$TMP_ROOT/force-lock-child-pool/treehouse-state.json"
+  printf 'task=child\nhome=%s\n' "$subhome" > "$(dirname "$childwt")/.fm-slot-owner"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
 window=firstmate:fm-domain

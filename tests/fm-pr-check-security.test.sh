@@ -2462,6 +2462,7 @@ test_contended_pr_poll_defers_to_sibling_check() {
   chmod 700 "$state/z-sibling.check.sh"
   FM_HOME="$dir/home" "$REGISTER" z-sibling >/dev/null || fail "could not register sibling"
   (
+    # shellcheck source=/dev/null
     . "$ROOT/bin/fm-wake-lib.sh"
     fm_lock_try_acquire "$state/.control-task-a.lock" || exit 1
     trap 'fm_lock_release "$state/.control-task-a.lock"' EXIT
