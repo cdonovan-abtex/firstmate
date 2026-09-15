@@ -77,19 +77,6 @@ fi
 
 # --- main firstmate repo ---------------------------------------------------
 
-fm_ff_merge() {
-  local dir=$2 base=$5 home state
-  if [ "$dir" -ef "$FM_ROOT" ]; then
-    home=$FM_HOME
-    state=$STATE
-  else
-    home=$dir
-    state="$home/state"
-  fi
-  FM_HOME="$home" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
-    "$SCRIPT_DIR/fm-procevent-when.sh" fast-forward "$base"
-}
-
 reread_firstmate="no"
 ff_target "$FM_ROOT" "firstmate" origin no no
 if [ "$FF_STATUS" = "updated" ]; then

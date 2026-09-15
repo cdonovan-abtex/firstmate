@@ -109,7 +109,7 @@ fm_tmux_composer_identity() {  # <target>
         [ "$pgid" = "$tpgid" ] || continue
         case "${comm##*/}" in
           pi|pi-signed|pi-launcher|Pi) found=pi ;;
-          agy) found=agy ;;
+          agy|rovo) found=${comm##*/} ;;
         esac
       done <<EOF
 $(LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null)
@@ -120,11 +120,11 @@ EOF
     comm=$(tmux display-message -p -t "$target" '#{pane_current_command}' 2>/dev/null) || comm=
     case "${comm##*/}" in
       pi|pi-signed|pi-launcher) found=pi ;;
-      agy) found=agy ;;
+      agy|rovo) found=${comm##*/} ;;
     esac
   fi
   [ -n "$found" ] || return 1
-  if [ "$found" = agy ]; then printf 'agy\tlive'; return 0; fi
+  if [ "$found" != pi ]; then printf '%s\tlive' "$found"; return 0; fi
   status=$(fm_pane_busy_state "$target" pi)
   case "$status" in
     busy) printf 'pi\tworking' ;;

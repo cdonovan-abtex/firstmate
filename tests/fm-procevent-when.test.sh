@@ -28,6 +28,12 @@ when() { FM_HOME="$1" "$ROOT/bin/fm-procevent-when.sh" "${@:2}"; }
 # fires cannot survive the run.
 new_home() { mkdir -p "$1/state"; fm_test_track_procevent_home "$1"; }
 
+commit_action() {
+  git -C "$1" init -q
+  git -C "$1" add bin/act.sh
+  git -C "$1" -c user.name=Tests -c user.email=tests@example.invalid commit -qm action
+}
+
 wake_payloads() { awk -F '\t' '{print $5}' "$1/state/.wake-queue" 2>/dev/null; }
 
 first_result() {  # <home> <source-id>
@@ -409,6 +415,7 @@ log=$1
 echo v1 >> "$log"
 SH
 chmod +x "$IN_REPO_ACT"
+commit_action "$REPO_ROOT"
 OUT_OF_REPO_ACT="$TMP_ROOT/rebind-outside-act.sh"
 cat > "$OUT_OF_REPO_ACT" <<'SH'
 #!/usr/bin/env bash
@@ -440,6 +447,7 @@ echo v2 >> "$log"
 echo "action ran v2 against $log"
 SH
 chmod +x "$IN_REPO_ACT"
+commit_action "$REPO_ROOT"
 NEW_HASH=$(fm_pr_sha256 "$IN_REPO_ACT")
 [ "$OLD_IN_REPO_SHA" != "$NEW_HASH" ] || fail "test fixture error: mutation did not change the in-repo action's hash"
 printf "#!/usr/bin/env bash\necho v2 >> \"\$1\"\n" > "$OUT_OF_REPO_ACT"
@@ -482,6 +490,7 @@ log=$1
 echo v1 >> "$log"
 SH
 chmod +x "$REPO_REAL/bin/act.sh"
+commit_action "$REPO_REAL"
 when_symlink_ro() { FM_HOME="$1" FM_ROOT_OVERRIDE="$REPO_LINK" "$ROOT/bin/fm-procevent-when.sh" "${@:2}"; }
 
 when_symlink_ro "$H" arm rebind-symlink --interval 0.1 --stable 1 \
@@ -493,6 +502,7 @@ log=$1
 echo v2 >> "$log"
 SH
 chmod +x "$REPO_REAL/bin/act.sh"
+commit_action "$REPO_REAL"
 
 OUT=$(when_symlink_ro "$H" rebind-all) || fail "rebind-all reported a failure through a symlinked FM_ROOT: $OUT"
 assert_contains "$OUT" "rebound: when-rebind-symlink" \
@@ -517,6 +527,7 @@ echo v1 >> "$1"
 echo "v1 ran against $1"
 SH
 chmod +x "$LIVE_ACT"
+commit_action "$REPO_ROOT"
 LIVE_TRIGGER="$TMP_ROOT/live-rebind-trigger"
 LIVE_COUNTER="$TMP_ROOT/live-rebind-count"
 LIVE_LOG="$TMP_ROOT/live-rebind.log"
@@ -540,6 +551,7 @@ echo v2 >> "$1"
 echo "v2 ran against $1"
 SH
 chmod +x "$LIVE_ACT"
+commit_action "$REPO_ROOT"
 OUT=$(when_live_ro "$H" rebind-all) || fail "rebind-all reported a failure during a live poll: $OUT"
 assert_contains "$OUT" "rebound: when-live-rebind" "the live watch's trust binding was rebound on disk"
 
@@ -791,5 +803,52 @@ assert_grep 'status: fired' "$WORLD/result" "refusal recovery left a stale watch
 [ "$(cat "$WORLD/action.log")" = v2 ] || fail "refusal recovery did not execute the updated action exactly once"
 when_update_case retire refused >/dev/null 2>&1
 pass "registration and update refusals preserve the checkout and release the shared transaction"
+
+for ownership in ignored untracked symlink dirty-tracked; do
+  WORLD="$TMP_ROOT/rebind-refuse-$ownership"
+  UPDATE_REPO="$WORLD/repo"
+  UPDATE_HOME="$WORLD/home"
+  new_home "$UPDATE_HOME"
+  mkdir -p "$UPDATE_REPO/bin" "$UPDATE_REPO/data"
+  git -C "$UPDATE_REPO" init -q
+  printf 'data/\n' > "$UPDATE_REPO/.gitignore"
+  MUTABLE="$UPDATE_REPO/bin/helper.sh"
+  [ "$ownership" != ignored ] || MUTABLE="$UPDATE_REPO/data/helper.sh"
+  printf '#!/usr/bin/env bash\nprintf "v1\n" >> "$1"\n' > "$MUTABLE"
+  chmod +x "$MUTABLE"
+  printf 'before\n' > "$UPDATE_REPO/README.md"
+  git -C "$UPDATE_REPO" add .gitignore README.md
+  case "$ownership" in
+    dirty-tracked) git -C "$UPDATE_REPO" add bin/helper.sh ;;
+    symlink)
+      ln -s helper.sh "$UPDATE_REPO/bin/action.sh"
+      git -C "$UPDATE_REPO" add bin/helper.sh bin/action.sh
+      ;;
+  esac
+  git -C "$UPDATE_REPO" -c user.name=Tests -c user.email=tests@example.invalid commit -qm before
+  BEFORE=$(git -C "$UPDATE_REPO" rev-parse HEAD)
+  printf 'after\n' > "$UPDATE_REPO/README.md"
+  git -C "$UPDATE_REPO" add README.md
+  git -C "$UPDATE_REPO" -c user.name=Tests -c user.email=tests@example.invalid commit -qm after
+  AFTER=$(git -C "$UPDATE_REPO" rev-parse HEAD)
+  git -C "$UPDATE_REPO" checkout -q --detach "$BEFORE"
+  ACTION=$MUTABLE
+  [ "$ownership" != symlink ] || ACTION="$UPDATE_REPO/bin/action.sh"
+  when_update_case arm refuse --stable 1 --condition true --action "$ACTION" "$WORLD/effect" >/dev/null
+  OLD_SPEC=$(cat "$UPDATE_HOME/state/when/when-refuse.spec")
+  OLD_TRUST=$(cat "$UPDATE_HOME/state/when/when-refuse.trust")
+  printf '#!/usr/bin/env bash\nprintf "mutated\n" >> "$1"\n' > "$MUTABLE"
+  when_update_case fast-forward "$AFTER" > "$WORLD/update.out" 2>&1 \
+    || fail "$ownership: unrelated update failed"
+  [ "$(git -C "$UPDATE_REPO" rev-parse HEAD)" = "$AFTER" ] || fail "$ownership: update did not advance"
+  [ "$(cat "$UPDATE_HOME/state/when/when-refuse.spec")" = "$OLD_SPEC" ] || fail "$ownership: update trusted changed helper"
+  [ "$(cat "$UPDATE_HOME/state/when/when-refuse.trust")" = "$OLD_TRUST" ] || fail "$ownership: update rewrote trust"
+  when_update_case run when-refuse > "$WORLD/result"
+  assert_grep 'status: rejected' "$WORLD/result" "$ownership: changed helper must be refused"
+  assert_absent "$WORLD/effect" "$ownership: changed helper executed"
+  assert_absent "$UPDATE_HOME/state/when/when-refuse.fired" "$ownership: refused helper claimed a fire"
+  when_update_case retire refuse >/dev/null 2>&1
+  pass "$ownership: unrelated update preserves action mutation refusal"
+done
 
 printf 'all fm-procevent-when tests passed\n'

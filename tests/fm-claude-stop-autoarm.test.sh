@@ -1275,3 +1275,42 @@ test_afk_mid_cycle_suppresses_rewake
 test_active_in_marked_secondmate_home
 test_long_poll_grace_reaches_arm_wrapper
 test_fm_lock_status_still_works_with_shared_lib
+
+
+test_term_mid_arm_respects_suppression() {
+  local dir out hook_pid i status mode expected
+  for mode in away quiet clean; do
+    dir=$(make_primary_dir "$TMP_ROOT/term-suppressed-$mode")
+    : > "$dir/state/task.meta"
+    write_arm_fixture "$dir" reset-boundary
+    out="$dir/state/autoarm.out"
+    run_autoarm_bg "$dir" "$out"
+    hook_pid=
+    i=0
+    while [ "$i" -lt 100 ]; do
+      hook_pid=$(epoch_field "$dir" owner_pid)
+      [ -n "$hook_pid" ] && [ -e "$dir/state/arm-waiting" ] && break
+      sleep 0.02
+      i=$((i + 1))
+    done
+    [ -n "$hook_pid" ] && [ -e "$dir/state/arm-waiting" ] || fail "$mode: arm did not reach signal barrier"
+    if [ "$mode" = clean ]; then
+      rm "$dir/state/task.meta"
+      expected=clean
+    else
+      printf 'mode=%s\n' "$mode" > "$dir/state/.afk"
+      expected=afk
+    fi
+    kill -TERM "$hook_pid" || fail "$mode: could not signal fixture hook"
+    : > "$dir/state/arm-release"
+    status=0
+    wait "$RUN_AUTOARM_BG_PID" || status=$?
+    expect_code 0 "$status" "$mode: suppressed timeout must not request recovery"
+    [ "$(epoch_outcome "$dir")" = "$expected" ] || fail "$mode: timeout ignored suppression"
+    assert_absent "$dir/state/.claude-autoarm-failure-notified" "$mode: timeout created a failure episode"
+    [ ! -s "$out" ] || fail "$mode: suppressed timeout emitted recovery output: $(cat "$out")"
+  done
+  pass "auto-arm: TERM respects away, quiet and vanished supervision need"
+}
+
+test_term_mid_arm_respects_suppression

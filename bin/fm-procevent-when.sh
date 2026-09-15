@@ -554,7 +554,7 @@ publish_spec() {
 # rebind_one <source-id>: 0 = rebound, 1 = failed (reported to stderr), 2 =
 # unchanged or the action lives outside FM_ROOT (skipped, not an error).
 rebind_one_locked() {
-  local sid=$1 action_path action_hash device
+  local sid=$1 action_path action_hash device relative entry metadata mode kind blob= disk_hash
   if ! spec_load "$sid"; then
     printf 'skip: %s (%s)\n' "$sid" "$SPEC_ERROR" >&2
     return 1
@@ -567,8 +567,18 @@ rebind_one_locked() {
     "$FM_ROOT_REAL"/*) ;;
     *) return 2 ;;
   esac
-  if ! action_hash=$(fm_pr_sha256 "$action_path"); then
-    printf 'skip: %s (cannot hash the action executable)\n' "$sid" >&2
+  [ ! -L "$action_path" ] || return 2
+  relative=${action_path#"$FM_ROOT_REAL"/}
+  while IFS= read -r -d '' entry; do
+    [ "${entry#*$'\t'}" = "$relative" ] || continue
+    metadata=${entry%%$'\t'*}
+    read -r mode kind blob <<< "$metadata"
+    break
+  done < <(git -C "$FM_ROOT_REAL" ls-tree -z HEAD -- "$relative" 2>/dev/null)
+  [ "${mode:-}" = 100755 ] && [ "${kind:-}" = blob ] && [ -n "$blob" ] || return 2
+  if ! action_hash=$(set -o pipefail; git -C "$FM_ROOT_REAL" cat-file blob "$blob" | fm_pr_sha256 /dev/stdin) \
+    || ! disk_hash=$(fm_pr_sha256 "$action_path") || [ "$disk_hash" != "$action_hash" ]; then
+    printf 'skip: %s (action executable does not match tracked Git content)\n' "$sid" >&2
     return 1
   fi
   if [ "$action_hash" = "$SPEC_ACTION_SHA256" ]; then

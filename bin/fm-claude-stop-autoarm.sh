@@ -222,6 +222,14 @@ handle_autoarm_signal() {
   local signal=$1
   trap - HUP TERM INT
   [ -z "${OUT:-}" ] || rm -f "$OUT" 2>/dev/null || true
+  if [ -e "$STATE/.afk" ]; then
+    autoarm_record afk
+    exit 0
+  fi
+  if ! need_supervision; then
+    autoarm_record clean
+    exit 0
+  fi
   if [ -e "$FAILURE_ALARM" ]; then
     autoarm_record failed-suppressed
     exit 0

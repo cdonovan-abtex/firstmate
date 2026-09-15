@@ -43,6 +43,7 @@ fm_git_identity fmtest fmtest@example.com
 
 TMP_ROOT=$(fm_test_tmproot fm-secondmate-sync)
 export FM_BACKEND=tmux
+export FM_PROCEVENT_CLAIM_ROOT="$TMP_ROOT/claims"
 
 # --- world builders --------------------------------------------------------
 
@@ -1376,3 +1377,60 @@ test_bootstrap_reports_outdated_host_actionably
 test_remote_launch_does_not_retarget_host_copy
 
 echo "# all fm-secondmate-sync tests passed"
+
+
+test_home_sync_rebinds_watches() {
+  local lane w before after home old_spec result
+  for lane in local remote; do
+    w=$(new_remote_world "watch-sync-$lane")
+    printf '#!/usr/bin/env bash\nprintf "v1\n" >> "$1"\n' > "$w/main/bin/action.sh"
+    chmod +x "$w/main/bin/action.sh"
+    git -C "$w/main" add bin/action.sh
+    git -C "$w/main" commit -qm action-before
+    before=$(head_of "$w/main")
+    if [ "$lane" = remote ]; then
+      add_remote_home "$w" sm "$w/main" "$before"
+    else
+      seed_marked_home "$w" sm "$before"
+    fi
+    home="$w/sm"
+    fm_test_track_procevent_home "$home"
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$home" "$ROOT/bin/fm-procevent-when.sh" arm sync \
+      --stable 1 --condition true --action "$home/bin/action.sh" "$w/effect" >/dev/null \
+      || fail "$lane: could not arm a home-owned action"
+    old_spec=$(cat "$home/state/when/when-sync.spec")
+    printf '#!/usr/bin/env bash\nprintf "v2\n" >> "$1"\n' > "$w/main/bin/action.sh"
+    git -C "$w/main" add bin/action.sh
+    git -C "$w/main" commit -qm action-after
+    after=$(head_of "$w/main")
+    git -C "$w/coderoot" fetch -q "$w/main" main
+    printf 'operator work\n' >> "$home/AGENTS.md"
+    if [ "$lane" = remote ]; then
+      remote_sync "$w" sm "$after"
+      [ "$REMOTE_SYNC_RC" -ne 0 ] || fail "remote sync accepted a dirty home"
+    else
+      FM_ROOT="$w/main" FM_HOME="$w/home" run_ff "$home" "$after"
+      [ "$FF_STATUS" = skipped ] || fail "local sync accepted a dirty home"
+    fi
+    [ "$(head_of "$home")" = "$before" ] || fail "$lane: refused update advanced HEAD"
+    [ "$(cat "$home/state/when/when-sync.spec")" = "$old_spec" ] || fail "$lane: refused update changed watch trust"
+    assert_grep 'operator work' "$home/AGENTS.md" "$lane: refused update lost work"
+    assert_present "$home/state/procevent/when-sync.source" "$lane: refused update lost the watch"
+    git -C "$home" checkout -- AGENTS.md
+    if [ "$lane" = remote ]; then
+      remote_sync "$w" sm "$after"
+      expect_code 0 "$REMOTE_SYNC_RC" "remote sync failed: $REMOTE_SYNC_OUT"
+    else
+      FM_ROOT="$w/main" FM_HOME="$w/home" run_ff "$home" "$after"
+      [ "$FF_STATUS" = updated ] || fail "local sync failed: $FF_OUT"
+    fi
+    [ "$(head_of "$home")" = "$after" ] || fail "$lane: successful sync did not advance HEAD"
+    result=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$home" "$ROOT/bin/fm-procevent-when.sh" run when-sync)
+    assert_contains "$result" 'status: fired' "$lane: updated home retained an obsolete watch binding"
+    [ "$(cat "$w/effect")" = v2 ] || fail "$lane: watch did not execute the updated action once"
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$home" "$ROOT/bin/fm-procevent-when.sh" retire sync >/dev/null 2>&1
+    pass "$lane home sync rebinds tracked actions and preserves dirty-home refusal"
+  done
+}
+
+test_home_sync_rebinds_watches

@@ -199,7 +199,7 @@ fm_composer_normalize_trim_var() {  # <varname>
 # LC_ALL=C makes awk walk bytes, so multibyte glyphs (e.g. ❯) and de-emphasised
 # runs alike pass through or drop intact without locale-dependent classes.
 fm_composer_strip_ghost() {
-  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" '
+  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" -v rovo="${_FM_COMPOSER_ROVO_GHOST:-0}" '
     function sgr_code(v, b) {
       b = v
       sub(/:.*/, "", b)
@@ -225,11 +225,11 @@ fm_composer_strip_ghost() {
         nf = split(spec, f, ":")
         if (f[2] != "2" || nf < 5) return 0
         r = f[nf - 2] + 0; g = f[nf - 1] + 0; b = f[nf] + 0
-        return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
+        return (rovo == 1 && r == 162 && g == 163 && b == 165) || ((299*r + 587*g + 114*b) / 1000 < lumamax)
       }
       if (p + 1 > k || a[p + 1] != "2" || p + 4 > k) return 0
       r = a[p + 2] + 0; g = a[p + 3] + 0; b = a[p + 4] + 0
-      return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
+      return (rovo == 1 && r == 162 && g == 163 && b == 165) || ((299*r + 587*g + 114*b) / 1000 < lumamax)
     }
     {
       line = $0; out = ""; dim = 0; darkfg = 0; n = length(line); i = 1
@@ -969,6 +969,22 @@ _fm_composer_row_content() {  # <raw-row> <styled> -> content on stdout
 _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <last-row>
   local screen=$1 styled=$2 ambiguous=$3 first=$4 last=$5
   local row raw content plain state unknown_seen=0
+  local has_identity=${6:-0} identity=${7:-} _FM_COMPOSER_ROVO_GHOST=0
+  if [ "$styled" = 1 ] && [ "$has_identity" = 1 ]; then
+    case "$identity" in
+      $'rovo\tidle'|$'rovo\tdone'|$'rovo\tlive') _FM_COMPOSER_ROVO_GHOST=1 ;;
+    esac
+    if [ -z "$identity" ]; then
+      row=$first
+      while [ "$row" -le "$last" ]; do
+        raw=$(_fm_composer_screen_row "$row" "$screen")
+        case "$raw" in
+          *'38;2;162;163;165'*|*'38:2:162:163:165'*|*'38:2::162:163:165'*) printf 'need-identity'; return 0 ;;
+        esac
+        row=$((row + 1))
+      done
+    fi
+  fi
   row=$first
   while [ "$row" -le "$last" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
@@ -1299,7 +1315,7 @@ EOF
     fi
     if [ "$FM_COMPOSER_SCAN_BOX_TOP" -ge 0 ]; then
       _fm_composer_classify_rows "$screen" "$styled" "$FM_COMPOSER_SCAN_BOX_AMBIG" \
-        "$((FM_COMPOSER_SCAN_BOX_TOP + 1))" "$((FM_COMPOSER_SCAN_BOX_BOTTOM - 1))"
+        "$((FM_COMPOSER_SCAN_BOX_TOP + 1))" "$((FM_COMPOSER_SCAN_BOX_BOTTOM - 1))" "$has_identity" "$identity"
       return 0
     fi
     if [ "$FM_COMPOSER_SCAN_LEFTBAR_START" -ge 0 ] \
@@ -1359,7 +1375,7 @@ EOF
       ;;
     box)
       _fm_composer_classify_rows "$screen" "$styled" "$FM_COMPOSER_SELECTED_AMBIG" \
-        "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST"
+        "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST" "$has_identity" "$identity"
       ;;
     bare)
       if [ "$FM_COMPOSER_SELECTED_LAST" -gt "$FM_COMPOSER_SELECTED_FIRST" ]; then

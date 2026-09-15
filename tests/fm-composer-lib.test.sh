@@ -770,3 +770,34 @@ test_agy_identity_and_complete_composer() {
 }
 
 test_agy_identity_and_complete_composer
+
+
+test_rovo_placeholder_requires_styled_native_identity() {
+  local screen caps got cursor identity color content
+  for cursor in 0 1; do
+    caps=$(printf 'styled=1\ncursor=%s\nidentity=1' "$cursor")
+    for color in '38;2;162;163;165' '38:2::162:163:165'; do
+      screen=$(printf '╭────────────────────────────╮\n│ \033[%smSummarize my open tasks\033[0m    │\n╰────────────────────────────╯\n' "$color")
+      got=$(fm_composer_classify_screen "$caps" "$screen" 1)
+      [ "$got" = need-identity ] || fail "Rovo placeholder must request native identity: $got"
+      for identity in $'rovo\tidle' $'rovo\tdone' $'rovo\tlive'; do
+        got=$(fm_composer_classify_screen "$caps" "$screen" 1 "$identity")
+        [ "$got" = empty ] || fail "Rovo placeholder was not recognized: $got"
+      done
+      for identity in probe-absent $'muse\tidle' $'rovo\tworking' $'rovo\tblocked'; do
+        got=$(fm_composer_classify_screen "$caps" "$screen" 1 "$identity")
+        [ "$got" = pending ] || fail "foreign or unproven identity stripped Rovo-colored content: $got"
+      done
+      got=$(fm_composer_classify_screen $'styled=0\ncursor=1\nidentity=1' "$screen" 1 $'rovo\tidle')
+      [ "$got" != empty ] || fail "unstyled capture proved Rovo placeholder empty"
+    done
+    for content in $'\033[38;2;206;207;210mSummarize my open tasks\033[0m' $'\033[38;2;162;163;165mHint\033[38;2;206;207;210mdraft\033[0m              '; do
+      screen=$(printf '╭────────────────────────────╮\n│ %s    │\n╰────────────────────────────╯\n' "$content")
+      got=$(fm_composer_classify_screen "$caps" "$screen" 1 $'rovo\tidle')
+      [ "$got" = pending ] || fail "Rovo actual typed input was stripped: $got"
+    done
+  done
+  pass "Rovo placeholder needs native identity and styling; real input stays pending"
+}
+
+test_rovo_placeholder_requires_styled_native_identity
