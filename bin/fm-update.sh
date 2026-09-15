@@ -51,6 +51,7 @@
 # A positively dead or missing endpoint has no agent to replace and is left to
 # the ordinary startup recovery.
 #
+#
 # Usage: fm-update.sh [--help]
 set -eu
 
@@ -78,8 +79,11 @@ fi
 
 reread_firstmate="no"
 ff_target "$FM_ROOT" "firstmate" origin no no
-if [ "$FF_STATUS" = "updated" ] && [ -n "$FF_INSTR" ]; then
-  reread_firstmate="yes"
+if [ "$FF_STATUS" = "updated" ]; then
+  if [ -n "$FF_INSTR" ]; then
+    reread_firstmate="yes"
+  fi
+
 fi
 
 # --- secondmates -----------------------------------------------------------

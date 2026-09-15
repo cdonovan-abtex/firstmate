@@ -86,7 +86,7 @@ fm_tmux_composer_caps() {
 
 # fm_tmux_composer_identity: the tmux agent-identity probe backing the
 # separated (pi) composer shape, tmux's analogue of herdr's native
-# `agent get`. It answers only for pi, from two live signals:
+# `agent get`. It answers for pi and agy, from live signals:
 #   - identity: the pane tty's FOREGROUND process group (pgid = tpgid, the
 #     same scoping as fm_backend_tmux_foreground_comms) contains a pi-family
 #     process (pi, pi-signed, pi-launcher - docs/verification/
@@ -100,7 +100,7 @@ fm_tmux_composer_caps() {
 # Prints "pi<TAB>idle" or "pi<TAB>working"; exits 1 when the pane is not a
 # live pi.
 fm_tmux_composer_identity() {  # <target>
-  local target=$1 tty pgid tpgid comm found=0 status
+  local target=$1 tty pgid tpgid comm found='' status
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || tty=
   case "$tty" in
     /dev/*)
@@ -108,20 +108,23 @@ fm_tmux_composer_identity() {  # <target>
         [ -n "$comm" ] || continue
         [ "$pgid" = "$tpgid" ] || continue
         case "${comm##*/}" in
-          pi|pi-signed|pi-launcher|Pi) found=1 ;;
+          pi|pi-signed|pi-launcher|Pi) found=pi ;;
+          agy|rovo) found=${comm##*/} ;;
         esac
       done <<EOF
 $(LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null)
 EOF
       ;;
   esac
-  if [ "$found" -ne 1 ]; then
+  if [ -z "$found" ]; then
     comm=$(tmux display-message -p -t "$target" '#{pane_current_command}' 2>/dev/null) || comm=
     case "${comm##*/}" in
-      pi|pi-signed|pi-launcher) found=1 ;;
+      pi|pi-signed|pi-launcher) found=pi ;;
+      agy|rovo) found=${comm##*/} ;;
     esac
   fi
-  [ "$found" -eq 1 ] || return 1
+  [ -n "$found" ] || return 1
+  if [ "$found" != pi ]; then printf '%s\tlive' "$found"; return 0; fi
   status=$(fm_pane_busy_state "$target" pi)
   case "$status" in
     busy) printf 'pi\tworking' ;;

@@ -21,9 +21,10 @@
 # never touches the network. A local standalone clone moves through that path
 # only when it already has the target; otherwise it is skipped until the origin
 # path updates it.
-# A tracked-files fast-forward never touches the gitignored operational dirs
-# (data/, state/, config/, projects/, .no-mistakes/), so it cannot disturb a
-# secondmate's backlog, projects, or in-flight work.
+# Git's tracked-files advance leaves the gitignored operational dirs intact.
+# The shared merge boundary also refreshes eligible watch bindings in the target
+# home's state for primary updates and local or remote secondmate syncs;
+# bin/fm-procevent-when.sh owns that transaction and its trust restrictions.
 # The seeded .fm-secondmate-home identity marker is gitignored too; the local
 # sync tolerates only that marker during the one-time upgrade of pre-ignore
 # linked-worktree homes.
@@ -32,11 +33,26 @@
 # any other worktree's checkout. A standalone remote home may instead advance
 # its checked-out default branch under the same guard.
 
+FM_FF_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SUB_HOME_MARKER="${SUB_HOME_MARKER:-.fm-secondmate-home}"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-secondmate-registry-lib.sh"
+. "$FM_FF_LIB_DIR/fm-secondmate-registry-lib.sh"
 
 # --- helpers ---------------------------------------------------------------
+
+fm_ff_merge() {
+  local dir=$1 base=$2 home state
+  if [ "$dir" -ef "${FM_ROOT:-}" ]; then
+    home=$FM_HOME
+    state=${FM_STATE_OVERRIDE:-$home/state}
+  else
+    home=$dir
+    state="$home/state"
+  fi
+  [ ! -L "$state" ] && mkdir -p "$state" || return 1
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
+    "$FM_FF_LIB_DIR/fm-procevent-when.sh" fast-forward "$base"
+}
 
 first_line() {
   printf '%s\n' "$1" | sed -n '1s/[[:space:]]\{1,\}/ /g;1p'
@@ -367,10 +383,11 @@ ff_target() {
 
   instr=$(changed_instr "$dir" "$base")
   before=$(git -C "$dir" rev-parse --short HEAD)
-  if ! out=$(git -C "$dir" merge --ff-only "$base" 2>&1); then
+  if ! out=$(fm_ff_merge "$dir" "$base" 2>&1); then
     echo "$label: skipped: fast-forward failed: $(first_line "$out")"
     return 0
   fi
+  printf '%s\n' "$out"
   after=$(git -C "$dir" rev-parse --short HEAD)
   FF_STATUS="updated"
   FF_INSTR="$instr"

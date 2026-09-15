@@ -48,6 +48,11 @@ mark_case_as_treehouse_pool() {  # <case>
   : > "$dir/worktree/sentinel"
 }
 
+claim_pool_slot() {  # <case> <task-id> [home]
+  local dir=$1 id=$2 home=${3:-$1/home}
+  printf 'task=%s\nhome=%s\n' "$id" "$home" > "$dir/pool/1/.fm-slot-owner"
+}
+
 run_case() {  # <case> <id>
   local dir=$1 id=$2
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
@@ -445,6 +450,7 @@ test_reused_pool_slot_refuses_before_touching_the_other_task() {
 
   dir=$(make_case slot-reuse)
   mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
   # The reuse collision: the pool slot recorded for a finished task has already
   # been handed to another task, whose worker is live in it right now.
   fm_write_meta "$dir/home/state/$id.meta" \
@@ -480,6 +486,7 @@ test_reused_pool_slot_refuses_before_touching_the_other_task() {
   # worktree is the same slot, and refuses the same way.
   dir=$(make_case slot-reuse-home)
   mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
   fm_write_meta "$dir/home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" \
     "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
@@ -504,6 +511,7 @@ test_cross_home_pool_slot_collision_refuses() {
   local dir id=stale-task other=secondmate-task second_home second_project rc
   dir=$(make_case slot-reuse-cross-home)
   mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
   printf 'fixture\n' > "$dir/project/tracked"
   git -C "$dir/project" add tracked
   git -C "$dir/project" -c user.name=test -c user.email=test@example.invalid commit -qm fixture
@@ -540,6 +548,7 @@ test_sole_slot_record_still_tears_down() {
 
   dir=$(make_case slot-sole)
   mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
   fm_write_meta "$dir/home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" \
     "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
@@ -568,6 +577,7 @@ test_recorded_endpoint_that_changed_directory_still_tears_down() {
 
   dir=$(make_case slot-endpoint-moved)
   mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
   mkdir -p "$dir/other-directory"
   # The exact recorded worker may legitimately cd outside its worktree. Its
   # endpoint identity still owns the lifecycle; cwd alone must not brick it.
@@ -698,6 +708,7 @@ test_remote_seeded_home_returns_its_uncontested_slot() {
   local dir id=remote-task rc
   dir=$(make_case remote-home-teardown)
   mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
   write_remote_parent_record "$dir/home"
   fm_write_meta "$dir/home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" \
@@ -730,6 +741,7 @@ test_remote_seeded_home_still_refuses_a_slot_its_child_holds() {
   local dir id=remote-stale other=child-task child_home child_project rc
   dir=$(make_case remote-home-collision)
   mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
   write_remote_parent_record "$dir/home"
   printf 'fixture\n' > "$dir/project/tracked"
   git -C "$dir/project" add tracked
@@ -778,6 +790,7 @@ test_remote_layout_homes_serialize_on_one_project_lock() {
   local dir id=remote-serialize child_home child_project lock holder rc waited=0
   dir=$(make_case remote-lock-exclusion)
   mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
   write_remote_parent_record "$dir/home"
   printf 'fixture\n' > "$dir/project/tracked"
   git -C "$dir/project" add tracked
@@ -825,6 +838,178 @@ test_remote_layout_homes_serialize_on_one_project_lock() {
   pass "Treehouse project locking still serializes two homes across the remote-seeded boundary"
 }
 
+assert_reassigned_slot_left_alone() {  # <case> <id> <other> <description>
+  local dir=$1 id=$2 other=$3 description=$4
+  assert_present "$dir/home/state/$id.meta" "$description: the stale task's own record was removed"
+  assert_present "$dir/pool/1/.fm-slot-owner" "$description: another task's slot claim was removed"
+  assert_contains "$(cat "$dir/pool/1/.fm-slot-owner")" "task=$other" \
+    "$description: another task's slot claim was rewritten"
+  assert_present "$dir/pool/1/project/.git" "$description: the reassigned slot's checkout was removed"
+  [ ! -s "$dir/runtime.log" ] || fail "$description: refusal reached the runtime"
+  assert_contains "$(cat "$dir/stderr")" "$other" \
+    "$description: the warning should name the task the slot was reassigned to"
+  assert_contains "$(cat "$dir/stderr")" "REFUSED" \
+    "$description: ownership mismatch must refuse"
+}
+
+test_reassigned_pool_slot_refuses_without_touching_the_slot() {
+  local dir id=stale-task other=reassigned-task worker rc
+
+  # Dirty slot, --force, and a live worker inside it: --force authorizes
+  # discarding this task's unlanded work, which is already gone with the slot,
+  # never the other task's live work.
+  dir=$(make_case slot-reassigned)
+  mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  claim_pool_slot "$dir" "$other"
+  # Staged in this shell, not a command substitution: a background child of a
+  # $(...) subshell does not outlive it, and the point of this worker is to be
+  # alive in the slot while teardown runs.
+  ( cd "$dir/worktree" && exec sleep 30 ) &
+  worker=$!
+
+  set +e
+  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  rc=$?
+  set -e
+
+  [ "$rc" -ne 0 ] || fail "teardown accepted a slot assigned to another task"
+  kill -0 "$worker" 2>/dev/null || fail "teardown killed the worker holding the reassigned pool slot"
+  assert_present "$dir/worktree/sentinel" "teardown reset a pool slot another task had claimed"
+  assert_reassigned_slot_left_alone "$dir" "$id" "$other" "dirty reassigned slot with --force"
+  kill "$worker" 2>/dev/null || true
+  wait "$worker" 2>/dev/null || true
+
+  # The same reassignment on a CLEAN slot: a landed ship task torn down without
+  # --force, which is the shape of the real incident. A clean, fully landed copy
+  # passes every unlanded-work check, so only the ownership determination can
+  # keep this slot out of the pool; a guard keyed off dirtiness would return it
+  # and destroy the live task's copy.
+  dir=$(make_case slot-reassigned-clean)
+  mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
+  rm -f "$dir/worktree/sentinel"
+  [ -z "$(git -C "$dir/worktree" status --porcelain)" ] \
+    || fail "clean-slot fixture is not clean: $(git -C "$dir/worktree" status --porcelain)"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=ship"
+  claim_pool_slot "$dir" "$other"
+  ( cd "$dir/worktree" && exec sleep 30 ) &
+  worker=$!
+
+  set +e
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+  FM_RUNTIME_LOG="$dir/runtime.log" PATH="$dir/fakebin:$PATH" \
+    "$TEARDOWN" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "teardown accepted a clean slot assigned to another task"
+  kill -0 "$worker" 2>/dev/null || fail "teardown killed the worker holding the clean reassigned pool slot"
+  assert_reassigned_slot_left_alone "$dir" "$id" "$other" "clean reassigned slot without --force"
+  kill "$worker" 2>/dev/null || true
+  wait "$worker" 2>/dev/null || true
+
+  # A claim that exists but cannot be read as a claim proves nothing either way,
+  # so it refuses rather than guessing the slot is still this task's.
+  dir=$(make_case slot-claim-unreadable)
+  mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  printf 'not-a-claim\n' > "$dir/pool/1/.fm-slot-owner"
+
+  set +e
+  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "teardown returned a pool slot whose claim could not be read"
+  assert_present "$dir/worktree/sentinel" "teardown reset a pool slot whose claim could not be read"
+  assert_present "$dir/pool/1/.fm-slot-owner" "teardown removed an unreadable slot claim"
+  assert_present "$dir/home/state/$id.meta" "teardown removed the task record on an unreadable claim"
+  [ ! -s "$dir/runtime.log" ] \
+    || fail "teardown reached the runtime on an unreadable slot claim: $(cat "$dir/runtime.log")"
+  assert_contains "$(cat "$dir/stderr")" "$dir/pool/1/.fm-slot-owner" \
+    "unreadable-claim refusal should name the claim file to inspect"
+
+  pass "fm-teardown: a pool slot claimed by another task refuses cleanup"
+}
+
+test_own_claim_cleans_up_and_absent_claim_refuses() {
+  local dir id=owned-task
+
+  dir=$(make_case slot-claim-own)
+  mark_case_as_treehouse_pool "$dir"
+  claim_pool_slot "$dir" "$id"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  claim_pool_slot "$dir" "$id"
+
+  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "teardown of a task holding its own slot claim failed: $(cat "$dir/stderr")"
+  assert_absent "$dir/home/state/$id.meta" "own-claim teardown left the task record"
+  assert_absent "$dir/pool/1/.fm-slot-owner" "own-claim teardown left its spent slot claim behind"
+  grep -Fq "treehouse <return>" "$dir/runtime.log" \
+    || fail "own-claim teardown did not return its own pool slot: $(cat "$dir/runtime.log")"
+
+  dir=$(make_case slot-claim-absent)
+  mark_case_as_treehouse_pool "$dir"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  assert_refused_without_mutation "$dir" "$id" "unclaimed slot"
+
+  pass "fm-teardown: an owned slot cleans up and an unclaimed slot refuses"
+
+}
+
+test_same_task_cross_home_claim_refuses() {
+  local dir id=shared-task scenario worker before
+  for scenario in foreign missing-home vanished-home duplicate-home alias; do
+    dir=$(make_case "same-id-$scenario")
+    mark_case_as_treehouse_pool "$dir"
+    mkdir -p "$dir/other-home" "$dir/home/data/$id"
+    printf 'completed report\n' > "$dir/home/data/$id/report.md"
+    fm_write_meta "$dir/home/state/$id.meta" \
+      "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+      "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+    case "$scenario" in
+      foreign) claim_pool_slot "$dir" "$id" "$dir/other-home" ;;
+      missing-home) printf 'task=%s\n' "$id" > "$dir/pool/1/.fm-slot-owner" ;;
+      vanished-home) claim_pool_slot "$dir" "$id" "$dir/vanished" ;;
+      duplicate-home)
+        claim_pool_slot "$dir" "$id" "$dir/other-home"
+        printf 'home=%s\n' "$dir/home" >> "$dir/pool/1/.fm-slot-owner"
+        ;;
+      alias)
+        ln -s "$dir/home" "$dir/home-alias"
+        claim_pool_slot "$dir" "$id" "$dir/home-alias"
+        run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
+          || fail "canonical same-home alias refused: $(cat "$dir/stderr")"
+        assert_absent "$dir/home/state/$id.meta" "same-owner positive control did not clean up"
+        assert_absent "$dir/pool/1/.fm-slot-owner" "same-owner positive control retained claim"
+        continue
+        ;;
+    esac
+    before=$(cat "$dir/pool/1/.fm-slot-owner")
+    (cd "$dir/worktree" && exec sleep 30) &
+    worker=$!
+    assert_refused_without_mutation "$dir" "$id" "$scenario ownership"
+    kill -0 "$worker" || fail "$scenario ownership killed the live slot worker"
+    [ "$(cat "$dir/pool/1/.fm-slot-owner")" = "$before" ] || fail "$scenario claim changed"
+    kill "$worker"
+    wait "$worker" 2>/dev/null || true
+  done
+  pass "fm-teardown: same task requires canonical home ownership"
+}
+
+test_same_task_cross_home_claim_refuses
+
 test_invalid_endpoint_records_refuse_before_mutation
 test_control_lock_contention_refuses_before_mutation
 test_non_pool_teardown_ignores_task_set_lock
@@ -837,8 +1022,31 @@ test_bare_relative_origin_shares_project_lock_with_clone
 test_reused_pool_slot_refuses_before_touching_the_other_task
 test_cross_home_pool_slot_collision_refuses
 test_sole_slot_record_still_tears_down
+test_reassigned_pool_slot_refuses_without_touching_the_slot
+test_own_claim_cleans_up_and_absent_claim_refuses
 test_recorded_endpoint_that_changed_directory_still_tears_down
 test_project_lock_anchors_at_the_local_root_across_home_layouts
 test_remote_seeded_home_returns_its_uncontested_slot
 test_remote_seeded_home_still_refuses_a_slot_its_child_holds
 test_remote_layout_homes_serialize_on_one_project_lock
+
+test_explicit_child_home_owns_its_claim() {
+  local dir id=child-task out
+  dir=$(make_case child-owner)
+  mark_case_as_treehouse_pool "$dir"
+  mkdir -p "$dir/child-home"
+  claim_pool_slot "$dir" "$id" "$dir/child-home"
+  out=$(FM_HOME="$dir/home" bash -c '
+    . "$1/bin/fm-wake-lib.sh"
+    fm_treehouse_slot_owner_state "$2" "$3"
+    [ "$FM_TREEHOUSE_SLOT_OWNER" = unsafe ] || exit 1
+    fm_treehouse_slot_owner_state "$2" "$3" "$4"
+    printf "%s" "$FM_TREEHOUSE_SLOT_OWNER"
+    fm_treehouse_slot_owner_release "$2" "$3" "$4"
+  ' _ "$ROOT" "$dir/worktree" "$id" "$dir/child-home") || fail "child ownership check failed"
+  [ "$out" = mine ] || fail "child owner was compared against its parent's home"
+  assert_absent "$dir/pool/1/.fm-slot-owner" "child owner could not release its own claim"
+  pass "explicit child-home ownership is independent of the caller home"
+}
+
+test_explicit_child_home_owns_its_claim

@@ -914,3 +914,50 @@ test_grok_interrupt_without_acknowledgement_reports_unconfirmed
 test_grok_idle_footer_does_not_confirm_cancellation
 test_secondmate_control_command_carries_no_marker
 test_fm_send_still_marks_the_same_secondmate_task
+
+test_agy_exit_preserves_pending_input() {
+  local dir content out rc
+  for content in '' draft; do
+    dir=$(new_case agy-composer)
+    add_task "$dir" t1 agy
+    alive_as "$dir" agy
+    printf '────────────────\n> %s\n────────────────\n? for shortcuts    Gemini 3.8 Flash · low\n' "$content" > "$dir/fake/pane"
+    rc=0
+    out=$(run_control "$dir" t1 exit) || rc=$?
+    if [ -z "$content" ]; then
+      expect_code 0 "$rc" "AGY with proven empty input must exit: $out"
+      [ "$(literals "$dir")" = /quit ] || fail "AGY did not receive /quit"
+    else
+      [ "$rc" -ne 0 ] || fail "AGY exited with pending input"
+      [ -z "$(literals "$dir")" ] || fail "AGY pending input received exit text"
+      [ "$(cat "$dir/fake/command")" = agy ] || fail "AGY pending input lost its agent"
+    fi
+  done
+  pass "AGY exit accepts proven empty input and preserves pending text"
+}
+
+test_agy_exit_preserves_pending_input
+
+
+test_rovo_exit_preserves_pending_input() {
+  local dir color out rc
+  for color in '162;163;165' '206;207;210'; do
+    dir=$(new_case rovo-composer)
+    add_task "$dir" t1 rovo
+    alive_as "$dir" rovo
+    printf '╭────────────────────────────╮\n│ \033[38;2;%smSummarize my open tasks\033[0m    │\n╰────────────────────────────╯\n' "$color" > "$dir/fake/pane"
+    rc=0
+    out=$(run_control "$dir" t1 exit) || rc=$?
+    if [ "$color" = '162;163;165' ]; then
+      expect_code 0 "$rc" "Rovo with idle placeholder must exit: $out"
+      [ "$(literals "$dir")" = /exit ] || fail "Rovo did not receive /exit"
+    else
+      [ "$rc" -ne 0 ] || fail "Rovo exited with actual pending input"
+      [ -z "$(literals "$dir")" ] || fail "Rovo pending input received exit text"
+      [ "$(cat "$dir/fake/command")" = rovo ] || fail "Rovo pending input lost its agent"
+    fi
+  done
+  pass "Rovo exit accepts its idle placeholder and preserves typed text"
+}
+
+test_rovo_exit_preserves_pending_input

@@ -16,6 +16,9 @@ set -u
 BEARINGS="$ROOT/bin/fm-bearings-snapshot.sh"
 TASKS_AXI_BIN=$(command -v tasks-axi || true)
 TMP_ROOT=$(fm_test_tmproot fm-bearings)
+# Stop Git's parent discovery at the disposable fixture boundary, so worktree
+# directories without their own repository never inherit the source origin.
+git -C "$TMP_ROOT" init -q || fail "could not isolate fixture Git discovery"
 # Keep disposable homes outside the snapshot's fixture repo boundary even when
 # TMPDIR is inside an isolated source worktree.
 FM_ROOT_OVERRIDE="$TMP_ROOT/fixture-root"
@@ -2402,6 +2405,186 @@ EOF
   pass "active children reach Underway independently of a home captain hold"
 }
 
+test_nameless_legacy_summary_uses_its_durable_identifier() {
+  local parent remote_home fakebin json
+  parent=$(make_home nameless-legacy-summary)
+  make_remote_ledger_fleet "$parent" 1
+  remote_home="$TMP_ROOT/remote-ledger-home-1"
+  fakebin=$(make_remote_ledger_ssh "$parent/remote-ssh")
+  jq '
+    .active_children = [
+      {id:"legacy-child",kind:"ship",state:"working",repo:null,
+       source:"remote-ledger",doing:"running review"},
+      {id:"blank-name-child",kind:"ship",state:"working",repo:null,name:" \t ",
+       source:"remote-ledger",doing:"running tests"}
+    ]
+    | .counts.active_children = 2
+    | .state = "active_child_work"
+  ' "$remote_home/state/home-summary.json" > "$remote_home/state/legacy-summary.json"
+  mv "$remote_home/state/legacy-summary.json" "$remote_home/state/home-summary.json"
+
+  json=$(run_remote_ledger_bearings "$parent" "$fakebin" 1100) \
+    || fail "nameless legacy summary bearings failed"
+  printf '%s' "$json" | jq -e '
+    (.in_flight | any(.id == "ledger-1/legacy-child"
+      and .name == "ledger-1/legacy-child"
+      and .doing == "running review"
+      and .name != .doing))
+    and (.in_flight | any(.id == "ledger-1/blank-name-child"
+      and .name == "ledger-1/blank-name-child"
+      and .doing == "running tests"
+      and .name != .doing))
+  ' >/dev/null || fail "a blank legacy child name was not replaced by its id: $json"
+  pass "blank legacy summary names use their durable identifier"
+}
+
+test_quiet_mode_bearings_preserves_posture() {
+  local home fakebin json rc out
+  home=$(make_home quiet-bearings)
+  : > "$home/data/secondmates.md"
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" propose >/dev/null || fail "quiet fixture proposal failed"
+  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" confirm >/dev/null || fail "quiet fixture confirmation failed"
+  printf 'quiet\n1234\n' > "$home/state/.afk"
+  cp "$home/state/.afk-contract" "$home/contract-before"
+  cp "$home/state/.afk" "$home/flag-before"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json) || fail "Bearings refused quiet mode"
+  printf '%s' "$json" | jq -e '.schema == "fm-bearings.v1"' >/dev/null || fail "quiet Bearings output is invalid: $json"
+  cmp "$home/flag-before" "$home/state/.afk" || fail "Bearings changed quiet mode"
+  cmp "$home/contract-before" "$home/state/.afk-contract" || fail "Bearings changed the quiet contract"
+  printf 'away\n1234\n' > "$home/state/.afk"
+  if out=$(run "$home" "$fakebin" --json 2>&1); then rc=0; else rc=$?; fi
+  [ "$rc" -eq 3 ] || fail "Bearings bypassed genuine away protection: $out"
+  pass "Bearings renders in quiet mode without exiting and still refuses away mode"
+}
+
+test_main_inventory_warning_survives_queue_bounds() {
+  local home fakebin json i
+  home=$(make_home inventory-before-bounds)
+  : > "$home/data/secondmates.md"
+  printf '## In flight\n- [ ] orphan - Unowned work (repo: sample) (kind: ship)\n\n## Queued\n' > "$home/data/backlog.md"
+  for i in $(seq 1 21); do
+    printf -- '- [ ] queued-%02d - Gate %02d (repo: sample) (kind: ship) (since 2026-06-%02d)\n' \
+      "$i" "$i" "$i" >> "$home/data/backlog.md"
+  done
+  printf '\n## Done\n' >> "$home/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    .gates[0].id == "(main-inventory)" and (.gates | length) == 21
+      and .gates[1].id == "queued-21"
+      and (.gates | any(.id == "queued-01") | not)
+      and (.omitted | any(.surface == "gates showing 20 of 21"))
+  ' >/dev/null || fail "queue bounds hid the inventory warning or changed ordinary selection: $json"
+  json=$(run "$home" "$fakebin" --json --all-queued)
+  printf '%s' "$json" | jq -e '
+    .gates[0].id == "(main-inventory)" and (.gates | length) == 22
+      and (.omitted | any(.reveal == "--all-queued") | not)
+  ' >/dev/null || fail "expanded queue lost or duplicated the inventory warning: $json"
+  pass "inventory repair warning remains visible before bounded and expanded queue rows"
+}
+
+test_newest_filed_gates_are_selected_before_snapshot_bounds() {
+  local home mate fakebin json i
+  home=$(make_home newest-before-bounds)
+  : > "$home/data/secondmates.md"
+  printf '## In flight\n\n## Queued\n' > "$home/data/backlog.md"
+  i=1
+  while [ "$i" -le 20 ]; do
+    printf -- '- [ ] old-%02d - Older gate %02d (repo: sample) (kind: ship) (since 2026-06-%02d)\n' \
+      "$i" "$i" "$i" >> "$home/data/backlog.md"
+    i=$((i + 1))
+  done
+  printf -- '- [ ] newest - Newest gate (repo: sample) (kind: ship) (since 2026-07-01)\n\n## Done\n' \
+    >> "$home/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    (.gates | length) == 20 and .gates[0].id == "newest"
+      and (.gates | any(.id == "old-01") | not)
+  ' >/dev/null || fail "the bearings gate bound dropped the newest filed row: $json"
+
+  mate="$TMP_ROOT/newest-before-bounds-mate"
+  make_valid_secondmate_home bounded-mate "$mate"
+  : > "$home/data/backlog.md"
+  append_secondmate_registry "$home" bounded-mate "$mate"
+  cat > "$mate/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+- [ ] mate-eligible - Eligible remote gate (repo: sample) (kind: ship) (since 2026-07-08)
+- [ ] mate-call-one - Newer captain call (repo: sample) (kind: captain) (hold: choose one) (hold-kind: captain) (since 2026-07-10)
+- [ ] mate-call-two - Newest captain call (repo: sample) (kind: captain) (hold: choose two) (hold-kind: captain) (since 2026-07-11)
+
+## Done
+EOF
+  json=$(FM_SNAPSHOT_SECONDMATE_QUEUED=2 run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    [.gates[].id] == ["mate-eligible"]
+      and (.decisions_open | any(.id == "bounded-mate/mate-call-one"))
+      and (.decisions_open | any(.id == "bounded-mate/mate-call-two"))
+  ' >/dev/null || fail "captain calls crowded eligible Charted work out of the bound: $json"
+  pass "newest filed gates are selected before snapshot bounds"
+}
+
+# A captain scanning Underway must be able to tell WHICH task a row is, and the
+# board orders Charted Next by the durable filed date, so both facts have to come
+# out of fleet state rather than being invented at render time.
+test_underway_and_gate_rows_carry_the_durable_name_and_filed_date() {
+  local home mate fakebin json
+  home=$(make_home durable-name-filed)
+  : > "$home/data/secondmates.md"
+  mate="$TMP_ROOT/durable-name-home"
+  make_valid_secondmate_home named-mate "$mate"
+  append_secondmate_registry "$home" named-mate "$mate"
+  mkdir -p "$home/projects/main-wt"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] main-ship - Rename the fleet board rows (repo: firstmate) (kind: ship) (since 2026-07-09)
+
+## Queued
+- [ ] newer-gate - Filed later (repo: firstmate) (kind: ship) (since 2026-07-10)
+- [ ] older-gate - Filed earlier (repo: firstmate) (kind: ship) (since 2026-07-01)
+- [ ] undated-gate - Filed before dates were recorded (repo: firstmate) (kind: ship)
+
+## Done
+EOF
+  fm_write_meta "$home/state/main-ship.meta" \
+    "window=firstmate:fm-main-ship" "worktree=$home/projects/main-wt" "project=firstmate" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  record_claude_state "$home/state" main-ship busy
+  printf 'working: no-mistakes review round 2\n' > "$home/state/main-ship.status"
+
+  printf '## In flight\n' > "$mate/data/backlog.md"
+  printf -- '- [ ] mate-child - Tighten the ledger contract (repo: sample) (kind: ship) (since 2026-07-08)\n' \
+    >> "$mate/data/backlog.md"
+  printf '\n## Queued\n\n## Done\n' >> "$mate/data/backlog.md"
+  mkdir -p "$mate/projects/mate-child"
+  fm_write_meta "$mate/state/mate-child.meta" \
+    "window=firstmate:fm-mate-child" "worktree=$mate/projects/mate-child" "project=sample" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  record_claude_state "$mate/state" mate-child busy
+  printf 'working: waiting on the pipeline\n' > "$mate/state/mate-child.status"
+
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    (.in_flight | any(.id == "main-ship"
+      and .name == "Rename the fleet board rows"
+      and (.doing | type == "string") and (.doing | length) > 0
+      and .doing != .name))
+      and (.in_flight | any(.id == "named-mate/mate-child"
+        and .name == "Tighten the ledger contract"
+        and (.doing | type == "string") and (.doing | length) > 0
+        and .doing != .name))
+      and (.gates | any(.id == "newer-gate" and .filed == "2026-07-10"))
+      and (.gates | any(.id == "older-gate" and .filed == "2026-07-01"))
+      and (.gates | any(.id == "undated-gate" and .filed == null))
+  ' >/dev/null || fail "durable Underway names or gate filed dates are missing: $json"
+  pass "Underway rows carry the durable task name and gates carry their filed date"
+}
+
 test_mixed_secondmate_roles_partial_state_and_captain_readiness() {
   local home fakebin hibit wheel sshhip ha canonical json
   home=$(make_home mixed-domain-regressions)
@@ -3214,6 +3397,11 @@ test_main_unstructured_current_is_disclosed_with_structured_sibling
 test_main_orphan_counterfactual_meta_clears_inventory_warning
 test_working_captain_holds_keep_their_bucket_surfaces
 test_active_children_project_independent_of_home_captain_hold
+test_nameless_legacy_summary_uses_its_durable_identifier
+test_quiet_mode_bearings_preserves_posture
+test_main_inventory_warning_survives_queue_bounds
+test_newest_filed_gates_are_selected_before_snapshot_bounds
+test_underway_and_gate_rows_carry_the_durable_name_and_filed_date
 test_mixed_secondmate_roles_partial_state_and_captain_readiness
 test_main_captain_readiness_matches_secondmate_projection
 test_completed_scout_report_not_pending

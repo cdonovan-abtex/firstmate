@@ -17,6 +17,8 @@ set -u
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TMP_ROOT=$(fm_test_tmproot fm-procevent-when-tests)
 export FM_PROCEVENT_CLAIM_ROOT="$TMP_ROOT/claims"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$ROOT/bin/fm-pr-lib.sh"
 
 pe()   { FM_HOME="$1" "$ROOT/bin/fm-procevent.sh" "${@:2}"; }
 when() { FM_HOME="$1" "$ROOT/bin/fm-procevent-when.sh" "${@:2}"; }
@@ -25,6 +27,12 @@ when() { FM_HOME="$1" "$ROOT/bin/fm-procevent-when.sh" "${@:2}"; }
 # from every cleanup path so a runner still blocked on a condition that never
 # fires cannot survive the run.
 new_home() { mkdir -p "$1/state"; fm_test_track_procevent_home "$1"; }
+
+commit_action() {
+  git -C "$1" init -q
+  git -C "$1" add bin/act.sh
+  git -C "$1" -c user.name=Tests -c user.email=tests@example.invalid commit -qm action
+}
 
 wake_payloads() { awk -F '\t' '{print $5}' "$1/state/.wake-queue" 2>/dev/null; }
 
@@ -389,5 +397,462 @@ assert_grep 'trust binding' "$RESULT" "the refusal names the action trust bindin
 assert_absent "$ACTION_TAMPER_LOG" "the mutated action was not executed"
 assert_absent "$H/state/when/when-action-tamper.fired" "no fire was claimed for mutated action bytes"
 pass "mutated action bytes are refused before claiming the fire"
+
+# --- rebind-all refreshes a watch's action hash after a self-update ----------
+# A self-update fast-forwards bin/ in place, changing an in-repo action
+# executable's bytes with no tampering involved. Without rebind-all the next
+# fire is refused as "does not match the registered trust binding" (see the
+# mutated-action-bytes case above); rebind-all exists to follow that update
+# and republish a trust binding that matches the new bytes, but only for an
+# action living under the simulated repo root, never for one outside it.
+H="$TMP_ROOT/h-rebind"; new_home "$H"
+REPO_ROOT="$TMP_ROOT/rebind-repo"
+mkdir -p "$REPO_ROOT/bin"
+IN_REPO_ACT="$REPO_ROOT/bin/act.sh"
+cat > "$IN_REPO_ACT" <<'SH'
+#!/usr/bin/env bash
+log=$1
+echo v1 >> "$log"
+SH
+chmod +x "$IN_REPO_ACT"
+commit_action "$REPO_ROOT"
+OUT_OF_REPO_ACT="$TMP_ROOT/rebind-outside-act.sh"
+cat > "$OUT_OF_REPO_ACT" <<'SH'
+#!/usr/bin/env bash
+log=$1
+echo v1 >> "$log"
+SH
+chmod +x "$OUT_OF_REPO_ACT"
+when_ro() { FM_HOME="$1" FM_ROOT_OVERRIDE="$REPO_ROOT" "$ROOT/bin/fm-procevent-when.sh" "${@:2}"; }
+
+when_ro "$H" arm rebind-in-repo --interval 0.1 --stable 1 \
+  --condition true --action "$IN_REPO_ACT" "$TMP_ROOT/rebind-in-repo.log" >/dev/null
+when_ro "$H" arm rebind-out-of-repo --interval 0.1 --stable 1 \
+  --condition true --action "$OUT_OF_REPO_ACT" "$TMP_ROOT/rebind-out-of-repo.log" >/dev/null
+
+SPEC_IN="$H/state/when/when-rebind-in-repo.spec"
+TRUST_IN="$H/state/when/when-rebind-in-repo.trust"
+TRUST_OUT="$H/state/when/when-rebind-out-of-repo.trust"
+
+OUT=$(when_ro "$H" rebind-all) || fail "rebind-all failed with nothing to rebind: $OUT"
+assert_contains "$OUT" "0 rebound, 2 unchanged or out of scope, 0 failed" \
+  "rebind-all should be a no-op before any action bytes change"
+
+# Simulate the self-update: rewrite both action scripts' bytes in place.
+OLD_IN_REPO_SHA=$(fm_pr_sha256 "$IN_REPO_ACT")
+cat > "$IN_REPO_ACT" <<'SH'
+#!/usr/bin/env bash
+log=$1
+echo v2 >> "$log"
+echo "action ran v2 against $log"
+SH
+chmod +x "$IN_REPO_ACT"
+commit_action "$REPO_ROOT"
+NEW_HASH=$(fm_pr_sha256 "$IN_REPO_ACT")
+[ "$OLD_IN_REPO_SHA" != "$NEW_HASH" ] || fail "test fixture error: mutation did not change the in-repo action's hash"
+printf "#!/usr/bin/env bash\necho v2 >> \"\$1\"\n" > "$OUT_OF_REPO_ACT"
+chmod +x "$OUT_OF_REPO_ACT"
+
+OLD_TRUST_OUT=$(cat "$TRUST_OUT")
+OUT=$(when_ro "$H" rebind-all) || fail "rebind-all reported a failure: $OUT"
+assert_contains "$OUT" "rebound: when-rebind-in-repo" "the in-repo watch was rebound"
+assert_contains "$OUT" "1 rebound, 1 unchanged or out of scope, 0 failed" \
+  "exactly the in-repo watch should rebind; the out-of-repo one stays out of scope"
+[ "$(cat "$TRUST_OUT")" = "$OLD_TRUST_OUT" ] \
+  || fail "rebind-all must never touch a watch whose action lives outside FM_ROOT"
+
+grep -qx "action_sha256=$NEW_HASH" "$SPEC_IN" \
+  || fail "rebind-all did not record the action's current bytes in the spec"
+SPEC_HASH=$(fm_pr_sha256 "$SPEC_IN")
+TRUST_WANT=$(sed -n '2p' "$TRUST_IN")
+[ "$SPEC_HASH" = "$TRUST_WANT" ] \
+  || fail "the republished spec must still match its own trust binding"
+
+# The watch actually works again: a fresh run fires cleanly against the new
+# bytes instead of being rejected.
+pe "$H" reconcile >/dev/null
+wait_for_result "$H" "when-rebind-in-repo" || fail "the rebound watch captured no outcome"
+RESULT=$(first_result "$H" "when-rebind-in-repo")
+assert_grep 'status: fired' "$RESULT" "the rebound watch fires instead of being rejected"
+assert_grep 'action ran v2 against' "$RESULT" "the fired action ran the new bytes, not a stale copy"
+pass "rebind-all refreshes an in-repo watch's trust binding after a self-update and leaves an out-of-repo one alone"
+
+# --- rebind-all matches an action reached through a symlinked FM_ROOT -------
+H="$TMP_ROOT/h-rebind-symlink"; new_home "$H"
+REPO_REAL="$TMP_ROOT/rebind-symlink-real"
+mkdir -p "$REPO_REAL/bin"
+REPO_LINK="$TMP_ROOT/rebind-symlink-link"
+ln -s "$REPO_REAL" "$REPO_LINK"
+SYMLINK_ACT="$REPO_LINK/bin/act.sh"
+cat > "$REPO_REAL/bin/act.sh" <<'SH'
+#!/usr/bin/env bash
+log=$1
+echo v1 >> "$log"
+SH
+chmod +x "$REPO_REAL/bin/act.sh"
+commit_action "$REPO_REAL"
+when_symlink_ro() { FM_HOME="$1" FM_ROOT_OVERRIDE="$REPO_LINK" "$ROOT/bin/fm-procevent-when.sh" "${@:2}"; }
+
+when_symlink_ro "$H" arm rebind-symlink --interval 0.1 --stable 1 \
+  --condition true --action "$SYMLINK_ACT" "$TMP_ROOT/rebind-symlink.log" >/dev/null
+
+cat > "$REPO_REAL/bin/act.sh" <<'SH'
+#!/usr/bin/env bash
+log=$1
+echo v2 >> "$log"
+SH
+chmod +x "$REPO_REAL/bin/act.sh"
+commit_action "$REPO_REAL"
+
+OUT=$(when_symlink_ro "$H" rebind-all) || fail "rebind-all reported a failure through a symlinked FM_ROOT: $OUT"
+assert_contains "$OUT" "rebound: when-rebind-symlink" \
+  "rebind-all must rebind an action reached through a symlinked FM_ROOT, not report it out of scope"
+pass "rebind-all matches FM_ROOT through a symlinked checkout path"
+
+# --- rebind-all reaches a watch whose poller is already running -------------
+# The self-update race the fire-time revalidation targets: `run` calls
+# spec_load once before entering its poll loop and caches the action hash in
+# memory for the rest of its life. If the self-update (and its rebind-all)
+# land while that poll loop is still running, only rewriting the on-disk spec
+# and trust is not enough - the fire-time check must re-read the binding from
+# disk, or the still-running poller compares against its stale in-memory hash
+# and rejects a perfectly legitimate post-update fire.
+H="$TMP_ROOT/h-live-rebind"; new_home "$H"
+REPO_ROOT="$TMP_ROOT/live-rebind-repo"
+mkdir -p "$REPO_ROOT/bin"
+LIVE_ACT="$REPO_ROOT/bin/act.sh"
+cat > "$LIVE_ACT" <<'SH'
+#!/usr/bin/env bash
+echo v1 >> "$1"
+echo "v1 ran against $1"
+SH
+chmod +x "$LIVE_ACT"
+commit_action "$REPO_ROOT"
+LIVE_TRIGGER="$TMP_ROOT/live-rebind-trigger"
+LIVE_COUNTER="$TMP_ROOT/live-rebind-count"
+LIVE_LOG="$TMP_ROOT/live-rebind.log"
+when_live_ro() { FM_HOME="$1" FM_ROOT_OVERRIDE="$REPO_ROOT" "$ROOT/bin/fm-procevent-when.sh" "${@:2}"; }
+
+when_live_ro "$H" arm live-rebind --interval 0.1 --stable 1 \
+  --condition "$COND" "$LIVE_TRIGGER" "$LIVE_COUNTER" \
+  --action "$LIVE_ACT" "$LIVE_LOG" >/dev/null
+
+# Start the poller now, before the simulated self-update, so its one-time
+# spec_load caches the pre-update (v1) action hash in memory.
+pe "$H" reconcile >/dev/null
+wait_for_file "$LIVE_COUNTER" || fail "the live-rebind poller never evaluated its condition"
+
+# Simulate the self-update while that poller is still running: rewrite the
+# action's bytes in place, then rebind-all republishes the on-disk trust
+# binding to match. The already-running poller's in-memory hash is untouched.
+cat > "$LIVE_ACT" <<'SH'
+#!/usr/bin/env bash
+echo v2 >> "$1"
+echo "v2 ran against $1"
+SH
+chmod +x "$LIVE_ACT"
+commit_action "$REPO_ROOT"
+OUT=$(when_live_ro "$H" rebind-all) || fail "rebind-all reported a failure during a live poll: $OUT"
+assert_contains "$OUT" "rebound: when-live-rebind" "the live watch's trust binding was rebound on disk"
+
+# Let the condition go true; the still-running poller must pick up the fresh
+# binding at fire time instead of comparing against its stale cached hash.
+: > "$LIVE_TRIGGER"
+wait_for_result "$H" when-live-rebind || fail "the live poller never captured an outcome after rebind-all"
+RESULT=$(first_result "$H" when-live-rebind)
+assert_grep 'status: fired' "$RESULT" \
+  "a watch whose poller was already running when rebind-all ran must still fire, not be rejected as stale"
+assert_grep 'v2 ran against' "$RESULT" "the fired action ran the post-update bytes, not the ones cached at poll start"
+pass "rebind-all reaches a watch whose run process was already polling when the self-update landed"
+
+# --- the fire-time reload never observes rebind_one's publish mid-rename ----
+# publish_spec is not an atomic swap: it renames the new spec into place, then
+# separately renames the new trust into place. A `run` process reloading the
+# binding at fire time must serialize against that window instead of reading
+# a spec already rebound to v2 next to a trust record still bound to v1 - the
+# exact torn combination that would otherwise report the rebind itself as a
+# trust violation. This test builds that torn state under a held per-sid lock
+# (the same lock rebind_one takes) so the reload's timing is deterministic,
+# not a race that only sometimes reproduces.
+for torn_phase in polling startup; do
+H="$TMP_ROOT/h-torn-race-$torn_phase"; new_home "$H"
+TORN_ACT="$TMP_ROOT/torn-act.sh"
+cat > "$TORN_ACT" <<'SH'
+#!/usr/bin/env bash
+echo v1 >> "$1"
+echo "v1 ran against $1"
+SH
+chmod +x "$TORN_ACT"
+TORN_TRIGGER="$TMP_ROOT/torn-race-trigger-$torn_phase"
+TORN_COUNTER="$TMP_ROOT/torn-race-count-$torn_phase"
+TORN_LOG="$TMP_ROOT/torn-race.log"
+when "$H" arm torn-race --interval 0.05 --stable 1 \
+  --condition "$COND" "$TORN_TRIGGER" "$TORN_COUNTER" \
+  --action "$TORN_ACT" "$TORN_LOG" >/dev/null
+SID=$(when "$H" source-id torn-race)
+SPEC_TORN="$H/state/when/$SID.spec"
+TRUST_TORN="$H/state/when/$SID.trust"
+
+# Start the poller now, with the condition still false, so reconcile's own
+# brief use of this same per-sid lock (to claim and launch the source) is
+# already done and released well before the holder below ever takes it.
+if [ "$torn_phase" = polling ]; then
+  pe "$H" reconcile >/dev/null
+  wait_for_file "$TORN_COUNTER" || fail "the torn-race poller never evaluated its condition"
+fi
+
+# Simulate the self-update, then build the rebound (v2) spec+trust pair ahead
+# of time exactly as publish_spec would (same fields, only action_sha256
+# differs), so the background holder below only performs the two renames.
+cat > "$TORN_ACT" <<'SH'
+#!/usr/bin/env bash
+echo v2 >> "$1"
+echo "v2 ran against $1"
+SH
+chmod +x "$TORN_ACT"
+NEW_HASH=$(fm_pr_sha256 "$TORN_ACT")
+NEW_SPEC="$TMP_ROOT/torn-race-new.spec"
+sed "s/^action_sha256=.*/action_sha256=$NEW_HASH/" "$SPEC_TORN" > "$NEW_SPEC"
+NEW_SPEC_HASH=$(fm_pr_sha256 "$NEW_SPEC")
+NEW_TRUST="$TMP_ROOT/torn-race-new.trust"
+printf 'fm-when-trust-v1\n%s\n' "$NEW_SPEC_HASH" > "$NEW_TRUST"
+chmod 0600 "$NEW_SPEC" "$NEW_TRUST"
+
+TORN_READY="$TMP_ROOT/torn-ready"
+TORN_RELEASE="$TMP_ROOT/torn-release"
+rm -f "$TORN_READY" "$TORN_RELEASE"
+parent=$$
+FM_HOME="$TMP_ROOT/torn-race-lock-helper-home" bash -c '
+  . "$1/bin/fm-pr-lib.sh"
+  . "$1/bin/fm-wake-lib.sh"
+  . "$1/bin/fm-procevent-lib.sh"
+  fm_procevent_source_lock_acquire "$2" || exit 1
+  trap "fm_procevent_source_lock_release \"$2\"" EXIT
+  mv -f -- "$3" "$5"
+  printf "ready\n" > "$6"
+  while [ ! -e "$7" ]; do
+    kill -0 "$8" 2>/dev/null || exit 0
+    sleep 0.02
+  done
+  mv -f -- "$4" "$9"
+' _ "$ROOT" "$SID" "$NEW_SPEC" "$NEW_TRUST" "$SPEC_TORN" "$TORN_READY" "$TORN_RELEASE" "$parent" "$TRUST_TORN" &
+HOLDER_PID=$!
+
+wait_for_file "$TORN_READY" || fail "the torn-write holder never installed the rebound spec"
+grep -qx "action_sha256=$NEW_HASH" "$SPEC_TORN" \
+  || fail "test fixture error: the torn window did not actually install the rebound spec"
+[ "$(sed -n '2p' "$TRUST_TORN")" != "$NEW_SPEC_HASH" ] \
+  || fail "test fixture error: the trust file was rebound before the torn window began"
+
+# The still-running poller now sees its condition go true and reaches the
+# fire-time reload while the torn state above is live and the lock is held.
+: > "$TORN_TRIGGER"
+if [ "$torn_phase" = startup ]; then
+  when "$H" run "$SID" > "$TMP_ROOT/startup.result" &
+  STARTUP_PID=$!
+fi
+sleep 0.3
+if [ "$torn_phase" = startup ] && [ -s "$TMP_ROOT/startup.result" ]; then
+  fail "initial spec read observed a torn trust pair"
+fi
+if first_result "$H" "$SID" >/dev/null 2>&1; then
+  fail "the reload must block on the source lock instead of reading the torn spec/trust pair"
+fi
+
+: > "$TORN_RELEASE"
+wait "$HOLDER_PID" 2>/dev/null || true
+if [ "$torn_phase" = startup ]; then
+  wait "$STARTUP_PID" || fail "startup runner failed"
+  RESULT="$TMP_ROOT/startup.result"
+else
+  wait_for_result "$H" "$SID" || fail "the watch never captured an outcome after the torn window closed"
+  RESULT=$(first_result "$H" "$SID")
+fi
+assert_grep 'status: fired' "$RESULT" \
+  "the reload must wait past the torn spec/trust window, not reject a legitimate rebind mid-publish"
+assert_grep 'v2 ran against' "$RESULT" "the fired action ran the rebound (v2) bytes, not a rejection from a torn read"
+pass "the fire-time reload never observes rebind_one's spec/trust publish mid-rename"
+
+done
+
+make_update_repo() {
+  local repo=$1
+  fm_git_init_commit "$repo"
+  mkdir -p "$repo/bin"
+  # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
+  printf '#!/usr/bin/env bash\nprintf "v1\\n" >> "$1"\n' > "$repo/bin/action.sh"
+  chmod +x "$repo/bin/action.sh"
+  git -C "$repo" add bin/action.sh
+  git -C "$repo" -c user.name=Tests -c user.email=tests@example.invalid commit -qm action-v1
+  git -C "$repo" tag action-before
+  # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
+  printf '#!/usr/bin/env bash\nprintf "v2\\n" >> "$1"\n' > "$repo/bin/action.sh"
+  git -C "$repo" add bin/action.sh
+  git -C "$repo" -c user.name=Tests -c user.email=tests@example.invalid commit -qm action-v2
+  git -C "$repo" tag action-after
+  git -C "$repo" checkout -q --detach action-before
+}
+
+when_update_case() {
+  FM_HOME="$UPDATE_HOME" FM_ROOT_OVERRIDE="$UPDATE_REPO" \
+    "$ROOT/bin/fm-procevent-when.sh" "$@"
+}
+
+for order in update-first arm-first; do
+  WORLD="$TMP_ROOT/registration-$order"
+  UPDATE_HOME="$WORLD/home"
+  UPDATE_REPO="$UPDATE_HOME"
+  [ "$order" != arm-first ] || UPDATE_REPO="$WORLD/repo"
+  new_home "$UPDATE_HOME"
+  make_update_repo "$UPDATE_REPO"
+  FB=$(fm_fakebin "$WORLD")
+  REAL_GIT=$(command -v git)
+  REAL_SHASUM=$(command -v shasum || true)
+  REAL_SHA256SUM=$(command -v sha256sum || true)
+  cat > "$FB/git" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *' merge --ff-only '*)
+    : > "$FM_WHEN_TEST_WORLD/merge-ready"
+    if [ "$FM_WHEN_TEST_ORDER" = update-first ]; then
+      for _ in $(seq 1 500); do
+        [ ! -e "$FM_WHEN_TEST_WORLD/release-merge" ] || break
+        kill -0 "$FM_WHEN_TEST_PARENT" 2>/dev/null || exit 1
+        sleep 0.02
+      done
+      [ -e "$FM_WHEN_TEST_WORLD/release-merge" ] || exit 1
+    fi
+    ;;
+esac
+exec "$FM_WHEN_TEST_GIT" "$@"
+SH
+  cat > "$FB/shasum" <<'SH'
+#!/usr/bin/env bash
+if [ -n "$FM_WHEN_TEST_SHASUM" ]; then
+  "$FM_WHEN_TEST_SHASUM" "$@" || exit $?
+else
+  "$FM_WHEN_TEST_SHA256SUM" "${@: -1}" || exit $?
+fi
+if [ "$FM_WHEN_TEST_ORDER" = arm-first ] \
+  && [ "${@: -1}" = "$FM_WHEN_TEST_ACTION" ] \
+  && [ ! -e "$FM_WHEN_TEST_WORLD/hash-ready" ]; then
+  : > "$FM_WHEN_TEST_WORLD/hash-ready"
+  for _ in $(seq 1 500); do
+    [ ! -e "$FM_WHEN_TEST_WORLD/release-hash" ] || break
+    kill -0 "$FM_WHEN_TEST_PARENT" 2>/dev/null || exit 1
+    sleep 0.02
+  done
+  [ -e "$FM_WHEN_TEST_WORLD/release-hash" ] || exit 1
+fi
+SH
+  chmod +x "$FB/git" "$FB/shasum"
+  export FM_WHEN_TEST_WORLD="$WORLD" FM_WHEN_TEST_ORDER="$order" FM_WHEN_TEST_PARENT=$$
+  export FM_WHEN_TEST_GIT="$REAL_GIT" FM_WHEN_TEST_SHASUM="$REAL_SHASUM" FM_WHEN_TEST_SHA256SUM="$REAL_SHA256SUM"
+  export FM_WHEN_TEST_ACTION="$UPDATE_REPO/bin/action.sh"
+  if [ "$order" = update-first ]; then
+    PATH="$FB:$PATH" when_update_case fast-forward action-after > "$WORLD/update.out" 2>&1 &
+    UPDATER_PID=$!
+    wait_for_file "$WORLD/merge-ready" || fail "update never reached the pre-merge barrier"
+    PATH="$FB:$PATH" when_update_case arm "$order" --stable 1 \
+      --condition true --action "$UPDATE_REPO/bin/action.sh" "$WORLD/action.log" > "$WORLD/arm.out" 2>&1 &
+    ARMER_PID=$!
+    wait_for_file "$UPDATE_HOME/state/procevent/when-$order.source" 30 || true
+    : > "$WORLD/release-merge"
+  else
+    PATH="$FB:$PATH" when_update_case arm "$order" --stable 1 \
+      --condition true --action "$UPDATE_REPO/bin/action.sh" "$WORLD/action.log" > "$WORLD/arm.out" 2>&1 &
+    ARMER_PID=$!
+    wait_for_file "$WORLD/hash-ready" || fail "arm never reached the action-hash barrier"
+    PATH="$FB:$PATH" when_update_case fast-forward action-after > "$WORLD/update.out" 2>&1 &
+    UPDATER_PID=$!
+    wait_for_file "$WORLD/merge-ready" 30 || true
+    : > "$WORLD/release-hash"
+  fi
+  wait "$ARMER_PID" || fail "concurrent registration failed: $(cat "$WORLD/arm.out")"
+  wait "$UPDATER_PID" || fail "concurrent update failed: $(cat "$WORLD/update.out")"
+  [ "$(git -C "$UPDATE_REPO" rev-parse HEAD)" = "$(git -C "$UPDATE_REPO" rev-parse action-after)" ] \
+    || fail "concurrent registration prevented the authorized fast-forward"
+  when_update_case run "when-$order" > "$WORLD/result"
+  assert_grep 'status: fired' "$WORLD/result" "$order: a newly armed watch retained an obsolete action binding"
+  [ "$(cat "$WORLD/action.log")" = v2 ] || fail "$order: the updated action did not execute exactly once"
+  assert_present "$UPDATE_HOME/state/procevent/when-$order.source" "$order: the watch registration was lost"
+  when_update_case retire "$order" >/dev/null 2>&1
+  pass "$order: concurrent registration and update bind and execute the updated action exactly once"
+done
+
+WORLD="$TMP_ROOT/registration-refusals"
+UPDATE_HOME="$WORLD/home"
+UPDATE_REPO="$WORLD/repo"
+new_home "$UPDATE_HOME"
+make_update_repo "$UPDATE_REPO"
+if when_update_case arm refused --stable 1 --condition true \
+  --action "$WORLD/missing-action" > "$WORLD/arm.out" 2>&1; then
+  fail "an unavailable action was accepted during registration"
+fi
+assert_absent "$UPDATE_HOME/state/procevent/when-refused.source" "failed arm published a registration"
+if when_update_case fast-forward missing-ref > "$WORLD/update.out" 2>&1; then
+  fail "an unavailable update target was accepted"
+fi
+[ "$(git -C "$UPDATE_REPO" rev-parse HEAD)" = "$(git -C "$UPDATE_REPO" rev-parse action-before)" ] \
+  || fail "refused update changed the checkout"
+when_update_case arm refused --stable 1 --condition true \
+  --action "$UPDATE_REPO/bin/action.sh" "$WORLD/action.log" >/dev/null \
+  || fail "failed entry left registration locked or unpublishable"
+when_update_case fast-forward action-after > "$WORLD/retry.out" 2>&1 \
+  || fail "failed entry left the authorized update locked or unusable"
+when_update_case run when-refused > "$WORLD/result"
+assert_grep 'status: fired' "$WORLD/result" "refusal recovery left a stale watch binding"
+[ "$(cat "$WORLD/action.log")" = v2 ] || fail "refusal recovery did not execute the updated action exactly once"
+when_update_case retire refused >/dev/null 2>&1
+pass "registration and update refusals preserve the checkout and release the shared transaction"
+
+for ownership in ignored untracked symlink dirty-tracked; do
+  WORLD="$TMP_ROOT/rebind-refuse-$ownership"
+  UPDATE_REPO="$WORLD/repo"
+  UPDATE_HOME="$WORLD/home"
+  new_home "$UPDATE_HOME"
+  mkdir -p "$UPDATE_REPO/bin" "$UPDATE_REPO/data"
+  git -C "$UPDATE_REPO" init -q
+  printf 'data/\n' > "$UPDATE_REPO/.gitignore"
+  MUTABLE="$UPDATE_REPO/bin/helper.sh"
+  [ "$ownership" != ignored ] || MUTABLE="$UPDATE_REPO/data/helper.sh"
+  # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
+  printf '#!/usr/bin/env bash\nprintf "v1\n" >> "$1"\n' > "$MUTABLE"
+  chmod +x "$MUTABLE"
+  printf 'before\n' > "$UPDATE_REPO/README.md"
+  git -C "$UPDATE_REPO" add .gitignore README.md
+  case "$ownership" in
+    dirty-tracked) git -C "$UPDATE_REPO" add bin/helper.sh ;;
+    symlink)
+      ln -s helper.sh "$UPDATE_REPO/bin/action.sh"
+      git -C "$UPDATE_REPO" add bin/helper.sh bin/action.sh
+      ;;
+  esac
+  git -C "$UPDATE_REPO" -c user.name=Tests -c user.email=tests@example.invalid commit -qm before
+  BEFORE=$(git -C "$UPDATE_REPO" rev-parse HEAD)
+  printf 'after\n' > "$UPDATE_REPO/README.md"
+  git -C "$UPDATE_REPO" add README.md
+  git -C "$UPDATE_REPO" -c user.name=Tests -c user.email=tests@example.invalid commit -qm after
+  AFTER=$(git -C "$UPDATE_REPO" rev-parse HEAD)
+  git -C "$UPDATE_REPO" checkout -q --detach "$BEFORE"
+  ACTION=$MUTABLE
+  [ "$ownership" != symlink ] || ACTION="$UPDATE_REPO/bin/action.sh"
+  when_update_case arm refuse --stable 1 --condition true --action "$ACTION" "$WORLD/effect" >/dev/null
+  OLD_SPEC=$(cat "$UPDATE_HOME/state/when/when-refuse.spec")
+  OLD_TRUST=$(cat "$UPDATE_HOME/state/when/when-refuse.trust")
+  # shellcheck disable=SC2016 # $1 belongs to the generated helper script.
+  printf '#!/usr/bin/env bash\nprintf "mutated\n" >> "$1"\n' > "$MUTABLE"
+  when_update_case fast-forward "$AFTER" > "$WORLD/update.out" 2>&1 \
+    || fail "$ownership: unrelated update failed"
+  [ "$(git -C "$UPDATE_REPO" rev-parse HEAD)" = "$AFTER" ] || fail "$ownership: update did not advance"
+  [ "$(cat "$UPDATE_HOME/state/when/when-refuse.spec")" = "$OLD_SPEC" ] || fail "$ownership: update trusted changed helper"
+  [ "$(cat "$UPDATE_HOME/state/when/when-refuse.trust")" = "$OLD_TRUST" ] || fail "$ownership: update rewrote trust"
+  when_update_case run when-refuse > "$WORLD/result"
+  assert_grep 'status: rejected' "$WORLD/result" "$ownership: changed helper must be refused"
+  assert_absent "$WORLD/effect" "$ownership: changed helper executed"
+  assert_absent "$UPDATE_HOME/state/when/when-refuse.fired" "$ownership: refused helper claimed a fire"
+  when_update_case retire refuse >/dev/null 2>&1
+  pass "$ownership: unrelated update preserves action mutation refusal"
+done
 
 printf 'all fm-procevent-when tests passed\n'

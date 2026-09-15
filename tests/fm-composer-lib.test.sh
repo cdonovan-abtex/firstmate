@@ -391,17 +391,25 @@ test_matrix_pi_separated_needs_identity() {
 }
 
 test_matrix_opencode_leftbar_signals() {
-  # Real idle opencode: `┃`-prefixed rows holding the "Ask anything..." hint,
+  # Real idle opencode: `┃`-prefixed rows holding an "Ask anything" hint,
   # blanks, and a Build-mode footer. Two independent idle signals: the shared
   # idle-placeholder pattern (works on plain captures) and the ghost strip
   # (works on styled captures even if the pattern is overridden away).
-  local screen typed dim_screen out
+  local screen typed dim_screen captured_idle captured_pending out
   screen=$'  ┃\n  ┃  Ask anything... "What is the tech stack?"\n  ┃\n  ┃  Build · GPT-5.5 Fast OpenAI · high\n  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
   dim_screen=$'  ┃\n  ┃  '"${ESC}[2mAsk anything...${ESC}[0m"$'\n  ┃\n  ┃  Build · GPT-5.5 Fast OpenAI · high\n  ╹▀▀▀▀'
   assert_screen "opencode idle on tmux (cursor on hint)" empty "$CAPS_TMUX" "$dim_screen" 1
   assert_screen "opencode idle on herdr" empty "$CAPS_STYLED" "$dim_screen"
   assert_screen "opencode idle on zellij" empty "$CAPS_STYLED_NOID" "$dim_screen"
   assert_screen "opencode idle on cmux/orca" empty "$CAPS_PLAIN" "$screen"
+  # This sanitized live OpenCode 1.18.30 capture preserves its U+2026 hint and
+  # RGB 128 styling. RGB 128 is deliberately outside the ghost threshold, so
+  # the placeholder spelling is the independent empty signal. The completed-
+  # turn row above the active composer also pins the incident's idle layout.
+  captured_idle=$'  ▣ Build · Big Pickle · 3.4s\n\n  ┃\n  ┃  '"${ESC}[38;2;128;128;128mAsk anything… \"Fix a TODO in the codebase\"${ESC}[38;2;255;255;255m"$'\n  ┃\n  ┃  Build · Big Pickle OpenCode Zen\n  ╹▀▀▀▀▀▀▀▀'
+  assert_screen "opencode 1.18.30 completed-turn idle hint on tmux" empty "$CAPS_TMUX" "$captured_idle" 3
+  captured_pending=$'  ▣ Build · Big Pickle · 3.4s\n\n  ┃\n  ┃  '"${ESC}[38;2;255;255;255mReply with OK.${ESC}[38;2;255;255;255m"$'\n  ┃\n  ┃  Build · Big Pickle OpenCode Zen\n  ╹▀▀▀▀▀▀▀▀'
+  assert_screen "opencode 1.18.30 completed-turn typed composer on tmux" pending "$CAPS_TMUX" "$captured_pending" 3
   # Signal separation: with the idle pattern overridden to something that
   # cannot match, a DIM-styled hint still proves empty through the ghost strip.
   out=$(FM_COMPOSER_IDLE_RE='^NEVER-MATCHES$' fm_composer_classify_screen "$CAPS_TMUX" "$dim_screen" 1)
@@ -418,25 +426,29 @@ test_matrix_opencode_leftbar_signals() {
 }
 
 test_matrix_grok_titled_bottom_border() {
-  # Real idle grok: a bordered box whose BOTTOM border carries the model name.
-  # The audit showed the title alone flipped tmux's geometry check to
-  # ambiguous and the verdict to unknown, stranding every grok steer.
-  local titled plain_border typed placeholder_draft
-  titled=$'  ╭──────────────────────────────────────╮\n  │ ❯                                    │\n  ╰──────────────────── Grok 4.5 (high) ─╯'
+  # Grok 1.0.5 widened its titled BOTTOM border three columns past the top and
+  # content rows. This is the idle capture from issue #3436; Herdr has no
+  # cursor anchor, so the geometry mismatch used to make the proven box
+  # ambiguous and the verdict unknown, stranding away-mode injection.
+  local titled plain_border typed malformed placeholder_draft
+  titled=$'  ╭──────────────────────────────────────────────────────────────────────────╮\n  │ ❯                                                                        │\n  ╰────────────────────────────────────────────────────────── Grok 4.6 (xhigh) ─╯\n\n  Shift+Tab:mode  │  Ctrl+x:shortcuts'
   plain_border=$'  ╭──────────────────────────────────────╮\n  │ ❯                                    │\n  ╰──────────────────────────────────────╯'
   assert_screen "grok titled on tmux" empty "$CAPS_TMUX" "$titled" 1
   assert_screen "grok titled on tmux bottom-border cursor" empty "$CAPS_TMUX" "$titled" 2
-  assert_screen "grok titled on herdr" empty "$CAPS_STYLED" "$titled"
-  placeholder_draft=$'  ╭──────────────────────────────────────╮\n  │ ❯ Type a message...                  │\n  ╰──────────────────── Grok 4.5 (high) ─╯'
+  assert_screen "issue #3436 idle grok 1.0.5 on herdr" empty "$CAPS_STYLED" "$titled"
+  placeholder_draft=$'  ╭──────────────────────────────────────────────────────────────────────────╮\n  │ ❯ Type a message...                                                      │\n  ╰────────────────────────────────────────────────────────── Grok 4.6 (xhigh) ─╯'
   assert_screen "grok bright placeholder-like draft on tmux" pending "$CAPS_TMUX" "$placeholder_draft" 1
   assert_screen "grok placeholder on plain backends" empty "$CAPS_PLAIN" "$placeholder_draft"
   assert_screen "grok titled on cmux/orca" empty "$CAPS_PLAIN" "$titled"
   assert_screen "grok titled on zellij" empty "$CAPS_STYLED_NOID" "$titled"
   # The tolerance is additive: an untitled border still proves the same box.
   assert_screen "grok untitled border" empty "$CAPS_TMUX" "$plain_border" 1
-  typed=$'  ╭──────────────────────────────────────╮\n  │ ❯ deploy the fix                     │\n  ╰──────────────────── Grok 4.5 (high) ─╯'
+  typed=$'  ╭──────────────────────────────────────────────────────────────────────────╮\n  │ ❯ deploy the fix                                                         │\n  ╰────────────────────────────────────────────────────────── Grok 4.6 (xhigh) ─╯'
   assert_screen "grok typed on tmux" pending "$CAPS_TMUX" "$typed" 1
-  pass "matrix: grok's titled bottom border is tolerated as a title, not read as ambiguity"
+  assert_screen "grok typed on herdr" pending "$CAPS_STYLED" "$typed"
+  malformed=$'  ╭──────────────────────────────────────────────────────────────────────────╮\n  │ ❯                                                                        │\n  ╰────────────────────────────────────────────────────────── unknown surface ─╯'
+  assert_screen "oversized unknown title on herdr" unknown "$CAPS_STYLED" "$malformed"
+  pass "matrix: grok's real oversized titled bottom is empty while typed and unproved panes stay safe"
 }
 
 test_matrix_kimi_bordered_shell_glyph_box() {
@@ -728,3 +740,64 @@ test_queued_enter_verdict_does_not_convert_other_states() {
 test_queued_enter_verdict_busy_pending_is_empty
 test_queued_enter_verdict_idle_pending_stays_pending
 test_queued_enter_verdict_does_not_convert_other_states
+
+test_agy_identity_and_complete_composer() {
+  local screen caps got cursor identity text
+  for cursor in 0 1; do
+    caps=$(printf 'styled=1\ncursor=%s\nidentity=1' "$cursor")
+    screen=$(printf 'transcript\n────────────────\n>\n────────────────\n? for shortcuts    Gemini 3.8 Flash · low\n')
+    got=$(fm_composer_classify_screen "$caps" "$screen" 2)
+    [ "$got" = need-identity ] || fail "AGY shape must request native identity: $got"
+    for identity in $'agy\tidle' $'agy\tlive'; do
+      got=$(fm_composer_classify_screen "$caps" "$screen" 2 "$identity")
+      [ "$got" = empty ] || fail "live AGY empty input refused: $got"
+    done
+    for identity in probe-absent $'bash\tidle' $'agy\tblocked' $'agy\tworking'; do
+      got=$(fm_composer_classify_screen "$caps" "$screen" 2 "$identity")
+      [ "$got" = unknown ] || fail "unproven AGY identity accepted: $identity $got"
+    done
+    for text in 'draft' $'\033[2mdraft\033[0m' $'draft\ncontinued'; do
+      screen=$(printf 'transcript\n────────────────\n> %s\n────────────────\n? for shortcuts    Gemini 3.8 Flash · low\n' "$text")
+      got=$(fm_composer_classify_screen "$caps" "$screen" 2 $'agy\tidle')
+      [ "$got" = pending ] || fail "AGY pending input was not preserved: $got"
+    done
+    for screen in $'>\n? for shortcuts' $'────────────────\n>\n────────────────' $'────────────────\n>\n────────────────\n? for shortcuts\n$'; do
+      got=$(fm_composer_classify_screen "$caps" "$screen" 1 $'agy\tidle')
+      [ "$got" != empty ] || fail "incomplete or stale AGY shape proved empty"
+    done
+  done
+  pass "AGY empty proof requires native identity and complete idle composer"
+}
+
+test_agy_identity_and_complete_composer
+
+
+test_rovo_placeholder_requires_styled_native_identity() {
+  local screen caps got cursor identity color content
+  for cursor in 0 1; do
+    caps=$(printf 'styled=1\ncursor=%s\nidentity=1' "$cursor")
+    for color in '38;2;162;163;165' '38:2::162:163:165'; do
+      screen=$(printf '╭────────────────────────────╮\n│ \033[%smSummarize my open tasks\033[0m    │\n╰────────────────────────────╯\n' "$color")
+      got=$(fm_composer_classify_screen "$caps" "$screen" 1)
+      [ "$got" = need-identity ] || fail "Rovo placeholder must request native identity: $got"
+      for identity in $'rovo\tidle' $'rovo\tdone' $'rovo\tlive'; do
+        got=$(fm_composer_classify_screen "$caps" "$screen" 1 "$identity")
+        [ "$got" = empty ] || fail "Rovo placeholder was not recognized: $got"
+      done
+      for identity in probe-absent $'muse\tidle' $'rovo\tworking' $'rovo\tblocked'; do
+        got=$(fm_composer_classify_screen "$caps" "$screen" 1 "$identity")
+        [ "$got" = pending ] || fail "foreign or unproven identity stripped Rovo-colored content: $got"
+      done
+      got=$(fm_composer_classify_screen $'styled=0\ncursor=1\nidentity=1' "$screen" 1 $'rovo\tidle')
+      [ "$got" != empty ] || fail "unstyled capture proved Rovo placeholder empty"
+    done
+    for content in $'\033[38;2;206;207;210mSummarize my open tasks\033[0m' $'\033[38;2;162;163;165mHint\033[38;2;206;207;210mdraft\033[0m              '; do
+      screen=$(printf '╭────────────────────────────╮\n│ %s    │\n╰────────────────────────────╯\n' "$content")
+      got=$(fm_composer_classify_screen "$caps" "$screen" 1 $'rovo\tidle')
+      [ "$got" = pending ] || fail "Rovo actual typed input was stripped: $got"
+    done
+  done
+  pass "Rovo placeholder needs native identity and styling; real input stays pending"
+}
+
+test_rovo_placeholder_requires_styled_native_identity
