@@ -1,0 +1,5 @@
+{
+  "bounded_ignored_result": "pass",
+  "routine_silent": "pass",
+  "new_result_restarts": "fail (expected pre-fix reproduction)"
+}

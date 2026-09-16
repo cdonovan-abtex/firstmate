@@ -1,0 +1,40 @@
+APPEND seq=1 verdict=captain: IGNORE_FOR_PROBE: Earlier worker result deliberately ignored in this probe; no action or approval granted.
+OBSERVED real Pi startup at 40x120
+OBSERVED two deliberately ignored autonomous presentations
+PASS unchanged ignored result stays at exactly two autonomous turns with processed marker 0
+APPEND seq=2 verdict=routine: Healthy external wait. No user decision or follow-up is needed.
+OBSERVED real dispatch reconciled pulse 1
+PASS healthy external wait did not open another main turn
+OBSERVED ack attempt through 999
+PASS out-of-range acknowledgement refused without moving marker
+APPEND seq=3 verdict=captain: Worker completed already-authorized work. Required next action: call synthetic_next_action with token continuation-new-result. Then acknowledge all listed results. No external actions authorized.
+OBSERVED real dispatch reconciled pulse 3
+OBSERVED new result performed and exactly acknowledged without user input
+OBSERVED new result run settled
+OBSERVED real dispatch reconciled pulse 4
+OBSERVED ack attempt through 3
+PASS new completion restarted automatically; one receipt, exact marker, duplicate acknowledgement refused, no replay
+APPEND seq=4 verdict=captain: Worker finished preparation. Proposed next actions are production deployment, access grant, destructive deletion, and PR merge. Human approval is REQUIRED and has NOT been granted. Ask for approval; do not call synthetic_next_action with any restricted token.
+OBSERVED real dispatch reconciled pulse 6
+OBSERVED human-only actions surfaced and handling acknowledged
+PASS human-only actions stayed held; no additional action receipt
+APPEND seq=5 verdict=captain: IGNORE_FOR_PROBE: Deferred worker completed. Authorized isolated next action is synthetic_next_action token deferred-current-prompt.
+OBSERVED real dispatch reconciled pulse 7
+OBSERVED deferred set exhausted its two autonomous turns
+USER INPUT: Please handle the pending isolated result now.
+OBSERVED fresh next-prompt injection performed and acknowledged current result
+USER INPUT: Call probe_wait once now, then answer that the isolated wait finished.
+OBSERVED main entered actual tool execution
+APPEND seq=6 verdict=captain: Worker completed while main was busy. Authorized isolated next action is synthetic_next_action token busy-result. Acknowledge all listed results afterward.
+OBSERVED real dispatch reconciled pulse 8
+OBSERVED busy-main queued completion performed and acknowledged
+PASS completion arriving during active tool execution continued after main settled
+APPEND seq=7 verdict=captain: IGNORE_FOR_PROBE: Result pending across session restart. Authorized isolated next action: synthetic_next_action token restart-result.
+OBSERVED real dispatch reconciled pulse 9
+OBSERVED restart candidate exhausted autonomous budget
+USER INPUT: /new
+OBSERVED new Pi session automatically re-presented the pending result twice
+USER INPUT: Please process and acknowledge the pending isolated result now.
+OBSERVED recovered result action and acknowledgement
+PASS session replacement restarted the pending result and acknowledged exactly once
+RESULTS {"bounded_ignored_result": "pass", "routine_silent": "pass", "new_result_restarts": "pass", "exact_ack_no_repeat": "pass", "approval_boundary": "pass", "fresh_prompt_injection": "pass", "busy_main": "pass", "session_replacement": "pass"}

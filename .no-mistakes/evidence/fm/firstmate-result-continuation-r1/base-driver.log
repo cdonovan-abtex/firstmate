@@ -1,0 +1,13 @@
+APPEND seq=1 verdict=captain: IGNORE_FOR_PROBE: Earlier worker result deliberately ignored in this probe; no action or approval granted.
+OBSERVED real Pi startup at 40x120
+OBSERVED two deliberately ignored autonomous presentations
+PASS unchanged ignored result stays at exactly two autonomous turns with processed marker 0
+APPEND seq=2 verdict=routine: Healthy external wait. No user decision or follow-up is needed.
+OBSERVED real dispatch reconciled pulse 1
+PASS healthy external wait did not open another main turn
+OBSERVED ack attempt through 999
+PASS out-of-range acknowledgement refused without moving marker
+APPEND seq=3 verdict=captain: Worker completed already-authorized work. Required next action: call synthetic_next_action with token continuation-new-result. Then acknowledge all listed results. No external actions authorized.
+OBSERVED real dispatch reconciled pulse 3
+REPRODUCED BASE FAILURE: new result persisted and displayed, but no third turn, no authorized receipt, and processed marker remained 0 without human input.
+RESULTS {"bounded_ignored_result": "pass", "routine_silent": "pass", "new_result_restarts": "fail (expected pre-fix reproduction)"}

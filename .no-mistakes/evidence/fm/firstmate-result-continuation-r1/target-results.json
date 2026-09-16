@@ -1,0 +1,10 @@
+{
+  "bounded_ignored_result": "pass",
+  "routine_silent": "pass",
+  "new_result_restarts": "pass",
+  "exact_ack_no_repeat": "pass",
+  "approval_boundary": "pass",
+  "fresh_prompt_injection": "pass",
+  "busy_main": "pass",
+  "session_replacement": "pass"
+}
