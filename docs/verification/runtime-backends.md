@@ -1761,7 +1761,8 @@ ok - real Pi SDK 0.84.4 immediately renders appendEntry in the active transcript
 ```
 
 The focused regression recreates the two 2026-08-31 incident shapes against the real store scripts: a delivered decision outcome whose processing turn returns an empty assistant message, and one whose turn repeats an unrelated prior answer.
-In both, the processed marker holds, the same sequence is presented again at the run boundary and after a session replacement, the triggered-turn budget gives way to a next-prompt copy without duplicates, and only `fm_branch_processed` with the presented sequence closes the outcome; a routine outcome never enters the path, and delivered history from before the marker existed is migrated once rather than re-presented.
+In both, the processed marker holds until the presented sequence is acknowledged; the routine-outcome exclusion and one-time migration of already-delivered history are also covered.
+Current retry-pacing evidence is recorded under [completion-to-continuation handoff](#2026-09-16-completion-to-continuation-handoff).
 On this machine the globally installed npm package is 0.81.1, whose stock `ToolExecutionComponent` rendering differs from the 0.84 line and fails the suite's first rendering-consumer case before any delivery case runs, which is why `FM_PI_PACKAGE_DIR` points at the 0.84.4 install above.
 
 ### 2026-09-02 historical post-construction provider-error fallback
@@ -1844,6 +1845,32 @@ It names the installed version and the floor rather than degrading quietly, and 
 The same guard against the pre-change extension in the same lab measured a 676.9 ms worst keystroke echo while delivering two outcomes and a 295.3 ms worst echo with nothing to deliver, against a 49.2 ms extension-free floor, and failed as designed.
 Measured through the same real `fm_branch_report` tool and real `bin/` scripts with a 1 ms interval timer, the largest single block of the JavaScript thread fell from 273 ms to 2.0 ms for a routine outcome, from 286 ms to 2.0 ms for a captain outcome, and from 134 ms to 1.9 ms for main's acknowledgement, against a 1.3-2.2 ms idle-loop floor.
 Those absolute figures are specific to this host and Pi version; the guards assert the relationship (delivery must stay in the class of the same machine's own floor) rather than a remembered millisecond number.
+
+### 2026-09-16 completion-to-continuation handoff
+
+The focused extension suite and prompt-submitting Herdr live guard were run on macOS 26.6.2 arm64, Node v22.23.1, Pi 0.82.1, and Herdr 0.7.5 protocol 17.
+The live guard received its approved provider and model selectors through local environment variables for the Pi launch.
+It used one generated non-default Herdr session, one scratch `FM_HOME`, one scratch Pi session directory, no context files or built-in tools, and the guarded lab helper's before/after default-session tripwire.
+It seeded one synthetic captain-facing completion, sent no user prompt, allowed only an isolated receipt-writing tool plus the supervision tools, and typed `/quit` only after the receipt and exact processed marker both existed.
+
+```sh
+bin/fm-test-run.sh tests/fm-pi-branch-extension.test.sh
+FM_PI_RESULT_CONTINUATION_HERDR_E2E=1 \
+  FM_PI_RESULT_CONTINUATION_PROVIDER="$APPROVED_PI_PROVIDER" \
+  FM_PI_RESULT_CONTINUATION_MODEL="$APPROVED_PI_MODEL" \
+  HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
+  bin/fm-test-run.sh tests/fm-pi-result-continuation-herdr-live-e2e.test.sh
+```
+
+```text
+ok - a new completed result restarts bounded processing without a human prompt, while healthy waits stay silent and acknowledgements remain exact
+ok - a real Pi in a named Herdr lab turns a synthetic completion into its authorized synthetic next action without a human prompt
+```
+
+The portable counterfactual first exhausts both autonomous presentations of one deliberately ignored outcome set, emits no captain or synthetic user prompt, then appends a new completed result.
+The new sequence membership opens a current processing turn immediately, while an unchanged set remains bounded, a healthy external wait remains silent, an unlisted acknowledgement is refused, and the exact acknowledgement closes the set once.
+The real Pi transcript independently records the hidden processing request, the isolated next-action tool call, and `fm_branch_processed` for the same sequence; a visible note or cursor movement alone cannot pass the guard.
+The Herdr helper's teardown confirmed the default session was unchanged.
 
 ## Native Codex through Pi
 

@@ -11,9 +11,8 @@
 // real tools and reports through the fm_branch_report custom tool, which
 // writes the durable outcome store FIRST (bin/fm-branch-outcome.sh), then
 // persists a sequence-keyed visible record in main's transcript, and for a
-// captain-facing outcome opens one sequence-keyed processing turn on main
-// that stays open until main acknowledges that sequence (see
-// presentUnprocessedOutcomes).
+// captain-facing outcome requests processing on main (see
+// presentUnprocessedOutcomes for the bounded retry policy).
 // Main's captain/assistant dialog is mirrored into the branch as read-only
 // fm-main-mirror context from Pi's
 // before_agent_start prompt and at main's turn_end. Pi-only by construction: this
@@ -150,17 +149,17 @@ const VISIBLE_OUTCOME_ANCHOR = "⚓";
 const VISIBLE_OUTCOME_ENTRY_TYPE = "fm-branch-visible-outcome";
 // The processing half of the captain-outcome contract. The visible entry
 // above is the DISPLAY: crash-safe and exact-once. This hidden, typed request
-// is the PROCESSING: it opens the one turn in which main acts on the outcome,
+// is the PROCESSING: it asks main to act on the outcome,
 // and only main's explicit sequence-bound acknowledgement (fm_branch_processed)
-// closes it. An unrelated or empty answer leaves the sequence open, so it is
-// presented again at the end of the next main run and at session start. Pi
+// closes it. An unrelated or empty answer leaves the sequence open;
+// presentUnprocessedOutcomes owns bounded re-presentation. Pi
 // gives the model only a custom message's `content`, so the request carries
 // its own identity through the typed operational envelope.
 const PROCESSING_MESSAGE_TYPE = "fm-branch-process";
 // Triggered re-presentations per unprocessed sequence set before the request
-// stops opening turns of its own and instead rides the captain's next prompt
-// (deliverAs nextTurn). Bounded so an answer that repeatedly ignores the
-// request cannot become an unbounded loop of empty turns.
+// stops opening turns of its own and is injected into the captain's next
+// prompt. Bounded so an answer that repeatedly ignores the request cannot
+// become an unbounded loop of empty turns.
 const PROCESSING_TRIGGERED_ATTEMPTS = 2;
 // One provider failure rejects immediately to watcher-owned fallback but leaves
 // room for a transient outage to recover on the next wake. A second consecutive
@@ -624,12 +623,14 @@ export default function (pi: ExtensionAPI) {
   };
   let currentMainSession: ReadonlyEntries | null = null;
   // Volatile view of the open processing request: the sequences it presented,
-  // how many turns it has opened for that set, whether a
-  // presentation is still pending its run boundary, and whether a copy is
-  // queued for the captain's next prompt. The durable truth is the store's
-  // processed marker; this only paces re-presentation and resets with the
-  // session generation.
-  type ProcessingState = { sequences: string; through: number; triggered: number; pending: boolean; nextTurnQueued: boolean };
+  // how many turns it has opened for that set, whether a presentation is still
+  // pending its run boundary, and whether the current set should be injected
+  // into the next prompt. The durable truth is the store's processed marker;
+  // this only paces re-presentation and resets with the session generation.
+  // Awaiting a prompt is deliberately extension-local rather than one opaque
+  // Pi nextTurn queue entry: a later result can then restart the bounded
+  // triggered budget instead of waiting behind a stale queued snapshot.
+  type ProcessingState = { sequences: string; through: number; triggered: number; pending: boolean; awaitingPrompt: boolean };
   let processing: ProcessingState | null = null;
   let processedInitializedGeneration = -1;
   // One revision for BOTH selections: a model or effort change invalidates an
@@ -1016,10 +1017,14 @@ export default function (pi: ExtensionAPI) {
   // Present every unprocessed captain outcome to main as ONE sequence-keyed
   // processing request. The first PROCESSING_TRIGGERED_ATTEMPTS presentations
   // of a given sequence set open a turn of their own (queued as a follow-up
-  // while main is busy); after that the request rides the captain's next
-  // prompt instead, once per run, and a session replacement starts the
-  // triggered budget over. Nothing here advances the processed marker: only
-  // fm_branch_processed does, keyed to the sequence main acknowledges.
+  // while main is busy); after that the current set is injected into the
+  // captain's next prompt, once per run, and a session replacement starts the
+  // triggered budget over. The deferred copy is not handed to Pi's opaque
+  // nextTurn queue: if sequence membership changes first, this function can
+  // recognize that new result and open a fresh bounded processing turn without
+  // waiting for a prompt to consume an obsolete snapshot. Nothing here
+  // advances the processed marker: only fm_branch_processed does, keyed to the
+  // sequence main acknowledges.
   async function presentUnprocessedOutcomes(expectedGeneration: number): Promise<boolean> {
     const rows = await readUnprocessedOutcomes(expectedGeneration);
     if (rows === null) return false;
@@ -1031,15 +1036,14 @@ export default function (pi: ExtensionAPI) {
     const sequences = rows.map((row) => row.seq).join(",");
     if (processing?.pending) return true;
     // Encoding the request body shells out, so it is done before the volatile
-    // processing state is touched: the queue keeps another delivery out, but
-    // main's own agent_start still runs during that await and clears
-    // nextTurnQueued, and a decision recorded before the await could be acted
-    // on after it.
+    // processing state is touched. The delivery queue keeps another outcome
+    // out, but a session replacement can still cancel this generation while
+    // the subprocess runs.
     const content = await processingRequestInput(rows);
     if (!(await generationOwnsLock(expectedGeneration))) return false;
     if (processing?.pending) return true;
     if (!processing || processing.sequences !== sequences) {
-      processing = { sequences, through, triggered: 0, pending: false, nextTurnQueued: false };
+      processing = { sequences, through, triggered: 0, pending: false, awaitingPrompt: false };
     }
     // A presentation already sent is consumed by the run it joins or opens;
     // until that run settles, sending a widened or identical copy would hand
@@ -1048,13 +1052,43 @@ export default function (pi: ExtensionAPI) {
     if (processing.triggered < PROCESSING_TRIGGERED_ATTEMPTS) {
       processing.triggered += 1;
       processing.pending = true;
+      processing.awaitingPrompt = false;
       pi.sendMessage(message, { triggerTurn: true, deliverAs: "followUp" });
-    } else if (!processing.nextTurnQueued) {
-      processing.nextTurnQueued = true;
-      processing.pending = true;
-      pi.sendMessage(message, { deliverAs: "nextTurn" });
+    } else {
+      processing.awaitingPrompt = true;
     }
     return true;
+  }
+
+  // Consume the deferred presentation at the supported before_agent_start
+  // injection point. Reading the store again makes the injected request a
+  // current view, never a queued snapshot. The caller runs this inside the
+  // delivery queue, so acknowledgement and outcome delivery cannot interleave
+  // with the transition from awaitingPrompt to pending.
+  async function processingMessageForPrompt(expectedGeneration: number): Promise<{ customType: string; content: string; display: false } | null> {
+    const expected = processing;
+    if (!expected?.awaitingPrompt || expected.pending) return null;
+    const rows = await readUnprocessedOutcomes(expectedGeneration);
+    if (rows === null) return null;
+    if (rows.length === 0) {
+      processing = null;
+      return null;
+    }
+    const content = await processingRequestInput(rows);
+    if (!(await generationOwnsLock(expectedGeneration)) || processing !== expected || expected.pending) return null;
+    const through = rows[rows.length - 1].seq;
+    const sequences = rows.map((row) => row.seq).join(",");
+    if (sequences !== expected.sequences) {
+      // This is a defensive recovery path for an outcome appended outside the
+      // ordinary report reconciliation. The prompt already opening receives
+      // the current set, and later retries remain bounded from a fresh budget.
+      processing = { sequences, through, triggered: 0, pending: true, awaitingPrompt: false };
+    } else {
+      expected.through = through;
+      expected.pending = true;
+      expected.awaitingPrompt = false;
+    }
+    return { customType: PROCESSING_MESSAGE_TYPE, content, display: false };
   }
 
   // Reconcile in sequence order so the cursor can never cross a captain row
@@ -1567,7 +1601,10 @@ ${context.command}
     rememberMainModel(ctx);
     currentMainSession = ctx?.sessionManager ?? null;
     const promptGeneration = generation;
-    if (!(await enqueueDelivery(() => actingAsOwner(promptGeneration)))) return;
+    const processingMessage = await enqueueDelivery(async () => {
+      if (!(await actingAsOwner(promptGeneration))) return null;
+      return processingMessageForPrompt(promptGeneration);
+    });
     if (promptGeneration !== generation || !currentMainSession || !collectCurrentMainDialog()) return;
 
     // This event is Pi's authoritative complete current prompt. At this point
@@ -1576,18 +1613,17 @@ ${context.command}
     // Stage it verbatim and remember the future persisted index for turn_end's
     // duplicate suppression. Operational extension injections are not dialog.
     const prompt = event.prompt.trim();
-    if (!prompt || isOperationalUserText(prompt)) return;
-    const file = currentMainSession.getSessionFile() ?? "";
-    const index = mirrorCollection.collectAnchor?.index ?? currentMainSession.getEntries().length;
-    pendingMirror.push({ tag: "captain", text: prompt });
-    mirrorCollection.stagedCaptain = { file, index, text: prompt };
+    if (prompt && !isOperationalUserText(prompt)) {
+      const file = currentMainSession.getSessionFile() ?? "";
+      const index = mirrorCollection.collectAnchor?.index ?? currentMainSession.getEntries().length;
+      pendingMirror.push({ tag: "captain", text: prompt });
+      mirrorCollection.stagedCaptain = { file, index, text: prompt };
+    }
+    return processingMessage ? { message: processingMessage } : undefined;
   });
 
   pi.on?.("agent_start", () => {
     mainStreaming = true;
-    // Pi delivers a queued nextTurn copy with the prompt that starts this run,
-    // so a fresh copy may be queued again once this run settles unacknowledged.
-    if (processing) processing.nextTurnQueued = false;
   });
   pi.on?.("agent_end", () => {
     mainStreaming = false;
@@ -1597,7 +1633,7 @@ ${context.command}
   // settled (a follow-up joins the running turn, a triggered send opens its
   // own), so any sequence still unprocessed here was answered by something
   // other than its acknowledgement - an unrelated reply, an empty reply, or a
-  // reply that only paraphrased it - and is presented again.
+  // reply that only paraphrased it - and is reconsidered for bounded retry.
   pi.on?.("agent_settled", async () => {
     mainStreaming = false;
     if (processing) processing.pending = false;
