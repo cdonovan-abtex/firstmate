@@ -599,8 +599,13 @@ const pi = {
 // asserts on what it did.
 async function fire(event, payload, ctx) {
   const eventCtx = ctx;
+  const results = [];
   if (eventCtx?.sessionManager) activeMainSession = eventCtx.sessionManager;
-  for (const handler of piHandlers.get(event) ?? []) await handler(payload, eventCtx);
+  for (const handler of piHandlers.get(event) ?? []) {
+    const result = await handler(payload, eventCtx);
+    if (result !== undefined) results.push(result);
+  }
+  return results;
 }
 function makeOffer(message, projects = [approvedProject], heartbeat = false, eligible = projects.length > 0 || heartbeat) {
   const offer = {
@@ -1307,26 +1312,35 @@ if (requests()[1].options.triggerTurn !== true) throw new Error("the first re-pr
 if (!requests()[1].message.content.includes(`[seq ${seq}] task-d: ${decision}`)) throw new Error("the re-presentation changed the outcome");
 
 // Case B: the turn repeats an unrelated prior answer. Same result: the marker
-// holds, and the request is presented again - now riding the captain's next
-// prompt because the triggered budget for this sequence set is spent.
+// holds, but the exhausted set waits extension-locally for the captain's next
+// prompt rather than occupying Pi's opaque nextTurn queue with a stale snapshot.
 await runOf(() => mainEntries.push({ type: "message", message: { role: "assistant", content: "The retry safe-stopped; diagnosis is underway." } }));
 if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([seq])) throw new Error("an unrelated answer advanced the processed marker");
-if (requests().length !== 3) throw new Error(`an unrelated answer did not re-present the outcome: ${requests().length} requests`);
-if (requests()[2].options.deliverAs !== "nextTurn" || requests()[2].options.triggerTurn) {
-  throw new Error(`after the triggered budget the request must ride the next prompt: ${JSON.stringify(requests()[2].options)}`);
-}
-// A quiet settle with the copy still queued does not queue a duplicate.
+if (requests().length !== 2) throw new Error(`the exhausted set queued another autonomous request: ${requests().length} requests`);
+// A quiet settle stays silent and cannot create a wake storm.
 await fire("agent_settled", {});
-if (requests().length !== 3) throw new Error("a duplicate next-turn copy was queued");
-// The captain's next prompt consumes that copy; settling unacknowledged queues one more.
+if (requests().length !== 2) throw new Error("a quiet settle queued another processing request");
+// The captain's next prompt receives a current hidden injection. It is not a
+// Pi nextTurn queue entry, and settling it unacknowledged returns to the same
+// bounded wait rather than opening another autonomous turn.
+const injected = await fire("before_agent_start", { prompt: "ordinary captain prompt" }, defaultSessionCtx);
+const injectedMessage = injected.map((result) => result?.message).find((message) => message?.customType === "fm-branch-process");
+if (!injectedMessage?.content.includes(`[seq ${seq}] task-d: ${decision}`) || injectedMessage.display !== false) {
+  throw new Error(`the next prompt did not receive the current processing request: ${JSON.stringify(injected)}`);
+}
 await runOf(() => mainEntries.push({ type: "message", message: { role: "assistant", content: "Captain, shipshape." } }));
-if (requests().length !== 4 || requests()[3].options.deliverAs !== "nextTurn") throw new Error("the outcome stopped being re-presented on later prompts");
+if (requests().length !== 2) throw new Error("a prompt-injected ignored request restarted the autonomous retry loop");
 if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([seq])) throw new Error("a paraphrase advanced the processed marker");
+const reinjected = await fire("before_agent_start", { prompt: "later captain prompt" }, defaultSessionCtx);
+if (!reinjected.some((result) => result?.message?.content.includes(`[seq ${seq}] task-d: ${decision}`))) {
+  throw new Error("the outcome stopped being re-presented on later prompts");
+}
+await runOf();
 
 // A session replacement re-presents with a fresh triggered budget.
 await fire("session_shutdown", {});
 await fire("session_start", {}, defaultSessionCtx);
-if (requests().length !== 5 || requests()[4].options.triggerTurn !== true) throw new Error("session start did not re-present the unprocessed outcome with its own turn");
+if (requests().length !== 3 || requests()[2].options.triggerTurn !== true) throw new Error("session start did not re-present the unprocessed outcome with its own turn");
 if (mainEntries.filter((entry) => entry.customType === "fm-branch-visible-outcome" && entry.data.seq === seq).length !== 1) {
   throw new Error("re-presentation duplicated the visible entry");
 }
@@ -1433,6 +1447,94 @@ EOF
   out=$(cat "$TMP_ROOT/node-output")
   expect_code 0 "$status" "captain outcomes must be processed through a sequence-bound acknowledgement and re-presented until then: $out"
   pass "a captain outcome opens one sequence-keyed processing turn, survives empty and unrelated answers, is re-presented at run end and session start, and closes only on its acknowledgement"
+}
+
+test_new_captain_outcome_restarts_after_the_ignored_set_waits_for_a_prompt() {
+  local repo home out status
+  repo="$TMP_ROOT/current-result-root"
+  home="$TMP_ROOT/current-result-home"
+  mkdir -p "$home/state" "$home/config"
+  install_pi_branch_extension_fixture "$repo"
+  PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+const prelude = process.env.DRIVER_PRELUDE;
+await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, sentToMain, mainTools, outcomeScript, defaultSessionCtx }; })()`);
+const { fire, dispatch, settle, sentToMain, mainTools, outcomeScript, defaultSessionCtx } = globalThis.__t;
+
+const requests = () => sentToMain.filter((sent) => sent.message.customType === "fm-branch-process");
+const unprocessedSeqs = () => outcomeScript(["unprocessed"]).split("\n").filter(Boolean).map((line) => JSON.parse(line).seq);
+const finishRun = async () => {
+  await fire("agent_start", {});
+  await fire("agent_end", {});
+  await fire("agent_settled", {});
+};
+
+await fire("session_start", {}, defaultSessionCtx);
+let finishWakePrompt;
+globalThis.__fmOnBranchPrompt = () => new Promise((resolve) => { finishWakePrompt = resolve; });
+const offer = dispatch("signal: seed processing tool");
+if (!offer.accepted) throw new Error("branch refused the seed wake");
+await settle(() => (globalThis.__fmPrompts ?? []).length === 1, "seed branch prompt");
+const report = globalThis.__fmSessions[0].options.customTools.find((tool) => tool.name === "fm_branch_report");
+await report.execute("routine-seed", { task: "branch-driver", verdict: "routine", summary: "healthy external wait; no action" }, undefined, undefined, {});
+finishWakePrompt();
+await offer.settlement;
+globalThis.__fmOnBranchPrompt = undefined;
+if (requests().length !== 0) throw new Error("a healthy external wait opened a processing turn");
+
+const firstSummary = "synthetic prior result whose processing is deliberately ignored";
+const first = await report.execute("first", { task: "branch-driver", verdict: "captain", summary: firstSummary }, undefined, undefined, {});
+if (first.isError) throw new Error(`first captain report failed: ${JSON.stringify(first)}`);
+const firstSeq = JSON.parse(outcomeScript(["list", "--recent", "1"])).seq;
+if (requests().length !== 1 || !requests()[0].message.content.includes(`[seq ${firstSeq}]`)) {
+  throw new Error("the first captain result did not open its processing turn");
+}
+await finishRun();
+await finishRun();
+if (requests().length !== 2) {
+  throw new Error(`the anti-loop budget opened ${requests().length} autonomous turns instead of two`);
+}
+await fire("agent_settled", {});
+if (requests().length !== 2) throw new Error("an idle boundary created a wake storm after the retry budget");
+
+// Discriminating counterfactual for the incident: no captain, watcher, or
+// synthetic user prompt occurs between the exhausted older set and this new
+// completed result. The new sequence membership itself must restart the
+// bounded trigger with a current request, rather than remain hidden behind an
+// obsolete next-prompt snapshot.
+const nextSummary = "synthetic worker completed; authorized next action is route its isolated receipt";
+const second = await report.execute("second", { task: "branch-driver", verdict: "captain", summary: nextSummary }, undefined, undefined, {});
+if (second.isError) throw new Error(`new completed result failed: ${JSON.stringify(second)}`);
+const secondSeq = JSON.parse(outcomeScript(["list", "--recent", "1"])).seq;
+if (requests().length !== 3) throw new Error("the new completed result waited for another prompt");
+const current = requests()[2];
+if (current.options.triggerTurn !== true || current.options.deliverAs !== "followUp") {
+  throw new Error(`the new result did not restart the bounded trigger: ${JSON.stringify(current.options)}`);
+}
+if (!current.message.content.includes(`[seq ${firstSeq}]`) || !current.message.content.includes(`[seq ${secondSeq}] branch-driver: ${nextSummary}`)) {
+  throw new Error(`the restarted request was not a current exact store view: ${current.message.content}`);
+}
+if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([firstSeq, secondSeq])) {
+  throw new Error(`delivery falsely acknowledged an unseen result: ${unprocessedSeqs()}`);
+}
+
+const processed = mainTools.find((tool) => tool.name === "fm_branch_processed");
+const ahead = await processed.execute("ahead", { through: secondSeq + 1 }, undefined, undefined, {});
+if (!ahead.isError || JSON.stringify(unprocessedSeqs()) !== JSON.stringify([firstSeq, secondSeq])) {
+  throw new Error("an unlisted acknowledgement closed a result");
+}
+const acknowledged = await processed.execute("current", { through: secondSeq }, undefined, undefined, {});
+if (acknowledged.isError || unprocessedSeqs().length !== 0) {
+  throw new Error(`the exact current acknowledgement did not close the set: ${JSON.stringify(acknowledged)}`);
+}
+await finishRun();
+if (requests().length !== 3) throw new Error("an acknowledged result was delivered again");
+process.exit(0);
+EOF
+  status=$?
+  out=$(cat "$TMP_ROOT/node-output")
+  expect_code 0 "$status" "a current result must restart processing without a human prompt after the older set exhausts its anti-loop budget: $out"
+  pass "a new completed result restarts bounded processing without a human prompt, while healthy waits stay silent and acknowledgements remain exact"
 }
 
 test_branch_cache_key_is_per_home_stable() {
@@ -4933,6 +5035,7 @@ test_branch_dispatch_two_stage_filter_and_prefix_contract
 test_requested_healthy_outcome_and_unsolicited_routine_outcome_delivery
 test_captain_outcome_is_exactly_once_across_crash_reload_and_unrelated_response
 test_captain_outcome_processing_turn_is_sequence_keyed_and_re_presented
+test_new_captain_outcome_restarts_after_the_ignored_set_waits_for_a_prompt
 test_branch_dispatch_classifies_main_only_rows_and_writes_the_eligible_snapshot
 test_branch_cache_key_is_per_home_stable
 test_branch_default_on_heartbeat_afk_and_fallback
