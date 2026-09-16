@@ -11,9 +11,8 @@
 // real tools and reports through the fm_branch_report custom tool, which
 // writes the durable outcome store FIRST (bin/fm-branch-outcome.sh), then
 // persists a sequence-keyed visible record in main's transcript, and for a
-// captain-facing outcome opens one sequence-keyed processing turn on main
-// that stays open until main acknowledges that sequence (see
-// presentUnprocessedOutcomes).
+// captain-facing outcome requests processing on main (see
+// presentUnprocessedOutcomes for the bounded retry policy).
 // Main's captain/assistant dialog is mirrored into the branch as read-only
 // fm-main-mirror context from Pi's
 // before_agent_start prompt and at main's turn_end. Pi-only by construction: this
@@ -150,10 +149,10 @@ const VISIBLE_OUTCOME_ANCHOR = "⚓";
 const VISIBLE_OUTCOME_ENTRY_TYPE = "fm-branch-visible-outcome";
 // The processing half of the captain-outcome contract. The visible entry
 // above is the DISPLAY: crash-safe and exact-once. This hidden, typed request
-// is the PROCESSING: it opens the one turn in which main acts on the outcome,
+// is the PROCESSING: it asks main to act on the outcome,
 // and only main's explicit sequence-bound acknowledgement (fm_branch_processed)
-// closes it. An unrelated or empty answer leaves the sequence open, so it is
-// presented again at the end of the next main run and at session start. Pi
+// closes it. An unrelated or empty answer leaves the sequence open;
+// presentUnprocessedOutcomes owns bounded re-presentation. Pi
 // gives the model only a custom message's `content`, so the request carries
 // its own identity through the typed operational envelope.
 const PROCESSING_MESSAGE_TYPE = "fm-branch-process";
@@ -1634,7 +1633,7 @@ ${context.command}
   // settled (a follow-up joins the running turn, a triggered send opens its
   // own), so any sequence still unprocessed here was answered by something
   // other than its acknowledgement - an unrelated reply, an empty reply, or a
-  // reply that only paraphrased it - and is presented again.
+  // reply that only paraphrased it - and is reconsidered for bounded retry.
   pi.on?.("agent_settled", async () => {
     mainStreaming = false;
     if (processing) processing.pending = false;
