@@ -25,7 +25,7 @@ A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=
 A captain-facing outcome instead appears as one exact, sequence-keyed visible transcript entry, and then arrives in this conversation as one hidden supervision outcome-processing request listing each `[seq N] task: summary` it covers.
 That exact request-bound turn is not an ordinary wake-handling turn: the listed fleet events are already handled, so MAIN must not drain the wake queue again and must process those outcomes before any unrelated operation.
 Give the captain a substantive final response where one is due, answer or escalate a decision, act on a blocker or failure, or record that no further action is needed, then call the `fm_branch_processed` tool with the highest sequence the request listed, exactly once.
-Only that call closes the outcome; an unrelated, empty, or paraphrased answer leaves it open, and the current unprocessed sequence set is presented again at the next run boundary and at session start until it is acknowledged.
+Only that call closes the outcome; an unrelated, empty, or paraphrased answer leaves it open.
 The [Pi supervision branch](../pi-supervision-branch.md#two-stage-noise-filter) owns delivery and bounded retry pacing.
 The persisted entry is already the captain-visible record, so MAIN must not re-emit it verbatim merely because it appeared; this prevents repetition but does not replace any captain-facing outcome response required by `AGENTS.md` section 9.
 Regression example - keep verbatim and never condense away: `[seq 41] claude-mod: implementation complete, ready for review` requires relaying a captain-facing outcome response, not just `Captain, shipshape.`.

@@ -3,6 +3,16 @@
 # Writes the harness (agent) process PID found by walking the shell's ancestry,
 # which lives as long as the firstmate session - unlike the transient subshell
 # PID of any one tool call, which is dead moments after it is written.
+# Pi marker publication is also owned here: after verifying acquisition, publish
+# .pi-turnend-extension-loaded and .pi-watch-extension-loaded from the matching
+# FM_PI_{TURNEND,WATCH}_EXTENSION_LOADED and _STATE environment pairs.
+# Each loaded value carries the extension build and importing PID on two lines;
+# publish only when that PID is the canonical harness owner and its state matches.
+# Extension loading can precede asynchronous startup acquisition, so this handoff
+# makes both markers available before the digest checks them, without arming.
+# An existing canonical owner can republish directly on extension load or
+# session_start; descendant imports must never replace its marker identity.
+# Missing or mismatched evidence is left untouched, never inferred from disk.
 # Usage: fm-lock.sh           acquire; exit 1 unless ownership is verified
 #        fm-lock.sh status    print holder and liveness; always exits 0
 set -u
