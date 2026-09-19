@@ -233,6 +233,9 @@ function lockOwnership(): LockOwnership {
 // Only the canonical session-lock process may attest that this extension is
 // loaded; extension imports in descendants must not replace that identity.
 function markLoaded(): void {
+  const loaded = `${extensionVersion}\n${process.pid}`;
+  process.env.FM_PI_WATCH_EXTENSION_LOADED = loaded;
+  process.env.FM_PI_WATCH_EXTENSION_STATE = state;
   let lockPid = "";
   try {
     lockPid = readFileSync(`${state}/.lock`, "utf8").trim();
@@ -240,8 +243,7 @@ function markLoaded(): void {
     return;
   }
   if (lockPid !== String(process.pid)) return;
-  mkdirSync(state, { recursive: true });
-  writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
+  writeFileSync(marker, `${loaded}\n`);
 }
 
 function actionableLine(output: string): string {
