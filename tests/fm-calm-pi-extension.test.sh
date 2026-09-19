@@ -8,6 +8,7 @@ set -u
 TMP_ROOT=$(fm_test_tmproot fm-calm-pi-extension)
 EXT="$ROOT/.pi/extensions/fm-calm.ts"
 ASSISTANT_LAYOUT="$ROOT/.pi/extensions/lib/fm-calm-assistant-layout.ts"
+PRESERVATION="$ROOT/.pi/extensions/lib/fm-calm-preservation.ts"
 OPERATIONAL_USER_LAYOUT="$ROOT/.pi/extensions/lib/fm-calm-operational-user-layout.ts"
 VISIBILITY="$ROOT/.pi/extensions/lib/fm-calm-visibility.ts"
 WORKING_SHIP="$ROOT/.pi/extensions/lib/fm-calm-working-ship.ts"
@@ -168,6 +169,7 @@ test_home_resolution() {
     "$fixture/launch-cwd"
   cp "$EXT" "$fixture/project/.pi/extensions/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$fixture/project/.pi/extensions/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$fixture/project/.pi/extensions/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$fixture/project/.pi/extensions/lib/fm-calm-working-ship.ts"
@@ -290,6 +292,7 @@ test_pi_compat_degraded_adapter() {
     "$fixture/project/node_modules/@earendil-works"
   cp "$EXT" "$fixture/project/.pi/extensions/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$fixture/project/.pi/extensions/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$fixture/project/.pi/extensions/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$fixture/project/.pi/extensions/lib/fm-calm-working-ship.ts"
@@ -389,6 +392,7 @@ test_pi_compat_missing_adapter_exports() {
     "$fixture/project/.pi/extensions/lib" \
     "$fixture/project/node_modules/@earendil-works/pi-coding-agent"
   cp "$ASSISTANT_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$fixture/project/.pi/extensions/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$fixture/project/.pi/extensions/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$fixture/project/.pi/extensions/lib/fm-calm-working-ship.ts"
@@ -449,6 +453,7 @@ test_builtin_gate_load_time() {
     "$fixture/home-on/config"
   cp "$EXT" "$fixture/project/.pi/extensions/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$fixture/project/.pi/extensions/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$fixture/project/.pi/extensions/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$fixture/project/.pi/extensions/lib/fm-calm-working-ship.ts"
@@ -535,6 +540,7 @@ test_calm_activation_collision_and_regression_bound() {
     "$fixture/home/config"
   cp "$EXT" "$fixture/project/.pi/extensions/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$fixture/project/.pi/extensions/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$fixture/project/.pi/extensions/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$fixture/project/.pi/extensions/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$fixture/project/.pi/extensions/lib/fm-calm-working-ship.ts"
@@ -749,6 +755,7 @@ test_rendering_and_session_lifecycle() {
   mkdir -p "$fixture/home" "$fixture/lib" "$fixture/node_modules/@earendil-works"
   cp "$EXT" "$fixture/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$fixture/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$fixture/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$fixture/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$fixture/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$fixture/lib/fm-calm-working-ship.ts"
@@ -1466,6 +1473,7 @@ test_calm_mid_turn_working_notes() {
   mkdir -p "$fixture/home" "$fixture/lib" "$fixture/node_modules/@earendil-works"
   cp "$EXT" "$fixture/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$fixture/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$fixture/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$fixture/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$fixture/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$fixture/lib/fm-calm-working-ship.ts"
@@ -1554,12 +1562,37 @@ const assistantBase = {
   timestamp: 1,
 };
 const toolCall = { type: "toolCall", id: "calm-mid-turn-tool", name: "read", arguments: { path: "sample.txt" } };
+const substantiveLongText = `SUBSTANTIVE_LONG_${"X".repeat(223)}`;
+if (substantiveLongText.length !== 240) throw new Error("long substantive fixture lost the preservation boundary");
 const messages = {
   // The reported incident: narration emitted in the same assistant message as a tool call.
   midTurn: {
     ...assistantBase,
     stopReason: "toolUse",
     content: [{ type: "text", text: "MIDTURN_WORKING_NOTE" }, toolCall],
+  },
+  // A newline and the exact 240-character boundary are substantive even when
+  // the same assistant message stops for a tool call.
+  substantiveNewline: {
+    ...assistantBase,
+    stopReason: "toolUse",
+    content: [{ type: "text", text: "SUBSTANTIVE_NEWLINE\nDETAIL" }, toolCall],
+  },
+  substantiveLong: {
+    ...assistantBase,
+    stopReason: "toolUse",
+    content: [{ type: "text", text: substantiveLongText }, toolCall],
+  },
+  // Each text block is classified independently, so a short note can hide
+  // without taking substantive content in the same message with it.
+  mixedMidTurn: {
+    ...assistantBase,
+    stopReason: "toolUse",
+    content: [
+      { type: "text", text: "MIXED_SHORT_NOTE" },
+      { type: "text", text: "MIXED_SUBSTANTIVE\nDETAIL" },
+      toolCall,
+    ],
   },
   // The genuine reply that ends a response, which Calm never hides.
   finalReply: {
@@ -1628,6 +1661,10 @@ if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
 if (rendered("midTurn").length !== 0) {
   throw new Error(`Calm on left mid-turn working-note rows: ${JSON.stringify(rendered("midTurn"))}`);
 }
+requireVisible("substantiveNewline", "SUBSTANTIVE_NEWLINE", "Calm on");
+requireVisible("substantiveLong", "SUBSTANTIVE_LONG_", "Calm on");
+requireHidden("mixedMidTurn", "MIXED_SHORT_NOTE", "Calm on");
+requireVisible("mixedMidTurn", "MIXED_SUBSTANTIVE", "Calm on");
 requireHidden("truncatedMidTurn", "TRUNCATED_MIDTURN_NOTE", "Calm on");
 // Pi owns the wording of its truncation notice; Calm must leave that row's own notice
 // standing rather than collapsing an incomplete response to nothing.
@@ -1706,7 +1743,7 @@ JS
   out=$(cat "$output_file")
   [ "$status" -eq 0 ] || fail "Pi calm mid-turn contract failed: $out"
   [ -z "$out" ] || fail "Pi calm mid-turn test printed output: $out"
-  pass "Pi calm on collapses mid-turn assistant working notes to zero height while Calm off keeps them, leaves streaming, truncated-final, and genuine final replies untouched, never mutates the messages, ignores every /calm argument, and restores a legacy persisted max as ordinary Calm on"
+  pass "Pi calm on hides only short mid-turn assistant text blocks while preserving newline, 240-character, mixed substantive, streaming, truncated-final, and genuine final content, never mutates the messages, ignores every /calm argument, and restores a legacy persisted max as ordinary Calm on"
 }
 
 test_operational_followup_turn_e2e() {
@@ -1726,6 +1763,7 @@ test_operational_followup_turn_e2e() {
   fm_git_init_commit "$project"
   cp "$EXT" "$project/.pi/extensions/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$project/.pi/extensions/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$project/.pi/extensions/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$project/.pi/extensions/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$project/.pi/extensions/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$project/.pi/extensions/lib/fm-calm-working-ship.ts"
@@ -2100,6 +2138,7 @@ test_hidden_block_geometry_e2e() {
   fm_git_init_commit "$project"
   cp "$EXT" "$project/.pi/extensions/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$project/.pi/extensions/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$project/.pi/extensions/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$project/.pi/extensions/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$project/.pi/extensions/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$project/.pi/extensions/lib/fm-calm-working-ship.ts"
@@ -2334,6 +2373,7 @@ test_working_ship_geometry_and_lifecycle() {
   mkdir -p "$fixture/home" "$fixture/lib" "$fixture/node_modules/@earendil-works"
   cp "$EXT" "$fixture/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$fixture/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$fixture/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$fixture/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$fixture/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$fixture/lib/fm-calm-working-ship.ts"
@@ -3323,6 +3363,7 @@ test_interactive_terminal_e2e() {
   : > "$project/AGENTS.md"
   cp "$EXT" "$project/.pi/extensions/fm-calm.ts"
   cp "$ASSISTANT_LAYOUT" "$project/.pi/extensions/lib/fm-calm-assistant-layout.ts"
+  cp "$PRESERVATION" "$project/.pi/extensions/lib/fm-calm-preservation.ts"
   cp "$OPERATIONAL_USER_LAYOUT" "$project/.pi/extensions/lib/fm-calm-operational-user-layout.ts"
   cp "$VISIBILITY" "$project/.pi/extensions/lib/fm-calm-visibility.ts"
   cp "$WORKING_SHIP" "$project/.pi/extensions/lib/fm-calm-working-ship.ts"

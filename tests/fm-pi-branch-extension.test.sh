@@ -926,8 +926,12 @@ EOF
     *) fail "the processing request body lost its self-description or the outcome itself: $body" ;;
   esac
   case "$body" in
-    *"do not re-drain, re-run, or acknowledge the wake."*"call fm_branch_processed with through=3 exactly once."*"never counts as processing."*) ;;
-    *) fail "the processing request body lost the event-ownership boundary or the sequence-bound acknowledgement duty: $body" ;;
+    *"not an ordinary wake-handling turn."*"do not drain, re-drain, re-run, or acknowledge the wake."*"Before any unrelated operation"*) ;;
+    *) fail "the processing request body lost its request-bound exception or event-ownership boundary: $body" ;;
+  esac
+  case "$body" in
+    *"substantive final response"*"anchor entry does not replace the response"*"\`Captain, shipshape.\` does not process it."*"call fm_branch_processed with through=3 exactly once."*"never counts as processing."*) ;;
+    *) fail "the processing request body lost the substantive-response or sequence-bound acknowledgement duty: $body" ;;
   esac
   if ./bin/fm-operational-input.sh kind < "$home/state/delivered-routine-note" >/dev/null 2>&1; then
     fail "routine note must stay plain rendered text, not typed operational input"

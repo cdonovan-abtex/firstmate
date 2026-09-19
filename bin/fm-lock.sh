@@ -3,6 +3,16 @@
 # Writes the harness (agent) process PID found by walking the shell's ancestry,
 # which lives as long as the firstmate session - unlike the transient subshell
 # PID of any one tool call, which is dead moments after it is written.
+# Pi marker publication is also owned here: after verifying acquisition, publish
+# .pi-turnend-extension-loaded and .pi-watch-extension-loaded from the matching
+# FM_PI_{TURNEND,WATCH}_EXTENSION_LOADED and _STATE environment pairs.
+# Each loaded value carries the extension build and importing PID on two lines;
+# publish only when that PID is the canonical harness owner and its state matches.
+# Extension loading can precede asynchronous startup acquisition, so this handoff
+# makes both markers available before the digest checks them, without arming.
+# An existing canonical owner can republish directly on extension load or
+# session_start; descendant imports must never replace its marker identity.
+# Missing or mismatched evidence is left untouched, never inferred from disk.
 # Usage: fm-lock.sh           acquire; exit 1 unless ownership is verified
 #        fm-lock.sh status    print holder and liveness; always exits 0
 set -u
@@ -55,10 +65,26 @@ release_claim_lock() {
 trap release_claim_lock EXIT
 trap 'exit 1' HUP INT TERM
 
+publish_pi_extension_loaded() {
+  local marker=$1 loaded=$2 loaded_state=$3
+  if [ "$loaded_state" = "$STATE" ] \
+    && [ "${loaded##*$'\n'}" = "$me" ]; then
+    printf '%s\n' "$loaded" > "$STATE/$marker"
+  fi
+}
+
+report_acquired() {
+  publish_pi_extension_loaded .pi-turnend-extension-loaded \
+    "${FM_PI_TURNEND_EXTENSION_LOADED:-}" "${FM_PI_TURNEND_EXTENSION_STATE:-}"
+  publish_pi_extension_loaded .pi-watch-extension-loaded \
+    "${FM_PI_WATCH_EXTENSION_LOADED:-}" "${FM_PI_WATCH_EXTENSION_STATE:-}"
+  echo "lock acquired: harness pid $me"
+}
+
 if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
   old=$(cat "$LOCK" 2>/dev/null || true)
   if [ "$old" = "$me" ]; then
-    echo "lock acquired: harness pid $me"
+    report_acquired
     exit 0
   fi
   if fm_harness_pid_alive "$old"; then
@@ -104,4 +130,4 @@ if [ ! -f "$LOCK" ] || [ -L "$LOCK" ] || [ "$written" != "$me" ]; then
   exit 1
 fi
 release_claim_lock
-echo "lock acquired: harness pid $me"
+report_acquired

@@ -74,6 +74,202 @@ export const Type = {
 JS
 }
 
+test_pi_loaded_marker_stays_with_canonical_session_owner() {
+  local repo home plugin out status
+  repo="$TMP_ROOT/pi-marker-owner-root"
+  home="$TMP_ROOT/pi-marker-owner-home"
+  mkdir -p "$home/state"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+
+const marker = `${process.env.FM_HOME}/state/.pi-watch-extension-loaded`;
+const makePi = () => ({
+  on() {},
+  registerCommand() {},
+  registerTool() {},
+});
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(makePi());
+if (existsSync(marker)) {
+  throw new Error("watch extension published its marker before a session owner existed");
+}
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+mod.default(makePi());
+const canonical = readFileSync(marker, "utf8").trim().split("\n");
+if (!canonical[0]?.startsWith("sha256:") || canonical[1] !== String(process.pid)) {
+  throw new Error(`canonical owner did not publish its watch marker: ${JSON.stringify(canonical)}`);
+}
+const descendant = spawnSync(
+  process.execPath,
+  [
+    "--input-type=module",
+    "-e",
+    `import { pathToFileURL } from "node:url";
+     const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+     mod.default({ on() {}, registerCommand() {}, registerTool() {} });`,
+  ],
+  { encoding: "utf8", env: process.env },
+);
+if (descendant.status !== 0) {
+  throw new Error(`descendant watch extension load failed: ${descendant.stderr}`);
+}
+const afterDescendant = readFileSync(marker, "utf8").trim().split("\n");
+if (afterDescendant[1] !== String(process.pid)) {
+  throw new Error(`descendant replaced canonical watch marker: ${JSON.stringify(afterDescendant)}`);
+}
+EOF
+  )
+  status=$?
+  expect_code 0 "$status" "Pi watch loaded marker must stay bound to the canonical session owner: $out"
+  [ -z "$out" ] || fail "Pi watch marker-owner test printed output: $out"
+  pass "Pi watch loaded marker is published by the canonical session owner and ignores descendant extension loads"
+}
+
+test_pi_startup_digest_recognizes_loaded_extensions_after_acquisition() {
+  local repo home fakebin scenario initial loaded out status
+  repo="$TMP_ROOT/pi-startup-markers-root"
+  install_pi_watch_extension_fixture "$repo"
+  cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$repo/.pi/extensions/"
+  cp "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$repo/.pi/extensions/lib/"
+  cp -R "$ROOT/bin/." "$repo/bin/"
+  mkdir -p "$repo/docs"
+  cp -R "$ROOT/docs/supervision-protocols" "$repo/docs/"
+  git init -q "$repo"
+  : > "$repo/AGENTS.md"
+  fm_fake_exit0 "$repo/bin" fm-bootstrap.sh fm-startup-network.sh \
+    fm-home-summary-refresh.sh fm-herdr-session-cleanup.sh fm-wake-drain.sh \
+    fm-lease.sh fm-branch-outcome.sh
+  cat > "$repo/bin/fm-lock.sh" <<'SH'
+#!/usr/bin/env bash
+: > "$FM_STATE_OVERRIDE/lock-requested"
+while [ ! -f "$FM_STATE_OVERRIDE/acquire" ]; do sleep 0.01; done
+exec "$TEST_ROOT/bin/fm-lock.sh"
+SH
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+: > "$FM_STATE_OVERRIDE/arm-requested"
+exit 1
+SH
+  fakebin=$(fm_fakebin "$repo")
+  ln -s "$(command -v node)" "$fakebin/node"
+  for scenario in absent:both previous:both absent:guard; do
+    initial=${scenario%:*}
+    loaded=${scenario#*:}
+    home="$TMP_ROOT/pi-startup-markers-$initial-$loaded"
+    mkdir -p "$home/state" "$home/config" "$home/data"
+    printf 'manual\n' > "$home/config/backlog-backend"
+    out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_STATE_OVERRIDE="$home/state" \
+      FM_CONFIG_OVERRIDE="$home/config" FM_DATA_OVERRIDE="$home/data" \
+      PI_CODING_AGENT=true FM_PI_HARNESS=pi TEST_ROOT="$ROOT" \
+      INITIAL_LOCK="$initial" LOADED_EXTENSIONS="$loaded" \
+      PATH="$fakebin:${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" \
+      node --input-type=module 2>&1 <<'JS'
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+process.title = "pi";
+for (const kind of ["WATCH", "TURNEND"]) {
+  delete process.env[`FM_PI_${kind}_EXTENSION_LOADED`];
+  delete process.env[`FM_PI_${kind}_EXTENSION_STATE`];
+}
+const root = process.env.FM_ROOT_OVERRIDE;
+const state = process.env.FM_STATE_OVERRIDE;
+const both = process.env.LOADED_EXTENSIONS === "both";
+const markers = [".pi-watch-extension-loaded", ".pi-turnend-extension-loaded"];
+const snapshot = () => markers.map((name) => existsSync(`${state}/${name}`)
+  ? readFileSync(`${state}/${name}`, "utf8") : null);
+if (process.env.INITIAL_LOCK === "previous") {
+  const previous = spawnSync(process.execPath, ["-e", ""], { encoding: "utf8" });
+  assert.equal(previous.status, 0, previous.stderr);
+  writeFileSync(`${state}/.lock`, `${previous.pid}\n`);
+  for (const marker of markers) writeFileSync(`${state}/${marker}`, `previous-build\n${previous.pid}\n`);
+}
+const prior = snapshot();
+const handlers = new Map();
+const pi = {
+  on(event, handler) {
+    const list = handlers.get(event) ?? [];
+    list.push(handler);
+    handlers.set(event, list);
+  },
+  registerTool() {},
+  registerCommand() {},
+  sendUserMessage() { throw new Error("startup unexpectedly tried to arm supervision"); },
+};
+const ctx = { sessionManager: { getSessionId: () => "startup-marker-pair" } };
+const fire = async (event, data) => {
+  const results = [];
+  for (const handler of handlers.get(event) ?? []) results.push(await handler(data, ctx));
+  return results;
+};
+try {
+  if (both) {
+    const watcher = await import(pathToFileURL(`${root}/.pi/extensions/fm-primary-pi-watch.ts`).href);
+    watcher.default(pi);
+  }
+  const guard = await import(pathToFileURL(`${root}/.pi/extensions/fm-primary-turnend-guard.ts`).href);
+  guard.default(pi);
+  assert.deepEqual(snapshot(), prior, "factories published before acquisition");
+  await fire("session_start", { reason: "startup" });
+  const deadline = Date.now() + 10000;
+  while (!existsSync(`${state}/lock-requested`)) {
+    assert(Date.now() < deadline, "startup never requested its canonical lock");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.deepEqual(snapshot(), prior, "session_start published before acquisition");
+  writeFileSync(`${state}/acquire`, "");
+  const results = await fire("before_agent_start", { prompt: "Continue authorized work" });
+  const digest = results.find((result) => result?.message)?.message.content ?? "";
+  assert(digest.includes(`SESSION START - ${process.env.FM_HOME}`), "full startup digest was not delivered");
+  assert(digest.includes(`lock acquired: harness pid ${process.pid}`), "startup did not acquire the primary's lock");
+  assert(digest.includes("SUPERVISION OPERATING INSTRUCTIONS - primary harness: pi"), "Pi diagnostic path was not exercised");
+  assert(digest.includes("NEXT STEP"), "startup digest was incomplete");
+  assert.equal(digest.includes("PI_WATCH_EXTENSION: not loaded"), !both,
+    `startup misreported the loaded extension pair:\n${digest}`);
+  assert.equal(readFileSync(`${state}/.session-start-complete`, "utf8").trim(), String(process.pid));
+  assert(!existsSync(`${state}/arm-requested`), "marker publication depended on arming supervision");
+  const ownership = spawnSync("bash", ["-c",
+    '. "$1/bin/fm-wake-lib.sh"; fm_extension_owns_supervision "$2" "$3"',
+    "_", process.env.TEST_ROOT, state, root], { encoding: "utf8", env: process.env });
+  assert.equal(ownership.status, both ? 0 : 1, ownership.stderr);
+  if (both) {
+    const canonical = snapshot();
+    for (const marker of canonical) assert.equal(marker.trim().split("\n")[1], String(process.pid));
+    const descendant = spawnSync(process.execPath, ["--input-type=module"], {
+      encoding: "utf8", timeout: 10000, env: process.env,
+      input: `
+        import assert from "node:assert/strict";
+        import { spawnSync } from "node:child_process";
+        import { pathToFileURL } from "node:url";
+        for (const file of ["fm-primary-pi-watch.ts", "fm-primary-turnend-guard.ts"]) {
+          const mod = await import(pathToFileURL(process.env.FM_ROOT_OVERRIDE + "/.pi/extensions/" + file).href);
+          mod.default({ on() {}, registerTool() {}, registerCommand() {} });
+        }
+        const acquired = spawnSync(process.env.TEST_ROOT + "/bin/fm-lock.sh", [], { encoding: "utf8" });
+        assert.equal(acquired.status, 0, acquired.stderr);
+      `,
+    });
+    assert.equal(descendant.status, 0, descendant.stderr || String(descendant.error));
+    assert.deepEqual(snapshot(), canonical, "descendant publication replaced a canonical marker");
+  }
+} finally {
+  await fire("session_shutdown", { reason: "quit" });
+}
+JS
+    )
+    status=$?
+    expect_code 0 "$status" "Pi startup digest with $loaded extensions and $initial lock: $out"
+    [ -z "$out" ] || fail "Pi startup digest marker test printed output: $out"
+    pass "Pi startup digest recognizes $loaded extensions after $initial lock acquisition without arming"
+  done
+}
+
 test_pi_extension_reports_external_healthy_watcher() {
   local repo home plugin out status
   repo="$TMP_ROOT/pi-external-healthy-root"
@@ -3974,6 +4170,8 @@ EOF
   pass "OpenCode healthy arm output does not suppress the turn-end guard"
 }
 
+test_pi_loaded_marker_stays_with_canonical_session_owner
+test_pi_startup_digest_recognizes_loaded_extensions_after_acquisition
 test_pi_extension_reports_external_healthy_watcher
 test_pi_tool_returns_agent_tool_result
 test_pi_redundant_tool_call_is_owned_noop

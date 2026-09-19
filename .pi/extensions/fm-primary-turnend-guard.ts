@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -12,8 +12,6 @@ import {
 
 let guardFollowupActive = false;
 
-type LockOwnership = "owned" | "missing" | "other";
-
 const extensionFile = fileURLToPath(import.meta.url);
 const extensionDir = dirname(extensionFile);
 const root = resolve(extensionDir, "../..");
@@ -22,41 +20,20 @@ const state = process.env.FM_STATE_OVERRIDE || `${fmHome}/state`;
 const marker = `${state}/.pi-turnend-extension-loaded`;
 const extensionVersion = `sha256:${createHash("sha256").update(readFileSync(extensionFile)).digest("hex")}`;
 
-function parentPid(pid: string): string {
-  const result = spawnSync("ps", ["-o", "ppid=", "-p", pid], { encoding: "utf8" });
-  if (result.status !== 0) return "";
-  return result.stdout.trim();
-}
-
-function pidAlive(pid: string): boolean {
-  try {
-    process.kill(Number(pid), 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function lockOwnership(): LockOwnership {
+// Only the canonical session-lock process may attest that this extension is
+// loaded; extension imports in descendants must not replace that identity.
+function markLoaded(): void {
+  const loaded = `${extensionVersion}\n${process.pid}`;
+  process.env.FM_PI_TURNEND_EXTENSION_LOADED = loaded;
+  process.env.FM_PI_TURNEND_EXTENSION_STATE = state;
   let lockPid = "";
   try {
     lockPid = readFileSync(`${state}/.lock`, "utf8").trim();
   } catch {
-    return "missing";
+    return;
   }
-  if (!/^[0-9]+$/.test(lockPid) || lockPid === "1") return "other";
-  let pid = String(process.pid);
-  for (let i = 0; i < 8; i += 1) {
-    if (pid === lockPid) return "owned";
-    pid = parentPid(pid);
-    if (!pid || pid === "1") break;
-  }
-  return pidAlive(lockPid) ? "other" : "missing";
-}
-
-function markLoaded(): void {
-  if (!existsSync(state) || lockOwnership() === "other") return;
-  writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
+  if (lockPid !== String(process.pid)) return;
+  writeFileSync(marker, `${loaded}\n`);
 }
 
 // Pi's session_start reasons are startup | reload | new | resume | fork, and a
