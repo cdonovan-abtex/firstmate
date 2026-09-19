@@ -1,0 +1,17 @@
+ASSISTANT: READY
+
+TOOL CALL: fm_watch_arm_pi {}
+
+TOOL RESULT: [{'type': 'text', 'text': 'watcher: started Pi extension arm child 1; future ordinary re-arms are automatic; call fm_watch_arm_pi again only after a later notification says the cycle is missing, failed, or unhealthy'}]
+
+ASSISTANT: MONITORING
+
+TOOL CALL: bash {"command": "bin/fm-wake-drain.sh", "timeout": 30}
+
+TOOL RESULT: [{'type': 'text', 'text': '1789787558\t1\tcheck\t/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2VRAW7TV0Q6AKAXNXF4Q4G5/.test-phase-lab/watcher/state/validation.check.sh\tcheck: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2VRAW7TV0Q6AKAXNXF4Q4G5/.test-phase-lab/watcher/state/validation.check.sh: check: validation-ready: the authorized validation event is ready; write CONTINUED to /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2VRAW7TV0Q6AKAXNXF4Q4G5/.test-phase-lab/watcher/state/continued and report completion\nWAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 71853.1789787558.VWvfeP\nWARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.\n'}]
+
+TOOL CALL: bash {"command": "printf '%s\\n' 'CONTINUED' > /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M2VRAW7TV0Q6AKAXNXF4Q4G5/.test-phase-lab/watcher/state/continued && bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 71853.1789787558.VWvfeP", "timeout": 30}
+
+TOOL RESULT: [{'type': 'text', 'text': '(no output)'}]
+
+ASSISTANT: Validation continued successfully: `CONTINUED` was written to the isolated home file.

@@ -1,0 +1,32 @@
+[
+  {
+    "stopReason": "toolUse",
+    "text": "BRIEF_NOTE_SENTINEL",
+    "length": 19
+  },
+  {
+    "stopReason": "stop",
+    "text": "SHORT_DONE",
+    "length": 10
+  },
+  {
+    "stopReason": "toolUse",
+    "text": "MULTILINE_NOTE_SENTINEL: completed the inspection.\nThe result remains available for review.",
+    "length": 91
+  },
+  {
+    "stopReason": "stop",
+    "text": "MULTILINE_DONE",
+    "length": 14
+  },
+  {
+    "stopReason": "toolUse",
+    "text": "LONG_NOTE_SENTINEL A supervisor can retain the completed result by saving it in the team\u2019s authoritative record, preserving the review link alongside its status and supporting context, and clearly assigning the pending next action to a named owner with a due date. Continued monitoring should remain on the supervisor\u2019s tracking view, with alerts or scheduled check-ins enabled, so progress is visible and accountability is maintained without transferring or losing ownership of the result.",
+    "length": 490
+  },
+  {
+    "stopReason": "stop",
+    "text": "LONG_DONE",
+    "length": 9
+  }
+]

@@ -1,0 +1,47 @@
+[
+  {
+    "scenario": "real descendant Pi launch preserves canonical markers",
+    "result": "pass",
+    "before": {
+      ".lock": "79528\n",
+      ".pi-watch-extension-loaded": "sha256:016dcf91c9900227678ee31d2a04d0b967a097a4637f6ade9b67de6b09ea16e6\n79528\n",
+      ".pi-turnend-extension-loaded": "sha256:d589bf04081dadbfe60cca0fc2497726e4eb24dcb4c4eee0d58c736e63b964a6\n79528\n",
+      ".session-start-complete": "79528\n",
+      ".branch-outcomes-cursor": "1\n",
+      ".branch-outcomes-processed": "1\n"
+    },
+    "after": {
+      ".lock": "79528\n",
+      ".pi-watch-extension-loaded": "sha256:016dcf91c9900227678ee31d2a04d0b967a097a4637f6ade9b67de6b09ea16e6\n79528\n",
+      ".pi-turnend-extension-loaded": "sha256:d589bf04081dadbfe60cca0fc2497726e4eb24dcb4c4eee0d58c736e63b964a6\n79528\n",
+      ".session-start-complete": "79528\n",
+      ".branch-outcomes-cursor": "1\n",
+      ".branch-outcomes-processed": "1\n"
+    },
+    "descendant": {
+      "output": "DESCENDANT_PI_PID=81757\n",
+      "exitCode": 0,
+      "cancelled": false,
+      "truncated": false
+    }
+  },
+  {
+    "scenario": "requested outcome produces substantive final reply and sequence acknowledgement",
+    "result": "pass",
+    "seq": 2,
+    "final": "The assembly-supervision repair is complete and local validation passed. Please review it here: https://example.invalid/reviews/assembly-supervision-validation\n\nNo merge has been authorized; approve the merge after review if you want it to proceed.",
+    "processed": "2\n"
+  },
+  {
+    "scenario": "same-process new session retains canonical ownership",
+    "result": "pass",
+    "ownership": {
+      ".lock": "79528\n",
+      ".pi-watch-extension-loaded": "sha256:016dcf91c9900227678ee31d2a04d0b967a097a4637f6ade9b67de6b09ea16e6\n79528\n",
+      ".pi-turnend-extension-loaded": "sha256:d589bf04081dadbfe60cca0fc2497726e4eb24dcb4c4eee0d58c736e63b964a6\n79528\n",
+      ".session-start-complete": "79528\n",
+      ".branch-outcomes-cursor": "2\n",
+      ".branch-outcomes-processed": "2\n"
+    }
+  }
+]

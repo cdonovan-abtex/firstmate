@@ -1,0 +1,6 @@
+ok - Pi watch loaded marker is published by the canonical session owner and ignores descendant extension loads
+ok - Pi startup digest recognizes both extensions after absent lock acquisition without arming
+ok - Pi startup digest recognizes both extensions after previous lock acquisition without arming
+ok - Pi startup digest recognizes guard extensions after absent lock acquisition without arming
+ok - Pi actionable close starts one successor before wake delivery settles
+ok - Pi session transitions auto-arm through a generation owner across /new /resume /fork/reload, stale callbacks, and quit

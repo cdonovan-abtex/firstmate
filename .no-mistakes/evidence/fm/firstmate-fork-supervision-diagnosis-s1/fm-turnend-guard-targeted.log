@@ -1,0 +1,5 @@
+ok - Pi turn-end loaded marker is published by the canonical session owner and ignores descendant extension loads
+ok - Pi turn-end marker follows absent lock acquisition and preserves reload, replacement, descendant, and refusal ownership
+ok - Pi turn-end marker follows previous lock acquisition and preserves reload, replacement, descendant, and refusal ownership
+ok - .pi primary extension: no-tool and multi-tool runs each inject exactly one guard follow-up
+ok - .pi primary extension: delivery failure resets the logical-run latch

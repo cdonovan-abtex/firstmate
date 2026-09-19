@@ -1,0 +1,17 @@
+[
+  {
+    "scenario": "absent",
+    "result": "pass",
+    "pid": 95259
+  },
+  {
+    "scenario": "previous",
+    "result": "pass",
+    "pid": 97881
+  },
+  {
+    "scenario": "guard-only",
+    "result": "pass",
+    "pid": 1045
+  }
+]

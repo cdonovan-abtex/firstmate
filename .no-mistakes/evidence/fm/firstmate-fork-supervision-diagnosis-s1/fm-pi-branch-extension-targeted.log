@@ -1,0 +1,3 @@
+ok - requested and unsolicited healthy outcomes keep distinct delivery and event ownership
+ok - captain outcomes are exact and exactly once across crash, reload, busy main, compaction, and an unrelated assistant response
+ok - a captain outcome opens one sequence-keyed processing turn, survives empty and unrelated answers, is re-presented at run end and session start, and closes only on its acknowledgement
