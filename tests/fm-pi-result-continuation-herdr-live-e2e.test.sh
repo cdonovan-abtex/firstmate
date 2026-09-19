@@ -3,8 +3,10 @@
 #
 # It seeds one captain-facing synthetic completion in an isolated FM_HOME,
 # launches the real Pi TUI inside one named non-default Herdr lab, and sends no
-# user prompt. The completion must start main by itself, call an isolated
-# synthetic next-action tool, and acknowledge the exact outcome sequence.
+# user prompt. A fixture extension withholds the two action tools for the first
+# two processing turns, then enables them; the landed extension must open its
+# delayed bounded retry by itself, after which the real model must call the
+# isolated synthetic next-action tool and acknowledge the exact outcome once.
 # Every Herdr operation goes through bin/fm-herdr-lab.sh, whose teardown proves
 # that the live default session stayed byte-identical.
 set -u
@@ -45,8 +47,10 @@ import { Type } from "typebox";
 
 const receipt = process.env.FM_SYNTHETIC_ACTION_RECEIPT!;
 const expected = process.env.FM_SYNTHETIC_ACTION_TOKEN!;
+const delayedTools = ["synthetic_next_action", "fm_branch_processed"];
 
 export default function (pi: ExtensionAPI) {
+  let settledWithoutTools = 0;
   pi.registerTool({
     name: "synthetic_next_action",
     label: "Record synthetic next action",
@@ -65,8 +69,16 @@ export default function (pi: ExtensionAPI) {
       };
     },
   });
+  pi.on("session_start", () => {
+    pi.setActiveTools(pi.getActiveTools().filter((name) => !delayedTools.includes(name)));
+  });
+  pi.on("agent_settled", () => {
+    settledWithoutTools += 1;
+    if (settledWithoutTools !== 2) return;
+    pi.setActiveTools([...new Set([...pi.getActiveTools(), ...delayedTools])]);
+  });
   pi.on("before_agent_start", (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\nFor an fm-branch-process request, perform every explicitly authorized isolated synthetic action with synthetic_next_action before acknowledging the listed outcomes through fm_branch_processed. Do not wait for another prompt.`,
+    systemPrompt: `${event.systemPrompt}\n\nFor an fm-branch-process request, if synthetic_next_action and fm_branch_processed are available, perform every explicitly authorized isolated synthetic action with synthetic_next_action before acknowledging the listed outcomes through fm_branch_processed. Do not wait for another prompt.`,
   }));
 }
 EOF
@@ -121,9 +133,10 @@ import json
 import sys
 
 path, sequence, token = sys.argv[1:]
-seen_process = False
-seen_action = False
-seen_ack = False
+process_times = []
+actions = 0
+acknowledgements = 0
+drains = 0
 for line in open(path, encoding="utf-8"):
     entry = json.loads(line)
     if (
@@ -131,20 +144,28 @@ for line in open(path, encoding="utf-8"):
         and entry.get("customType") == "fm-branch-process"
         and f"[seq {sequence}]" in entry.get("content", "")
     ):
-        seen_process = True
+        process_times.append(entry.get("timestamp"))
     if entry.get("type") != "message" or entry.get("message", {}).get("role") != "assistant":
         continue
     for item in entry["message"].get("content", []):
         if not isinstance(item, dict) or item.get("type") != "toolCall":
             continue
         if item.get("name") == "synthetic_next_action" and item.get("arguments", {}).get("token") == token:
-            seen_action = True
+            actions += 1
         if item.get("name") == "fm_branch_processed" and str(item.get("arguments", {}).get("through")) == sequence:
-            seen_ack = True
-if not (seen_process and seen_action and seen_ack):
+            acknowledgements += 1
+        if item.get("name") in {"bash", "fm_wake_drain"}:
+            drains += 1
+if len(process_times) != 3 or actions != 1 or acknowledgements != 1 or drains != 0:
     raise SystemExit(
-        f"missing transcript proof process={seen_process} action={seen_action} acknowledgement={seen_ack}"
+        "unexpected transcript cardinality "
+        f"process={len(process_times)} action={actions} acknowledgement={acknowledgements} drains={drains}"
     )
+from datetime import datetime
+first = datetime.fromisoformat(process_times[0].replace("Z", "+00:00"))
+third = datetime.fromisoformat(process_times[2].replace("Z", "+00:00"))
+if (third - first).total_seconds() < 59:
+    raise SystemExit(f"the third processing request was not delayed: {process_times}")
 PY
 then
   fail "the isolated Pi transcript did not prove processing, action, and exact acknowledgement"
@@ -154,4 +175,4 @@ fi
   || fail "could not type /quit into the isolated Pi"
 "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" pane send-keys "$PANE" Enter >/dev/null \
   || fail "could not submit /quit to the isolated Pi"
-pass "a real Pi in a named Herdr lab turns a synthetic completion into its authorized synthetic next action without a human prompt"
+pass "a real Pi in a named Herdr lab retries a twice-ignored synthetic completion after its bounded delay, performs its authorized next action, and acknowledges exactly once without a human prompt"

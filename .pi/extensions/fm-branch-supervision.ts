@@ -156,11 +156,14 @@ const VISIBLE_OUTCOME_ENTRY_TYPE = "fm-branch-visible-outcome";
 // gives the model only a custom message's `content`, so the request carries
 // its own identity through the typed operational envelope.
 const PROCESSING_MESSAGE_TYPE = "fm-branch-process";
-// Triggered re-presentations per unprocessed sequence set before the request
-// stops opening turns of its own and is injected into the captain's next
-// prompt. Bounded so an answer that repeatedly ignores the request cannot
-// become an unbounded loop of empty turns.
+// Immediate re-presentations per unprocessed sequence set, followed by one
+// delayed autonomous attempt. The delayed attempt closes the observed gap in
+// which two ignored turns otherwise made completion depend on another captain
+// prompt, while the fixed total and one terminal note keep spend and noise
+// bounded instead of creating a periodic retry loop.
 const PROCESSING_TRIGGERED_ATTEMPTS = 2;
+const PROCESSING_DELAYED_ATTEMPTS = 1;
+const PROCESSING_DELAY_MS = 60_000;
 // One provider failure rejects immediately to watcher-owned fallback but leaves
 // room for a transient outage to recover on the next wake. A second consecutive
 // provider failure latches the branch off. While latched, main keeps every wake
@@ -632,8 +635,29 @@ export default function (pi: ExtensionAPI) {
   // Awaiting a prompt is deliberately extension-local rather than one opaque
   // Pi nextTurn queue entry: a later result can then restart the bounded
   // triggered budget instead of waiting behind a stale queued snapshot.
-  type ProcessingState = { sequences: string; through: number; triggered: number; pending: boolean; awaitingPrompt: boolean };
+  type ProcessingState = {
+    sequences: string;
+    through: number;
+    triggered: number;
+    delayed: number;
+    pending: boolean;
+    awaitingPrompt: boolean;
+    retryTimer: ReturnType<typeof setTimeout> | null;
+    escalated: boolean;
+  };
   let processing: ProcessingState | null = null;
+
+  function cancelProcessingRetry(state: ProcessingState | null = processing): void {
+    if (!state?.retryTimer) return;
+    clearTimeout(state.retryTimer);
+    state.retryTimer = null;
+  }
+
+  function replaceProcessing(state: ProcessingState | null): void {
+    cancelProcessingRetry();
+    processing = state;
+  }
+
   let processedInitializedGeneration = -1;
   // One revision for BOTH selections: a model or effort change invalidates an
   // in-flight branch build exactly the same way.
@@ -1016,22 +1040,38 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function scheduleProcessingRetry(expected: ProcessingState, expectedGeneration: number): void {
+    if (expected.retryTimer || expected.delayed >= PROCESSING_DELAYED_ATTEMPTS) return;
+    expected.awaitingPrompt = true;
+    const timer = setTimeout(() => {
+      void enqueueDelivery(async () => {
+        if (processing !== expected || expected.pending || shuttingDown) return;
+        expected.retryTimer = null;
+        if (!(await actingAsOwner(expectedGeneration))) return;
+        await presentUnprocessedOutcomes(expectedGeneration, true);
+      }).catch(() => {});
+    }, PROCESSING_DELAY_MS);
+    expected.retryTimer = timer;
+    (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+  }
+
   // Present every unprocessed captain outcome to main as ONE sequence-keyed
   // processing request. The first PROCESSING_TRIGGERED_ATTEMPTS presentations
-  // of a given sequence set open a turn of their own (queued as a follow-up
-  // while main is busy); after that the current set is injected into the
-  // captain's next prompt, once per run, and a session replacement starts the
-  // triggered budget over. The deferred copy is not handed to Pi's opaque
-  // nextTurn queue: if sequence membership changes first, this function can
-  // recognize that new result and open a fresh bounded processing turn without
-  // waiting for a prompt to consume an obsolete snapshot. Nothing here
-  // advances the processed marker: only fm_branch_processed does, keyed to the
-  // sequence main acknowledges.
-  async function presentUnprocessedOutcomes(expectedGeneration: number): Promise<boolean> {
+  // of a given sequence set open a turn immediately (queued as a follow-up
+  // while main is busy). If both are ignored, one delayed attempt opens after
+  // PROCESSING_DELAY_MS; exhausting that fixed total emits one turn-free
+  // visible failure note and leaves the current request ready for injection at
+  // every later captain prompt. A session replacement starts the budget over.
+  // The deferred copy is not handed to Pi's opaque nextTurn queue: if sequence
+  // membership changes first, this function cancels the old timer and opens a
+  // fresh bounded processing turn without waiting for a prompt to consume an
+  // obsolete snapshot. Nothing here advances the processed marker: only
+  // fm_branch_processed does, keyed to the sequence main acknowledges.
+  async function presentUnprocessedOutcomes(expectedGeneration: number, delayedReady = false): Promise<boolean> {
     const rows = await readUnprocessedOutcomes(expectedGeneration);
     if (rows === null) return false;
     if (rows.length === 0) {
-      processing = null;
+      replaceProcessing(null);
       return true;
     }
     const through = rows[rows.length - 1].seq;
@@ -1045,7 +1085,16 @@ export default function (pi: ExtensionAPI) {
     if (!(await generationOwnsLock(expectedGeneration))) return false;
     if (processing?.pending) return true;
     if (!processing || processing.sequences !== sequences) {
-      processing = { sequences, through, triggered: 0, pending: false, awaitingPrompt: false };
+      replaceProcessing({
+        sequences,
+        through,
+        triggered: 0,
+        delayed: 0,
+        pending: false,
+        awaitingPrompt: false,
+        retryTimer: null,
+        escalated: false,
+      });
     }
     // A presentation already sent is consumed by the run it joins or opens;
     // until that run settles, sending a widened or identical copy would hand
@@ -1056,8 +1105,23 @@ export default function (pi: ExtensionAPI) {
       processing.pending = true;
       processing.awaitingPrompt = false;
       pi.sendMessage(message, { triggerTurn: true, deliverAs: "followUp" });
+    } else if (processing.delayed < PROCESSING_DELAYED_ATTEMPTS) {
+      if (delayedReady) {
+        processing.delayed += 1;
+        processing.pending = true;
+        processing.awaitingPrompt = false;
+        pi.sendMessage(message, { triggerTurn: true, deliverAs: "followUp" });
+      } else {
+        scheduleProcessingRetry(processing, expectedGeneration);
+      }
     } else {
       processing.awaitingPrompt = true;
+      if (!processing.escalated) {
+        processing.escalated = true;
+        deliverBranchHealthNote(
+          `Automatic continuation through seq ${processing.through} did not complete after ${PROCESSING_TRIGGERED_ATTEMPTS + PROCESSING_DELAYED_ATTEMPTS} bounded attempts. The result remains open and will be included with the next message.`,
+        );
+      }
     }
     return true;
   }
@@ -1073,7 +1137,7 @@ export default function (pi: ExtensionAPI) {
     const rows = await readUnprocessedOutcomes(expectedGeneration);
     if (rows === null) return null;
     if (rows.length === 0) {
-      processing = null;
+      replaceProcessing(null);
       return null;
     }
     const content = await processingRequestInput(rows);
@@ -1084,8 +1148,18 @@ export default function (pi: ExtensionAPI) {
       // This is a defensive recovery path for an outcome appended outside the
       // ordinary report reconciliation. The prompt already opening receives
       // the current set, and later retries remain bounded from a fresh budget.
-      processing = { sequences, through, triggered: 0, pending: true, awaitingPrompt: false };
+      replaceProcessing({
+        sequences,
+        through,
+        triggered: 0,
+        delayed: 0,
+        pending: true,
+        awaitingPrompt: false,
+        retryTimer: null,
+        escalated: false,
+      });
     } else {
+      cancelProcessingRetry(expected);
       expected.through = through;
       expected.pending = true;
       expected.awaitingPrompt = false;
@@ -1744,7 +1818,7 @@ ${context.command}
     const closingGeneration = generation;
     shuttingDown = true;
     generation += 1;
-    processing = null;
+    replaceProcessing(null);
     pendingMirror.length = 0;
     currentMainSession = null;
     mirrorCollection.collectAnchor = null;
@@ -2228,7 +2302,7 @@ ${context.command}
           };
         }
         const remaining = await readUnprocessedOutcomes(acknowledgedGeneration);
-        if (remaining !== null && remaining.length === 0) processing = null;
+        if (remaining !== null && remaining.length === 0) replaceProcessing(null);
         const open = remaining === null
           ? "the remaining outcomes could not be read"
           : remaining.length === 0
