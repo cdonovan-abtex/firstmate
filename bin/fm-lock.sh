@@ -55,10 +55,19 @@ release_claim_lock() {
 trap release_claim_lock EXIT
 trap 'exit 1' HUP INT TERM
 
+report_acquired() {
+  local loaded=${FM_PI_TURNEND_EXTENSION_LOADED:-}
+  if [ "${FM_PI_TURNEND_EXTENSION_STATE:-}" = "$STATE" ] \
+    && [ "${loaded##*$'\n'}" = "$me" ]; then
+    printf '%s\n' "$loaded" > "$STATE/.pi-turnend-extension-loaded"
+  fi
+  echo "lock acquired: harness pid $me"
+}
+
 if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
   old=$(cat "$LOCK" 2>/dev/null || true)
   if [ "$old" = "$me" ]; then
-    echo "lock acquired: harness pid $me"
+    report_acquired
     exit 0
   fi
   if fm_harness_pid_alive "$old"; then
@@ -104,4 +113,4 @@ if [ ! -f "$LOCK" ] || [ -L "$LOCK" ] || [ "$written" != "$me" ]; then
   exit 1
 fi
 release_claim_lock
-echo "lock acquired: harness pid $me"
+report_acquired

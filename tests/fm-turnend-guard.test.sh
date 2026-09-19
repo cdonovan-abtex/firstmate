@@ -1116,6 +1116,169 @@ EOF
   pass "Pi turn-end loaded marker is published by the canonical session owner and ignores descendant extension loads"
 }
 
+test_pi_turnend_marker_is_published_during_lock_acquisition() {
+  local repo home ext initial out status
+  repo="$TMP_ROOT/pi-turnend-acquisition-root"
+  ext="$repo/.pi/extensions/fm-primary-turnend-guard.ts"
+  mkdir -p "$repo/.pi/extensions/lib" "$repo/bin"
+  cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
+  cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
+    "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$repo/.pi/extensions/lib/"
+  cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/"
+  cat > "$repo/bin/fm-sessionstart-run.sh" <<'SH'
+#!/usr/bin/env bash
+set -eu
+state=${FM_HOME:?}/state
+: > "$state/startup-entered"
+while [ ! -f "$state/acquire" ]; do sleep 0.01; done
+"$TEST_ROOT/bin/fm-lock.sh"
+. "$TEST_ROOT/bin/fm-wake-lib.sh"
+version=$(fm_pi_extension_version "$PLUGIN")
+fm_pi_extension_loaded "$state/.pi-turnend-extension-loaded" "$version" "$state/.lock"
+printf 'TURNEND_MARKER_READY\n'
+SH
+  chmod +x "$repo/bin/fm-sessionstart-run.sh"
+  for initial in absent previous; do
+    home="$TMP_ROOT/pi-turnend-acquisition-$initial"
+    mkdir -p "$home/state"
+    out=$(PLUGIN="$ext" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" \
+      FM_STATE_OVERRIDE="$home/state" TEST_ROOT="$ROOT" INITIAL_LOCK="$initial" \
+      node --input-type=module 2>&1 <<'JS'
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+process.title = "pi";
+const state = `${process.env.FM_HOME}/state`;
+const lock = `${state}/.lock`;
+const marker = `${state}/.pi-turnend-extension-loaded`;
+let prior = null;
+if (process.env.INITIAL_LOCK === "previous") {
+  const previous = spawnSync(process.execPath, ["-e", ""], { encoding: "utf8" });
+  assert.equal(previous.status, 0, previous.stderr);
+  writeFileSync(lock, `${previous.pid}\n`);
+  prior = `previous-build\n${previous.pid}\n`;
+  writeFileSync(marker, prior);
+}
+const contents = () => existsSync(marker) ? readFileSync(marker, "utf8") : null;
+const handlers = new Map();
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const bind = () => mod.default({ on(event, handler) { handlers.set(event, handler); } });
+const ctx = { sessionManager: { getSessionId: () => "marker-acquisition" } };
+const start = (reason) => handlers.get("session_start")({ reason }, ctx);
+const claim = () => handlers.get("before_agent_start")({}, ctx);
+const shutdown = () => handlers.get("session_shutdown")();
+const waitFor = async (path) => {
+  const deadline = Date.now() + 5000;
+  while (!existsSync(path)) {
+    assert(Date.now() < deadline, `startup did not reach ${path}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+};
+const checkReady = (result) => assert(result?.message?.content.includes("TURNEND_MARKER_READY"),
+  `startup could not consume its turn-end marker: ${JSON.stringify(result)}`);
+let holder;
+try {
+  bind();
+  assert.equal(contents(), prior, "factory published before acquisition");
+  start("startup");
+  await waitFor(`${state}/startup-entered`);
+  assert.equal(contents(), prior, "session_start published before acquisition");
+  writeFileSync(`${state}/acquire`, "");
+  checkReady(await claim());
+  assert.equal(readFileSync(lock, "utf8").trim(), String(process.pid));
+  const canonical = contents();
+  assert.equal(canonical.trim().split("\n")[1], String(process.pid));
+
+  await shutdown();
+  rmSync(marker);
+  bind();
+  assert.equal(contents(), canonical, "direct owner factory did not republish");
+  rmSync(marker);
+  start("reload");
+  assert.equal(contents(), canonical, "reload did not republish for the existing owner");
+  start("new");
+  checkReady(await claim());
+  assert.equal(contents(), canonical, "replacement session changed marker ownership");
+  await shutdown();
+
+  const descendant = spawnSync(process.execPath, ["--input-type=module"], {
+    encoding: "utf8",
+    timeout: 10000,
+    env: process.env,
+    input: `
+      import { pathToFileURL } from "node:url";
+      const handlers = new Map();
+      const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+      mod.default({ on(event, handler) { handlers.set(event, handler); } });
+      try {
+        handlers.get("session_start")({ reason: "startup" }, {});
+        const result = await handlers.get("before_agent_start")({}, {});
+        if (!result?.message?.content.includes("TURNEND_MARKER_READY")) {
+          throw new Error("descendant failed to preserve the canonical marker");
+        }
+      } finally {
+        await handlers.get("session_shutdown")();
+      }
+    `,
+  });
+  assert.equal(descendant.status, 0, descendant.stderr || String(descendant.error));
+  assert.equal(contents(), canonical, "descendant acquisition replaced the canonical marker");
+
+  const otherState = `${state}/other-home`;
+  mkdirSync(otherState);
+  const other = spawnSync(`${process.env.TEST_ROOT}/bin/fm-lock.sh`, [], {
+    encoding: "utf8", env: { ...process.env, FM_STATE_OVERRIDE: otherState },
+  });
+  assert.equal(other.status, 0, other.stderr);
+  assert(!existsSync(`${otherState}/.pi-turnend-extension-loaded`),
+    "loaded evidence leaked into another home");
+
+  rmSync(marker);
+  const withoutExtension = { ...process.env };
+  delete withoutExtension.FM_PI_TURNEND_EXTENSION_LOADED;
+  delete withoutExtension.FM_PI_TURNEND_EXTENSION_STATE;
+  const ordinary = spawnSync(`${process.env.TEST_ROOT}/bin/fm-lock.sh`, [], {
+    encoding: "utf8", env: withoutExtension,
+  });
+  assert.equal(ordinary.status, 0, ordinary.stderr);
+  assert.equal(contents(), null, "lock acquisition invented unloaded extension evidence");
+
+  holder = spawn(process.execPath, ["-e", `
+    process.title = "pi";
+    process.stdout.write("ready");
+    setInterval(() => {}, 1000);
+  `], { stdio: ["ignore", "pipe", "inherit"] });
+  await once(holder.stdout, "data");
+  writeFileSync(lock, `${holder.pid}\n`);
+  const foreign = `foreign-build\n${holder.pid}\n`;
+  writeFileSync(marker, foreign);
+  bind();
+  start("startup");
+  const refused = await claim();
+  assert(!refused?.message?.content.includes("TURNEND_MARKER_READY"),
+    "startup accepted another live session's lock");
+  assert.equal(readFileSync(lock, "utf8").trim(), String(holder.pid));
+  assert.equal(contents(), foreign, "refused acquisition overwrote the current owner");
+} finally {
+  await shutdown();
+  if (holder) {
+    const closed = once(holder, "close");
+    holder.kill();
+    await closed;
+  }
+}
+JS
+    )
+    status=$?
+    expect_code 0 "$status" "Pi turn-end marker acquisition from $initial lock: $out"
+    [ -z "$out" ] || fail "Pi turn-end marker acquisition printed output: $out"
+    pass "Pi turn-end marker follows $initial lock acquisition and preserves reload, replacement, descendant, and refusal ownership"
+  done
+}
+
 test_pi_extension_injects_once_per_logical_agent_run() {
   local repo home ext log out status
   repo="$TMP_ROOT/pi-logical-run-root"
@@ -2310,6 +2473,7 @@ test_codex_hook_uses_process_pwd_when_payload_cwd_is_outside_root
 test_codex_hook_ignores_nested_git_root_guard
 test_opencode_plugin_anchors_guard_to_worktree
 test_pi_turnend_loaded_marker_stays_with_canonical_session_owner
+test_pi_turnend_marker_is_published_during_lock_acquisition
 test_pi_extension_injects_once_per_logical_agent_run
 test_pi_extension_retries_after_followup_delivery_failure
 test_hook_claude_mode_reblocks_stop_hook_active_when_unhealthy
