@@ -169,11 +169,13 @@ const PROVIDER_ERROR_LATCH_THRESHOLD = 2;
 const PROVIDER_REPROBE_BASE_MS = 5 * 60 * 1000;
 const PROVIDER_REPROBE_MAX_MS = 60 * 60 * 1000;
 const PROCESSING_INSTRUCTION =
-  "This is a supervision processing request delivered automatically by the supervision branch. " +
+  "This is a supervision outcome-processing request delivered automatically by the supervision branch. " +
   "It was not typed by the captain. " +
-  "The outcomes below are already stored durably and already shown to the captain as anchor entries in this transcript; each fleet event is already handled, so do not re-drain, re-run, or acknowledge the wake. " +
-  "Process each outcome now as firstmate: give the captain a visible response where one is due, answer or escalate a decision, act on a blocker or failure, or record that no further action is needed. " +
-  "When every outcome below is processed, call fm_branch_processed with through={N} exactly once. " +
+  "This exact request-bound turn is not an ordinary wake-handling turn. " +
+  "The outcomes below are already stored durably and already shown to the captain as anchor entries in this transcript; each fleet event is already handled, so do not drain, re-drain, re-run, or acknowledge the wake. " +
+  "Before any unrelated operation, process each listed outcome now as firstmate: give the captain a substantive final response where one is due, answer or escalate a decision, act on a blocker or failure, or record that no further action is needed. " +
+  "A requested completion or review-ready result is not a no-op: its anchor entry does not replace the response, and `Captain, shipshape.` does not process it. " +
+  "When every listed outcome is processed, call fm_branch_processed with through={N} exactly once. " +
   "Until that call the outcomes stay open and are presented again; an answer that does not make that call never counts as processing.";
 type MirrorItem = { tag: "captain" | "main"; text: string };
 type MirrorCursor = { file: string; index: number };

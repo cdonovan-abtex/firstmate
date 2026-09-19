@@ -1056,6 +1056,66 @@ EOF
   pass ".opencode primary plugin: guard path is anchored to worktree, not directory"
 }
 
+test_pi_turnend_loaded_marker_stays_with_canonical_session_owner() {
+  local repo home ext out status
+  repo="$TMP_ROOT/pi-turnend-marker-owner-root"
+  home="$TMP_ROOT/pi-turnend-marker-owner-home"
+  ext="$repo/.pi/extensions/fm-primary-turnend-guard.ts"
+  mkdir -p "$repo/.pi/extensions/lib" "$home/state"
+  cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
+  cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
+  out=$(PLUGIN="$ext" FM_HOME="$home" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+
+const marker = `${process.env.FM_HOME}/state/.pi-turnend-extension-loaded`;
+let sessionStart = null;
+const makePi = () => ({
+  on(event, handler) {
+    if (event === "session_start") sessionStart = handler;
+  },
+});
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(makePi());
+if (existsSync(marker)) {
+  throw new Error("turn-end extension published its marker before a session owner existed");
+}
+if (!sessionStart) {
+  throw new Error("turn-end extension did not register its session_start handler");
+}
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+sessionStart({ reason: "new" }, {});
+const canonical = readFileSync(marker, "utf8").trim().split("\n");
+if (!canonical[0]?.startsWith("sha256:") || canonical[1] !== String(process.pid)) {
+  throw new Error(`canonical owner did not publish its turn-end marker: ${JSON.stringify(canonical)}`);
+}
+const descendant = spawnSync(
+  process.execPath,
+  [
+    "--input-type=module",
+    "-e",
+    `import { pathToFileURL } from "node:url";
+     const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+     mod.default({ on() {} });`,
+  ],
+  { encoding: "utf8", env: process.env },
+);
+if (descendant.status !== 0) {
+  throw new Error(`descendant turn-end extension load failed: ${descendant.stderr}`);
+}
+const afterDescendant = readFileSync(marker, "utf8").trim().split("\n");
+if (afterDescendant[1] !== String(process.pid)) {
+  throw new Error(`descendant replaced canonical turn-end marker: ${JSON.stringify(afterDescendant)}`);
+}
+EOF
+  )
+  status=$?
+  expect_code 0 "$status" "Pi turn-end loaded marker must stay bound to the canonical session owner: $out"
+  [ -z "$out" ] || fail "Pi turn-end marker-owner test printed output: $out"
+  pass "Pi turn-end loaded marker is published by the canonical session owner and ignores descendant extension loads"
+}
+
 test_pi_extension_injects_once_per_logical_agent_run() {
   local repo home ext log out status
   repo="$TMP_ROOT/pi-logical-run-root"
@@ -2249,6 +2309,7 @@ test_tracked_claude_entries_inert_under_grok
 test_codex_hook_uses_process_pwd_when_payload_cwd_is_outside_root
 test_codex_hook_ignores_nested_git_root_guard
 test_opencode_plugin_anchors_guard_to_worktree
+test_pi_turnend_loaded_marker_stays_with_canonical_session_owner
 test_pi_extension_injects_once_per_logical_agent_run
 test_pi_extension_retries_after_followup_delivery_failure
 test_hook_claude_mode_reblocks_stop_hook_active_when_unhealthy

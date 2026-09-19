@@ -74,6 +74,61 @@ export const Type = {
 JS
 }
 
+test_pi_loaded_marker_stays_with_canonical_session_owner() {
+  local repo home plugin out status
+  repo="$TMP_ROOT/pi-marker-owner-root"
+  home="$TMP_ROOT/pi-marker-owner-home"
+  mkdir -p "$home/state"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+
+const marker = `${process.env.FM_HOME}/state/.pi-watch-extension-loaded`;
+const makePi = () => ({
+  on() {},
+  registerCommand() {},
+  registerTool() {},
+});
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(makePi());
+if (existsSync(marker)) {
+  throw new Error("watch extension published its marker before a session owner existed");
+}
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+mod.default(makePi());
+const canonical = readFileSync(marker, "utf8").trim().split("\n");
+if (!canonical[0]?.startsWith("sha256:") || canonical[1] !== String(process.pid)) {
+  throw new Error(`canonical owner did not publish its watch marker: ${JSON.stringify(canonical)}`);
+}
+const descendant = spawnSync(
+  process.execPath,
+  [
+    "--input-type=module",
+    "-e",
+    `import { pathToFileURL } from "node:url";
+     const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+     mod.default({ on() {}, registerCommand() {}, registerTool() {} });`,
+  ],
+  { encoding: "utf8", env: process.env },
+);
+if (descendant.status !== 0) {
+  throw new Error(`descendant watch extension load failed: ${descendant.stderr}`);
+}
+const afterDescendant = readFileSync(marker, "utf8").trim().split("\n");
+if (afterDescendant[1] !== String(process.pid)) {
+  throw new Error(`descendant replaced canonical watch marker: ${JSON.stringify(afterDescendant)}`);
+}
+EOF
+  )
+  status=$?
+  expect_code 0 "$status" "Pi watch loaded marker must stay bound to the canonical session owner: $out"
+  [ -z "$out" ] || fail "Pi watch marker-owner test printed output: $out"
+  pass "Pi watch loaded marker is published by the canonical session owner and ignores descendant extension loads"
+}
+
 test_pi_extension_reports_external_healthy_watcher() {
   local repo home plugin out status
   repo="$TMP_ROOT/pi-external-healthy-root"
@@ -3974,6 +4029,7 @@ EOF
   pass "OpenCode healthy arm output does not suppress the turn-end guard"
 }
 
+test_pi_loaded_marker_stays_with_canonical_session_owner
 test_pi_extension_reports_external_healthy_watcher
 test_pi_tool_returns_agent_tool_result
 test_pi_redundant_tool_call_is_owned_noop

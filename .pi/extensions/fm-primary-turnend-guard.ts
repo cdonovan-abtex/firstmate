@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -54,8 +54,16 @@ function lockOwnership(): LockOwnership {
   return pidAlive(lockPid) ? "other" : "missing";
 }
 
+// Only the canonical session-lock process may attest that this extension is
+// loaded; extension imports in descendants must not replace that identity.
 function markLoaded(): void {
-  if (!existsSync(state) || lockOwnership() === "other") return;
+  let lockPid = "";
+  try {
+    lockPid = readFileSync(`${state}/.lock`, "utf8").trim();
+  } catch {
+    return;
+  }
+  if (lockPid !== String(process.pid)) return;
   writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
 }
 

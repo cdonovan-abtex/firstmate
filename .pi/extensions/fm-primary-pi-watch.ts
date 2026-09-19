@@ -230,8 +230,16 @@ function lockOwnership(): LockOwnership {
   return pidAlive(lockPid) ? "other" : "missing";
 }
 
+// Only the canonical session-lock process may attest that this extension is
+// loaded; extension imports in descendants must not replace that identity.
 function markLoaded(): void {
-  if (lockOwnership() === "other") return;
+  let lockPid = "";
+  try {
+    lockPid = readFileSync(`${state}/.lock`, "utf8").trim();
+  } catch {
+    return;
+  }
+  if (lockPid !== String(process.pid)) return;
   mkdirSync(state, { recursive: true });
   writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
 }
