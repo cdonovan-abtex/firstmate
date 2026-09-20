@@ -107,28 +107,6 @@ A single-process harness has no descendant that adds a distinct verdict, which i
 The portable regression pins every half without any harness installed: `tests/fm-harness-precedence.test.sh` asserts that this two-process topology decides at comm strength, that the descent probe reaches a strength the top-of-session probe cannot, that a sibling branch answering a foreign harness contributes no verdict, that a foreign args-only verdict at the deepest vantage leaves the comm-strength identity intact, and that equal-depth ties choose the comm-strength leaf regardless of process ordering.
 The run did not reach `opencode`, `pi`, `pi-signed`, `grok`, `kimi`, or `muse`, which were not installed, and stopped at the same pre-existing liveness failure for `cursor` 3.18.9, whose resolved binary on that machine is the editor rather than `cursor-agent`; those adapters are unverified by this run.
 
-## Pi supervision result continuation
-
-Verified on 2026-09-19 with Pi 0.85.1 in a disposable home and a named non-default Herdr lab session.
-The prompt-submitting guard withheld the synthetic action and acknowledgement tools for the first two processing turns, enabled them before the fixed delayed turn, and sent no user prompt between the result and action.
-
-```sh
-FM_PI_RESULT_CONTINUATION_HERDR_E2E=1 \
-FM_PI_RESULT_CONTINUATION_PROVIDER=<approved-provider> \
-FM_PI_RESULT_CONTINUATION_MODEL=<approved-model> \
-tests/fm-pi-result-continuation-herdr-live-e2e.test.sh
-```
-
-Observed output:
-
-```text
-ok - a real Pi in a named Herdr lab retries a twice-ignored synthetic completion after its bounded delay, performs its authorized next action, and acknowledges exactly once without a human prompt
-```
-
-The transcript assertion requires exactly three sequence-current processing requests, at least 59 seconds between the first and third, one synthetic action, one exact acknowledgement, and no drain call.
-The lab helper's successful teardown proves the live default Herdr session remained unchanged.
-This verifies the real Pi extension and model path for the selected test model; the portable suite owns timer cancellation, terminal escalation, routine silence, session replacement, changed membership, and exact marker behavior, while other model selectors remain unverified by this run.
-
 ## tmux
 
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.

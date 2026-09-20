@@ -1316,60 +1316,24 @@ if (requests()[1].options.triggerTurn !== true) throw new Error("the first re-pr
 if (!requests()[1].message.content.includes(`[seq ${seq}] task-d: ${decision}`)) throw new Error("the re-presentation changed the outcome");
 
 // Case B: the turn repeats an unrelated prior answer. Same result: the marker
-// holds. Instead of becoming human-prompt-dependent after the immediate
-// budget, the extension schedules one delayed and still-bounded autonomous
-// attempt. Capture that timer so the portable test does not sleep.
-const realSetTimeout = globalThis.setTimeout;
-const realClearTimeout = globalThis.clearTimeout;
-const retryTimers = [];
-globalThis.setTimeout = (fn, delay) => {
-  const timer = { fn, delay, cleared: false, unref() {} };
-  retryTimers.push(timer);
-  return timer;
-};
-globalThis.clearTimeout = (timer) => { timer.cleared = true; };
+// holds, but the exhausted set waits extension-locally for the captain's next
+// prompt rather than occupying Pi's opaque nextTurn queue with a stale snapshot.
 await runOf(() => mainEntries.push({ type: "message", message: { role: "assistant", content: "The retry safe-stopped; diagnosis is underway." } }));
-globalThis.setTimeout = realSetTimeout;
-globalThis.clearTimeout = realClearTimeout;
 if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([seq])) throw new Error("an unrelated answer advanced the processed marker");
-if (requests().length !== 2) throw new Error(`the exhausted immediate set queued synchronously: ${requests().length} requests`);
-if (retryTimers.length !== 1 || retryTimers[0].delay !== 60_000 || retryTimers[0].cleared) {
-  throw new Error(`the exhausted immediate set did not schedule one bounded delayed retry: ${JSON.stringify(retryTimers)}`);
-}
-// A quiet settle neither duplicates the timer nor creates a wake storm.
+if (requests().length !== 2) throw new Error(`the exhausted set queued another autonomous request: ${requests().length} requests`);
+// A quiet settle stays silent and cannot create a wake storm.
 await fire("agent_settled", {});
-if (requests().length !== 2 || retryTimers.length !== 1) throw new Error("a quiet settle duplicated the delayed processing retry");
-retryTimers[0].fn();
-await settle(() => requests().length === 3, "delayed processing retry");
-if (requests()[2].options.triggerTurn !== true || requests()[2].options.deliverAs !== "followUp") {
-  throw new Error(`the delayed retry did not open one supported follow-up turn: ${JSON.stringify(requests()[2])}`);
-}
-if (!requests()[2].message.content.includes(`[seq ${seq}] task-d: ${decision}`)) {
-  throw new Error("the delayed retry changed the current outcome");
-}
-
-// Ignoring the delayed attempt leaves the sequence open, emits one explicit
-// turn-free escalation, and does not enter a periodic retry loop.
-await runOf(() => mainEntries.push({ type: "message", message: { role: "assistant", content: "Captain, shipshape." } }));
-const escalations = () => sentToMain.filter((sent) => sent.message.customType === "fm-branch-merge" && sent.message.content.includes("did not complete after 3 bounded attempts"));
-if (requests().length !== 3) throw new Error("the final delayed attempt opened an unbounded retry");
-if (escalations().length !== 1 || escalations()[0].options.triggerTurn) {
-  throw new Error(`the exhausted set did not produce one turn-free escalation: ${JSON.stringify(escalations())}`);
-}
-await fire("agent_settled", {});
-if (requests().length !== 3 || escalations().length !== 1) throw new Error("a quiet settle repeated the terminal retry or escalation");
-
-// The captain's next prompt still receives a current hidden injection. It is
-// not a Pi nextTurn snapshot, and settling it unacknowledged returns to the
-// terminal bounded wait rather than restarting autonomous retries.
+if (requests().length !== 2) throw new Error("a quiet settle queued another processing request");
+// The captain's next prompt receives a current hidden injection. It is not a
+// Pi nextTurn queue entry, and settling it unacknowledged returns to the same
+// bounded wait rather than opening another autonomous turn.
 const injected = await fire("before_agent_start", { prompt: "ordinary captain prompt" }, defaultSessionCtx);
 const injectedMessage = injected.map((result) => result?.message).find((message) => message?.customType === "fm-branch-process");
 if (!injectedMessage?.content.includes(`[seq ${seq}] task-d: ${decision}`) || injectedMessage.display !== false) {
   throw new Error(`the next prompt did not receive the current processing request: ${JSON.stringify(injected)}`);
 }
 await runOf(() => mainEntries.push({ type: "message", message: { role: "assistant", content: "Captain, shipshape." } }));
-if (requests().length !== 3) throw new Error("a prompt-injected ignored request restarted the autonomous retry loop");
-if (escalations().length !== 1) throw new Error("a prompt-injected ignored request repeated the escalation");
+if (requests().length !== 2) throw new Error("a prompt-injected ignored request restarted the autonomous retry loop");
 if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([seq])) throw new Error("a paraphrase advanced the processed marker");
 const reinjected = await fire("before_agent_start", { prompt: "later captain prompt" }, defaultSessionCtx);
 if (!reinjected.some((result) => result?.message?.content.includes(`[seq ${seq}] task-d: ${decision}`))) {
@@ -1380,7 +1344,7 @@ await runOf();
 // A session replacement re-presents with a fresh triggered budget.
 await fire("session_shutdown", {});
 await fire("session_start", {}, defaultSessionCtx);
-if (requests().length !== 4 || requests()[3].options.triggerTurn !== true) throw new Error("session start did not re-present the unprocessed outcome with its own turn");
+if (requests().length !== 3 || requests()[2].options.triggerTurn !== true) throw new Error("session start did not re-present the unprocessed outcome with its own turn");
 if (mainEntries.filter((entry) => entry.customType === "fm-branch-visible-outcome" && entry.data.seq === seq).length !== 1) {
   throw new Error("re-presentation duplicated the visible entry");
 }
@@ -1486,10 +1450,10 @@ EOF
   status=$?
   out=$(cat "$TMP_ROOT/node-output")
   expect_code 0 "$status" "captain outcomes must be processed through a sequence-bound acknowledgement and re-presented until then: $out"
-  pass "a captain outcome opens one sequence-keyed processing turn, gets one delayed bounded retry plus explicit escalation after ignored answers, re-presents at session start, and closes only on its acknowledgement"
+  pass "a captain outcome opens one sequence-keyed processing turn, survives empty and unrelated answers, is re-presented at run end and session start, and closes only on its acknowledgement"
 }
 
-test_new_captain_outcome_restarts_while_the_ignored_set_waits_for_its_delayed_retry() {
+test_new_captain_outcome_restarts_after_the_ignored_set_waits_for_a_prompt() {
   local repo home out status
   repo="$TMP_ROOT/current-result-root"
   home="$TMP_ROOT/current-result-home"
@@ -1530,37 +1494,23 @@ if (requests().length !== 1 || !requests()[0].message.content.includes(`[seq ${f
   throw new Error("the first captain result did not open its processing turn");
 }
 await finishRun();
-const realSetTimeout = globalThis.setTimeout;
-const realClearTimeout = globalThis.clearTimeout;
-const retryTimers = [];
-globalThis.setTimeout = (fn, delay) => {
-  const timer = { fn, delay, cleared: false, unref() {} };
-  retryTimers.push(timer);
-  return timer;
-};
-globalThis.clearTimeout = (timer) => { timer.cleared = true; };
 await finishRun();
 if (requests().length !== 2) {
-  throw new Error(`the immediate budget opened ${requests().length} autonomous turns instead of two`);
-}
-if (retryTimers.length !== 1 || retryTimers[0].delay !== 60_000 || retryTimers[0].cleared) {
-  throw new Error(`the ignored set did not retain one delayed retry: ${JSON.stringify(retryTimers)}`);
+  throw new Error(`the anti-loop budget opened ${requests().length} autonomous turns instead of two`);
 }
 await fire("agent_settled", {});
-if (requests().length !== 2 || retryTimers.length !== 1) throw new Error("an idle boundary created a wake storm after the immediate budget");
+if (requests().length !== 2) throw new Error("an idle boundary created a wake storm after the retry budget");
 
 // Discriminating counterfactual for the incident: no captain, watcher, or
 // synthetic user prompt occurs between the exhausted older set and this new
-// completed result. The new sequence membership itself must cancel the older
-// timer and restart the bounded trigger with a current request.
+// completed result. The new sequence membership itself must restart the
+// bounded trigger with a current request, rather than remain hidden behind an
+// obsolete next-prompt snapshot.
 const nextSummary = "synthetic worker completed; authorized next action is route its isolated receipt";
 const second = await report.execute("second", { task: "branch-driver", verdict: "captain", summary: nextSummary }, undefined, undefined, {});
-globalThis.setTimeout = realSetTimeout;
-globalThis.clearTimeout = realClearTimeout;
 if (second.isError) throw new Error(`new completed result failed: ${JSON.stringify(second)}`);
 const secondSeq = JSON.parse(outcomeScript(["list", "--recent", "1"])).seq;
 if (requests().length !== 3) throw new Error("the new completed result waited for another prompt");
-if (!retryTimers[0].cleared) throw new Error("the new result left the older set's delayed retry armed");
 const current = requests()[2];
 if (current.options.triggerTurn !== true || current.options.deliverAs !== "followUp") {
   throw new Error(`the new result did not restart the bounded trigger: ${JSON.stringify(current.options)}`);
@@ -5089,7 +5039,7 @@ test_branch_dispatch_two_stage_filter_and_prefix_contract
 test_requested_healthy_outcome_and_unsolicited_routine_outcome_delivery
 test_captain_outcome_is_exactly_once_across_crash_reload_and_unrelated_response
 test_captain_outcome_processing_turn_is_sequence_keyed_and_re_presented
-test_new_captain_outcome_restarts_while_the_ignored_set_waits_for_its_delayed_retry
+test_new_captain_outcome_restarts_after_the_ignored_set_waits_for_a_prompt
 test_branch_dispatch_classifies_main_only_rows_and_writes_the_eligible_snapshot
 test_branch_cache_key_is_per_home_stable
 test_branch_default_on_heartbeat_afk_and_fallback
