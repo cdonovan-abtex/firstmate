@@ -1993,3 +1993,87 @@ stale_is_terminal() {  # <window> <state>
   last=$(last_status_line "$state/$(window_to_task "$win" "$state").status")
   [ -n "$last" ] && status_is_captain_relevant "$last"
 }
+
+# The Pi supervision branch publishes one small, fixed-size cache per task after
+# it has durably recorded an outcome.  The outcome row remains authoritative, but
+# this reader deliberately uses only the cache: stale-pane triage runs every poll
+# and must not scan outcome history.  An absent, changing, or malformed cache is
+# never treated as coverage, so the caller takes its ordinary safety path.
+BRANCH_OUTCOME_INDEX_VERSION=fm-branch-outcome-index-v1
+BRANCH_OUTCOME_INDEX_MAX_BYTES=512
+BRANCH_OUTCOME_INDEX_STATE=ok
+BRANCH_OUTCOME_INDEX_ENDPOINT=
+BRANCH_OUTCOME_INDEX_IDENT=
+
+outcome_index_ready_ok() { # <state>
+  local ready="$1/.branch-outcome-index-ready" seq
+  [ -f "$ready" ] && [ -r "$ready" ] && [ ! -L "$ready" ] || return 1
+  seq=$(LC_ALL=C command cat "$ready" 2>/dev/null) || return 1
+  case "$seq" in ''|*[!0-9]*) return 1 ;; esac
+  return 0
+}
+
+load_branch_outcome_index() { # <state> <task>
+  local state=$1 task=$2 path data version seq endpoint ident extra size
+  BRANCH_OUTCOME_INDEX_STATE=ok
+  BRANCH_OUTCOME_INDEX_ENDPOINT=
+  BRANCH_OUTCOME_INDEX_IDENT=
+  case "$task" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
+  path="$state/.$task.branch-outcome-index"
+  [ -e "$path" ] || [ -L "$path" ] || return 0
+  if [ ! -f "$path" ] || [ ! -r "$path" ] || [ -L "$path" ]; then
+    BRANCH_OUTCOME_INDEX_STATE=invalid
+    return 0
+  fi
+  size=$(_fm_status_file_size "$path") || { BRANCH_OUTCOME_INDEX_STATE=invalid; return 0; }
+  size=${size//[[:space:]]/}
+  case "$size" in ''|*[!0-9]*) BRANCH_OUTCOME_INDEX_STATE=invalid; return 0 ;; esac
+  if [ "$size" -gt "$BRANCH_OUTCOME_INDEX_MAX_BYTES" ]; then
+    BRANCH_OUTCOME_INDEX_STATE=invalid
+    return 0
+  fi
+  data=$(LC_ALL=C command cat "$path" 2>/dev/null) \
+    || { BRANCH_OUTCOME_INDEX_STATE=invalid; return 0; }
+  case "$data" in *$'\n'*) BRANCH_OUTCOME_INDEX_STATE=invalid; return 0 ;; esac
+  IFS=$(printf '\t') read -r version seq endpoint ident extra <<EOF
+$data
+EOF
+  if [ "$version" != "$BRANCH_OUTCOME_INDEX_VERSION" ] || [ -n "$extra" ]; then
+    BRANCH_OUTCOME_INDEX_STATE=invalid
+    return 0
+  fi
+  case "$seq:$endpoint" in *[!0-9:]*) BRANCH_OUTCOME_INDEX_STATE=invalid; return 0 ;; esac
+  [ -n "$seq" ] && [ -n "$endpoint" ] && [ -n "$ident" ] \
+    && [ "${#seq}" -le 16 ] && [ "${#endpoint}" -le 16 ] \
+    && [ "$seq" -le 9007199254740991 ] && [ "$endpoint" -le 9007199254740991 ] \
+    || { BRANCH_OUTCOME_INDEX_STATE=invalid; return 0; }
+  BRANCH_OUTCOME_INDEX_ENDPOINT=$endpoint
+  BRANCH_OUTCOME_INDEX_IDENT=$ident
+}
+
+# 0 when the current complete status file is causally covered by the latest
+# branch outcome cache.  The identity and byte endpoint must both match, so a
+# later ready, blocker, failure, resolution, or any other status append is new
+# evidence rather than a repeat observation.  This is intentionally read-only:
+# watcher triage never repairs a missing index or advances an acknowledgement.
+branch_outcome_covers_current_status() { # <state> <task>
+  local state=$1 task=$2 status endpoint ident
+  outcome_index_ready_ok "$state" || return 1
+  load_branch_outcome_index "$state" "$task"
+  [ "$BRANCH_OUTCOME_INDEX_STATE" = ok ] || return 1
+  endpoint=$BRANCH_OUTCOME_INDEX_ENDPOINT
+  ident=$BRANCH_OUTCOME_INDEX_IDENT
+  [ -n "$endpoint" ] && [ -n "$ident" ] || return 1
+  status="$state/$task.status"
+  if [ ! -e "$status" ]; then
+    [ "$endpoint" = 0 ] && [ "$ident" = - ]
+    return
+  fi
+  [ -f "$status" ] && [ -r "$status" ] && [ ! -L "$status" ] || return 1
+  local current_endpoint current_ident
+  current_endpoint=$(_fm_status_file_size "$status") || return 1
+  current_endpoint=${current_endpoint//[[:space:]]/}
+  current_ident=$(_fm_open_decisions_file_ident "$status") || return 1
+  case "$current_endpoint" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$current_ident" = "$ident" ] && [ "$endpoint" -ge "$current_endpoint" ]
+}

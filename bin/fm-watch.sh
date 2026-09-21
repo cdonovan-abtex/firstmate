@@ -1232,7 +1232,9 @@ captain_call_declaration() {  # <task> <call-identity>
 
 # 0 when <declaration> has already been alarmed for this window inside the
 # current PAUSE_RESURFACE_SECS. A pure read: recording an alarm is the caller's,
-# so the throttle is never advanced by a sighting it just absorbed.
+# so the throttle is never advanced by a sighting it just absorbed. This remains
+# the external-wait cadence; verified captain calls use their durable hold as the
+# acknowledgement instead and never enter a timer-based model recheck.
 stale_wait_throttled() {  # <window-key> <declaration>
   local throttle="$STATE/.paused-resurfaced-$1"
   [ "$(cat "$throttle" 2>/dev/null || true)" = "$2" ] \
@@ -1257,19 +1259,19 @@ stale_wait_record() {  # <window-key>
   printf '%s' "$STALE_WAIT_DECLARATION" > "$STATE/.paused-resurfaced-$1"
 }
 
-# Bound a due stale alarm for an ordinary crew task held for the captain.
-# Backlog-only secondmate holds are outside this guard because the earlier gate
-# preserves their no-backlog-read hot path.
-# While the away-posture record exists the bound is absolute: an open captain
-# call is never rechecked, whatever the throttle says, because nobody is there
-# to answer it and the return brief lists it.
+# Absorb a stale pane for an ordinary crew task whose durable captain call is
+# still open. Backlog-only secondmate holds are outside this guard because the
+# earlier gate preserves their no-backlog-read hot path. The hold exists only
+# after main has taken the task in hand, so pane churn adds no new evidence and
+# must not create another model review. A changed status event, the durable open
+# decision listing, and the ordinary dead-worker paths remain independent of
+# this read. While the away-posture record exists the result is identical.
 captain_call_stale_bound() {  # <window-key> <task>
-  local key=$1 task=$2
+  local task=$2
   STALE_WAIT_DECLARATION=
   task_captain_call_open "$task" || return 1
   STALE_WAIT_DECLARATION=$(captain_call_declaration "$task" "$CAPTAIN_CALL_IDENTITY")
-  afk_record_present && return 0
-  stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION"
+  return 0
 }
 
 # Surface a stale pane no classifier could resolve, so firstmate inspects it: it
@@ -2307,17 +2309,24 @@ EOF
               clear_write_tracking "$key"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
             elif captain_call_stale_bound "$key" "$task"; then
-              # The line is captain-relevant and stays so, but the backlog says
-              # the captain already holds this work: further NEW pane hashes with
-              # the same status-log state have nothing to add while they are
-              # deciding. Only that new-hash repetition is bounded - the first
-              # sight already alarmed, a new hash inside the window is absorbed,
-              # and a new hash after it alarms again. A stable hash stays as inert
-              # here as it already was after a first terminal alarm.
+              # The durable captain call is the acknowledgement that this
+              # unchanged disposition was already handled. Do not turn a
+              # ticking or re-rendered pane into another model review; a new
+              # status append still enters the signal path independently.
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
               clear_write_tracking "$key"
-              triage_log "absorbed stale (open captain call already surfaced for this status): $w"
+              triage_log "absorbed stale (open captain call already handled): $w"
+            elif branch_outcome_covers_current_status "$STATE" "$task"; then
+              # The branch outcome cache is fixed-size provenance for this
+              # exact status identity and endpoint. It proves an earlier
+              # signal/stale result was durably handled, without scanning the
+              # outcome log or asking a model again. Any append invalidates the
+              # coverage and remains eligible for ordinary signal delivery.
+              printf '%s' "$h" > "$sf"
+              rm -f "$ssf"
+              clear_write_tracking "$key"
+              triage_log "absorbed stale (terminal status already covered by a branch outcome): $w"
             else
               fm_wake_append stale "$w" "stale: $w" || exit 1
               stale_wait_record "$key"
