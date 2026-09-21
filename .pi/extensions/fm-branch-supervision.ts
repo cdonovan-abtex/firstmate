@@ -152,9 +152,8 @@ const VISIBLE_OUTCOME_ENTRY_TYPE = "fm-branch-visible-outcome";
 // is the PROCESSING: it asks main to act on the outcome,
 // and only main's explicit sequence-bound acknowledgement (fm_branch_processed)
 // closes it. An unrelated or empty answer leaves the sequence open;
-// presentUnprocessedOutcomes owns bounded re-presentation. Pi
-// gives the model only a custom message's `content`, so the request carries
-// its own identity through the typed operational envelope.
+// presentUnprocessedOutcomes owns bounded re-presentation. Its user payload
+// carries its internal identity through the typed operational envelope.
 const PROCESSING_MESSAGE_TYPE = "fm-branch-process";
 // Triggered re-presentations per unprocessed sequence set before the request
 // stops opening turns of its own and is injected into the captain's next
@@ -1050,12 +1049,11 @@ export default function (pi: ExtensionAPI) {
     // A presentation already sent is consumed by the run it joins or opens;
     // until that run settles, sending a widened or identical copy would hand
     // overlapping requests to the same run.
-    const message = { customType: PROCESSING_MESSAGE_TYPE, content, display: false };
     if (processing.triggered < PROCESSING_TRIGGERED_ATTEMPTS) {
       processing.triggered += 1;
       processing.pending = true;
       processing.awaitingPrompt = false;
-      pi.sendMessage(message, { triggerTurn: true, deliverAs: "followUp" });
+      pi.sendUserMessage(content, { deliverAs: "followUp" });
     } else {
       processing.awaitingPrompt = true;
     }

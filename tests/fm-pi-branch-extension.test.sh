@@ -586,7 +586,7 @@ const pi = {
     sentToMain.push({ message, options: options ?? {} });
   },
   sendUserMessage(content, options) {
-    mainUserMessages.push({ content, options: options ?? {} });
+    mainUserMessages.push({ role: "user", content, options: options ?? {} });
   },
   getThinkingLevel() {
     if (globalThis.__fmThinkingLevelError) throw new Error(globalThis.__fmThinkingLevelError);
@@ -742,24 +742,36 @@ if (sentToMain[1].options.deliverAs !== "nextTurn" || sentToMain[1].options.trig
 }
 await fire("agent_end", {});
 await report.execute("call-3", { task: "task-9", verdict: "captain", summary: "PR https://example.com/pr/9 checks green, ready for review" }, undefined, undefined, {});
-// A captain outcome opens exactly ONE sequence-keyed processing turn: a
-// hidden, typed request that names the sequence and carries the exact stored
-// summary. No unkeyed turn ever opens, and routine delivery is untouched.
-const processingRequests = sentToMain.filter((sent) => sent.message.customType === "fm-branch-process");
+// A captain outcome opens exactly ONE sequence-keyed operational user
+// follow-up that names the sequence and carries the exact stored summary.
+// Routine delivery remains custom and no unkeyed turn opens.
+const processingRequests = mainUserMessages;
 if (processingRequests.length !== 1) throw new Error(`captain delivery opened ${processingRequests.length} processing requests, not exactly one`);
 const processingRequest = processingRequests[0];
-if (processingRequest.options.triggerTurn !== true || processingRequest.options.deliverAs !== "followUp") {
-  throw new Error(`the processing request must open one follow-up turn: ${JSON.stringify(processingRequest.options)}`);
+if (processingRequest.role !== "user") throw new Error("the processing instruction was not delivered as a user payload");
+if (processingRequest.options.deliverAs !== "followUp" || "triggerTurn" in processingRequest.options) {
+  throw new Error(`the processing request must be a user follow-up: ${JSON.stringify(processingRequest.options)}`);
 }
-if (processingRequest.message.display !== false) throw new Error("the processing request must stay hidden: the visible entry is the display");
-if (!processingRequest.message.content.includes("[seq 3] task-9: PR https://example.com/pr/9 checks green, ready for review")) {
-  throw new Error(`the processing request lost its sequence key or exact summary: ${processingRequest.message.content}`);
+if (!processingRequest.content.includes("[seq 3] task-9: PR https://example.com/pr/9 checks green, ready for review")) {
+  throw new Error(`the processing request lost its sequence key or exact summary: ${processingRequest.content}`);
 }
-if (sentToMain.some((sent) => sent.options.triggerTurn && sent.message.customType !== "fm-branch-process")) {
-  throw new Error("an unkeyed turn opened on main");
+if (sentToMain.some((sent) => sent.options.triggerTurn)) {
+  throw new Error("a routine outcome opened an unkeyed turn on main");
 }
-if (sentToMain.length !== 3) throw new Error(`captain delivery changed routine delivery: ${JSON.stringify(sentToMain)}`);
-writeFileSync(`${home}/state/delivered-processing-request`, processingRequest.message.content);
+if (sentToMain.length !== 2) throw new Error(`captain delivery changed routine delivery: ${JSON.stringify(sentToMain)}`);
+writeFileSync(`${home}/state/delivered-processing-request`, processingRequest.content);
+// Simulate Pi consuming the user follow-up, then the one sequence-bound
+// acknowledgement it authorizes. Operational classification must keep that
+// payload out of captain-dialog mirroring; a duplicate acknowledgement is
+// refused and cannot redeliver it.
+await fire("before_agent_start", { prompt: processingRequest.content }, defaultSessionCtx);
+const processed = mainTools.find((tool) => tool.name === "fm_branch_processed");
+const acknowledged = await processed.execute("processing-ack", { through: 3 }, undefined, undefined, {});
+if (acknowledged.isError) throw new Error(`the synthetic processing acknowledgement failed: ${JSON.stringify(acknowledged)}`);
+const duplicateAcknowledgement = await processed.execute("processing-ack-duplicate", { through: 3 }, undefined, undefined, {});
+if (!duplicateAcknowledgement.isError) throw new Error("a duplicate processing acknowledgement was accepted");
+await fire("agent_settled", {}, defaultSessionCtx);
+if (mainUserMessages.length !== 1) throw new Error("an acknowledged user follow-up was delivered again");
 if (typeof sentToMain[0].message.content !== "string" || !sentToMain[0].message.content.startsWith("⛵ ")) {
   throw new Error(`routine note missing sailboat prefix: ${sentToMain[0].message.content}`);
 }
@@ -948,8 +960,8 @@ test_requested_healthy_outcome_and_unsolicited_routine_outcome_delivery() {
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
-await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, sentToMain, mainEntries, outcomeScript, mainTools, home, realRoot }; })()`);
-const { fire, dispatch, settle, sentToMain, mainEntries, outcomeScript, mainTools, home, realRoot } = globalThis.__t;
+await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, sentToMain, mainUserMessages, mainEntries, outcomeScript, mainTools, home, realRoot }; })()`);
+const { fire, dispatch, settle, sentToMain, mainUserMessages, mainEntries, outcomeScript, mainTools, home, realRoot } = globalThis.__t;
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
@@ -1113,25 +1125,25 @@ if (mirroredCaptainText.some((text) =>
   throw new Error("canonical current or legacy operational input entered captain mirror context");
 }
 if ((globalThis.__fmPrompts ?? []).length !== 5) throw new Error("a handled fleet wake was rerun");
-let processingRequests = sentToMain.filter((sent) => sent.message.customType === "fm-branch-process");
-if (sentToMain.length !== 1 + processingRequests.length) {
-  throw new Error(`captain results entered model delivery as unkeyed messages: ${JSON.stringify(sentToMain)}`);
+let processingRequests = mainUserMessages;
+if (sentToMain.length !== 1) {
+  throw new Error(`captain results changed routine delivery: ${JSON.stringify(sentToMain)}`);
 }
-if (processingRequests.length !== 1 || processingRequests[0].options.triggerTurn !== true) {
-  throw new Error(`captain results re-sent while the first keyed request was pending: ${JSON.stringify(processingRequests)}`);
+if (processingRequests.length !== 1 || processingRequests[0].options.deliverAs !== "followUp" || "triggerTurn" in processingRequests[0].options) {
+  throw new Error(`captain results re-sent while the first keyed user follow-up was pending: ${JSON.stringify(processingRequests)}`);
 }
 await fire("agent_settled", {}, mainCtx);
-processingRequests = sentToMain.filter((sent) => sent.message.customType === "fm-branch-process");
-if (processingRequests.length !== 2 || processingRequests[1].options.triggerTurn !== true) {
-  throw new Error(`the widened captain sequence set did not open one keyed turn at the run boundary: ${JSON.stringify(processingRequests)}`);
+processingRequests = mainUserMessages;
+if (processingRequests.length !== 2 || processingRequests[1].options.deliverAs !== "followUp" || "triggerTurn" in processingRequests[1].options) {
+  throw new Error(`the widened captain sequence set did not open one keyed user follow-up at the run boundary: ${JSON.stringify(processingRequests)}`);
 }
 for (let seq = 2; seq <= 5; seq += 1) {
-  if (!processingRequests[1].message.content.includes(`[seq ${seq}] branch-driver: healthy resource report: CPU 12%, memory 41%`)) {
-    throw new Error(`the widened processing request lost seq ${seq}: ${processingRequests[1].message.content}`);
+  if (!processingRequests[1].content.includes(`[seq ${seq}] branch-driver: healthy resource report: CPU 12%, memory 41%`)) {
+    throw new Error(`the widened processing request lost seq ${seq}: ${processingRequests[1].content}`);
   }
 }
-if (!processingRequests[1].message.content.includes("through=5")) {
-  throw new Error(`the widened processing request lost its highest acknowledgement key: ${processingRequests[1].message.content}`);
+if (!processingRequests[1].content.includes("through=5")) {
+  throw new Error(`the widened processing request lost its highest acknowledgement key: ${processingRequests[1].content}`);
 }
 if (fleetOperations.length !== 10 || fleetOperations.some((operation) => operation.status !== 0)) {
   throw new Error(`fleet event ownership repeated or failed work: ${JSON.stringify(fleetOperations)}`);
@@ -1164,8 +1176,8 @@ test_captain_outcome_is_exactly_once_across_crash_reload_and_unrelated_response(
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
-await eval(`(async () => { ${prelude}; globalThis.__t = { fire, sentToMain, mainEntries, entryRenderers, outcomeScript, defaultSessionCtx }; })()`);
-const { fire, sentToMain, mainEntries, entryRenderers, outcomeScript, defaultSessionCtx } = globalThis.__t;
+await eval(`(async () => { ${prelude}; globalThis.__t = { fire, sentToMain, mainUserMessages, mainEntries, entryRenderers, outcomeScript, defaultSessionCtx }; })()`);
+const { fire, sentToMain, mainUserMessages, mainEntries, entryRenderers, outcomeScript, defaultSessionCtx } = globalThis.__t;
 
 // Incident topology: compaction leaves stale framing, then the immediately
 // preceding assistant repeats an unrelated retry update. Neither can satisfy
@@ -1198,11 +1210,11 @@ if (visible.length !== 2 || visible[0].data.seq !== seq1 || visible[1].data.seq 
 if (visible[0].data.summary !== summary1 || visible[1].data.summary !== summary2) {
   throw new Error(`visible delivery changed an exact stored summary: ${JSON.stringify(visible)}`);
 }
-if (sentToMain.some((sent) => sent.message.customType !== "fm-branch-process")) {
-  throw new Error(`captain recovery queued an unkeyed model message: ${JSON.stringify(sentToMain)}`);
+if (sentToMain.length !== 0 || mainUserMessages.length !== 2 || mainUserMessages.some((message) => message.options.deliverAs !== "followUp")) {
+  throw new Error(`captain recovery did not preserve its keyed user follow-ups: ${JSON.stringify({ sentToMain, mainUserMessages })}`);
 }
-// Recovery re-presents every still-unprocessed sequence in one keyed request.
-const recovered = sentToMain.at(-1)?.message.content ?? "";
+// Recovery re-presents every still-unprocessed sequence in one current keyed request.
+const recovered = mainUserMessages.at(-1).content;
 if (!recovered.includes(`[seq ${seq1}] email-intake: ${summary1}`) || !recovered.includes(`[seq ${seq2}] task-busy: ${summary2}`)) {
   throw new Error(`reload did not re-present the unprocessed outcomes for processing: ${recovered}`);
 }
@@ -1254,11 +1266,11 @@ test_captain_outcome_processing_turn_is_sequence_keyed_and_re_presented() {
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
-await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, sentToMain, mainEntries, mainTools, outcomeScript, defaultSessionCtx, home, bus }; })()`);
-const { fire, dispatch, settle, sentToMain, mainEntries, mainTools, outcomeScript, defaultSessionCtx, home, bus } = globalThis.__t;
+await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, sentToMain, mainUserMessages, mainEntries, mainTools, outcomeScript, defaultSessionCtx, home, bus }; })()`);
+const { fire, dispatch, settle, sentToMain, mainUserMessages, mainEntries, mainTools, outcomeScript, defaultSessionCtx, home, bus } = globalThis.__t;
 import { readFileSync, writeFileSync } from "node:fs";
 
-const requests = () => sentToMain.filter((sent) => sent.message.customType === "fm-branch-process");
+const requests = () => mainUserMessages;
 const unprocessedSeqs = () => outcomeScript(["unprocessed"]).split("\n").filter(Boolean).map((line) => JSON.parse(line).seq);
 const runOf = async (fn) => { await fire("agent_start", {}); await fn?.(); await fire("agent_end", {}); await fire("agent_settled", {}); };
 
@@ -1300,10 +1312,10 @@ if (first.isError) throw new Error(`captain report failed: ${JSON.stringify(firs
 const seq = JSON.parse(outcomeScript(["list", "--recent", "1"])).seq;
 if (requests().length !== 1) throw new Error(`captain delivery opened ${requests().length} requests, not 1`);
 const request = requests()[0];
-if (request.options.triggerTurn !== true || request.options.deliverAs !== "followUp" || request.message.display !== false) {
-  throw new Error(`the processing request must be one hidden follow-up turn: ${JSON.stringify(request)}`);
+if (request.options.deliverAs !== "followUp" || "triggerTurn" in request.options) {
+  throw new Error(`the processing request must be one operational user follow-up: ${JSON.stringify(request)}`);
 }
-if (!request.message.content.includes(`[seq ${seq}] task-d: ${decision}`)) throw new Error(`the request lost its key or summary: ${request.message.content}`);
+if (!request.content.includes(`[seq ${seq}] task-d: ${decision}`)) throw new Error(`the request lost its key or summary: ${request.content}`);
 if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([seq])) throw new Error(`delivery did not leave seq ${seq} unprocessed: ${unprocessedSeqs()}`);
 
 // Case A (timeline report 2026-08-31): the turn returns an EMPTY assistant
@@ -1312,8 +1324,8 @@ if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([seq])) throw new Error
 await runOf(() => mainEntries.push({ type: "message", message: { role: "assistant", content: [] } }));
 if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([seq])) throw new Error("an empty answer advanced the processed marker");
 if (requests().length !== 2) throw new Error(`an empty answer did not re-present the outcome: ${requests().length} requests`);
-if (requests()[1].options.triggerTurn !== true) throw new Error("the first re-presentation must open its own turn");
-if (!requests()[1].message.content.includes(`[seq ${seq}] task-d: ${decision}`)) throw new Error("the re-presentation changed the outcome");
+if (requests()[1].options.deliverAs !== "followUp" || "triggerTurn" in requests()[1].options) throw new Error("the first re-presentation must stay a user follow-up");
+if (!requests()[1].content.includes(`[seq ${seq}] task-d: ${decision}`)) throw new Error("the re-presentation changed the outcome");
 
 // Case B: the turn repeats an unrelated prior answer. Same result: the marker
 // holds, but the exhausted set waits extension-locally for the captain's next
@@ -1344,7 +1356,7 @@ await runOf();
 // A session replacement re-presents with a fresh triggered budget.
 await fire("session_shutdown", {});
 await fire("session_start", {}, defaultSessionCtx);
-if (requests().length !== 3 || requests()[2].options.triggerTurn !== true) throw new Error("session start did not re-present the unprocessed outcome with its own turn");
+if (requests().length !== 3 || requests()[2].options.deliverAs !== "followUp" || "triggerTurn" in requests()[2].options) throw new Error("session start did not re-present the unprocessed outcome as a user follow-up");
 if (mainEntries.filter((entry) => entry.customType === "fm-branch-visible-outcome" && entry.data.seq === seq).length !== 1) {
   throw new Error("re-presentation duplicated the visible entry");
 }
@@ -1401,7 +1413,7 @@ await replacementOffer.settlement;
 globalThis.__fmOnBranchPrompt = undefined;
 const seqE = seq + 1;
 const seqF = seq + 2;
-if (requests().length !== beforePair + 1 || !requests().at(-1).message.content.includes(`[seq ${seqE}] branch-driver:`)) {
+if (requests().length !== beforePair + 1 || !requests().at(-1).content.includes(`[seq ${seqE}] branch-driver:`)) {
   throw new Error("the first newer captain outcome did not open its processing request");
 }
 const third = await report2.execute("captain-3", { task: "task-f", verdict: "captain", summary: "worker blocked on a missing credential" }, undefined, undefined, {});
@@ -1416,14 +1428,14 @@ if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([seqE, seqF])) {
 }
 await runOf();
 if (requests().length !== beforePair + 2) throw new Error("the widened sequence was not presented at the run boundary");
-const latest = requests().at(-1).message.content;
+const latest = requests().at(-1).content;
 if (!latest.includes(`[seq ${seqE}] branch-driver:`) || !latest.includes(`[seq ${seqF}] task-f:`) || !latest.includes(`through=${seqF}`)) {
   throw new Error(`the widened request did not cover every unprocessed sequence with the highest key: ${latest}`);
 }
 const beforePairRepeat = requests().length;
 await runOf();
-if (requests().length !== beforePairRepeat + 1 || requests().at(-1).options.triggerTurn !== true) {
-  throw new Error("the second presentation of the widened sequence set did not open its own turn");
+if (requests().length !== beforePairRepeat + 1 || requests().at(-1).options.deliverAs !== "followUp" || "triggerTurn" in requests().at(-1).options) {
+  throw new Error("the second presentation of the widened sequence set did not remain a user follow-up");
 }
 const partial = await processed.execute("ack-partial", { through: seqE }, undefined, undefined, {});
 if (partial.isError) throw new Error(`partial acknowledgement failed: ${JSON.stringify(partial)}`);
@@ -1432,9 +1444,9 @@ const beforeF = requests().length;
 await runOf();
 if (
   requests().length !== beforeF + 1 ||
-  requests().at(-1).options.triggerTurn !== true ||
   requests().at(-1).options.deliverAs !== "followUp" ||
-  !requests().at(-1).message.content.includes(`[seq ${seqF}] task-f:`)
+  "triggerTurn" in requests().at(-1).options ||
+  !requests().at(-1).content.includes(`[seq ${seqF}] task-f:`)
 ) {
   throw new Error("the changed remaining sequence set did not restart its triggered presentation budget");
 }
@@ -1462,10 +1474,10 @@ test_new_captain_outcome_restarts_after_the_ignored_set_waits_for_a_prompt() {
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
-await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, sentToMain, mainTools, outcomeScript, defaultSessionCtx }; })()`);
-const { fire, dispatch, settle, sentToMain, mainTools, outcomeScript, defaultSessionCtx } = globalThis.__t;
+await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, mainUserMessages, mainTools, outcomeScript, defaultSessionCtx }; })()`);
+const { fire, dispatch, settle, mainUserMessages, mainTools, outcomeScript, defaultSessionCtx } = globalThis.__t;
 
-const requests = () => sentToMain.filter((sent) => sent.message.customType === "fm-branch-process");
+const requests = () => mainUserMessages;
 const unprocessedSeqs = () => outcomeScript(["unprocessed"]).split("\n").filter(Boolean).map((line) => JSON.parse(line).seq);
 const finishRun = async () => {
   await fire("agent_start", {});
@@ -1490,7 +1502,7 @@ const firstSummary = "synthetic prior result whose processing is deliberately ig
 const first = await report.execute("first", { task: "branch-driver", verdict: "captain", summary: firstSummary }, undefined, undefined, {});
 if (first.isError) throw new Error(`first captain report failed: ${JSON.stringify(first)}`);
 const firstSeq = JSON.parse(outcomeScript(["list", "--recent", "1"])).seq;
-if (requests().length !== 1 || !requests()[0].message.content.includes(`[seq ${firstSeq}]`)) {
+if (requests().length !== 1 || !requests()[0].content.includes(`[seq ${firstSeq}]`)) {
   throw new Error("the first captain result did not open its processing turn");
 }
 await finishRun();
@@ -1512,11 +1524,11 @@ if (second.isError) throw new Error(`new completed result failed: ${JSON.stringi
 const secondSeq = JSON.parse(outcomeScript(["list", "--recent", "1"])).seq;
 if (requests().length !== 3) throw new Error("the new completed result waited for another prompt");
 const current = requests()[2];
-if (current.options.triggerTurn !== true || current.options.deliverAs !== "followUp") {
-  throw new Error(`the new result did not restart the bounded trigger: ${JSON.stringify(current.options)}`);
+if (current.options.deliverAs !== "followUp" || "triggerTurn" in current.options) {
+  throw new Error(`the new result did not restart the bounded user follow-up: ${JSON.stringify(current.options)}`);
 }
-if (!current.message.content.includes(`[seq ${firstSeq}]`) || !current.message.content.includes(`[seq ${secondSeq}] branch-driver: ${nextSummary}`)) {
-  throw new Error(`the restarted request was not a current exact store view: ${current.message.content}`);
+if (!current.content.includes(`[seq ${firstSeq}]`) || !current.content.includes(`[seq ${secondSeq}] branch-driver: ${nextSummary}`)) {
+  throw new Error(`the restarted request was not a current exact store view: ${current.content}`);
 }
 if (JSON.stringify(unprocessedSeqs()) !== JSON.stringify([firstSeq, secondSeq])) {
   throw new Error(`delivery falsely acknowledged an unseen result: ${unprocessedSeqs()}`);
@@ -1593,8 +1605,8 @@ SH
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
-await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, settle, home, sentToMain, mainEntries, defaultSessionCtx }; })()`);
-const { dispatch, fire, settle, home, sentToMain, mainEntries, defaultSessionCtx } = globalThis.__t;
+await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, settle, home, sentToMain, mainUserMessages, mainEntries, defaultSessionCtx }; })()`);
+const { dispatch, fire, settle, home, sentToMain, mainUserMessages, mainEntries, defaultSessionCtx } = globalThis.__t;
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 // Default-on: with no config/pi-supervision-branch grant file present at
@@ -1680,11 +1692,11 @@ const captainEntries = mainEntries.filter((entry) => entry.customType === "fm-br
 if (captainEntries.length !== 1 || captainEntries[0].data.summary !== "task-2 has been stuck for an hour") {
   throw new Error(`captain-worthy heartbeat finding was not persisted visibly: ${JSON.stringify(captainEntries)}`);
 }
-if (sentToMain.some((sent) => sent.options.triggerTurn && sent.message.customType !== "fm-branch-process")) {
-  throw new Error("heartbeat outcome delivery opened an unkeyed model turn");
+if (sentToMain.some((sent) => sent.options.triggerTurn)) {
+  throw new Error("heartbeat routine delivery opened an unkeyed model turn");
 }
-if (!sentToMain.some((sent) => sent.message.customType === "fm-branch-process" && sent.message.content.includes("task-2 has been stuck for an hour"))) {
-  throw new Error("a captain-worthy heartbeat finding did not open its keyed processing turn");
+if (mainUserMessages.length !== 1 || mainUserMessages[0].options.deliverAs !== "followUp" || !mainUserMessages[0].content.includes("task-2 has been stuck for an hour")) {
+  throw new Error("a captain-worthy heartbeat finding did not open its keyed user follow-up");
 }
 
 // Every other fleet-wide or unresolvable wake (empty projects, not a

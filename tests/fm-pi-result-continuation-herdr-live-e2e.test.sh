@@ -66,7 +66,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
   pi.on("before_agent_start", (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\nFor an fm-branch-process request, perform every explicitly authorized isolated synthetic action with synthetic_next_action before acknowledging the listed outcomes through fm_branch_processed. Do not wait for another prompt.`,
+    systemPrompt: `${event.systemPrompt}\n\nFor an operational branch-outcome request, perform every explicitly authorized isolated synthetic action with synthetic_next_action before acknowledging the listed outcomes through fm_branch_processed. Do not wait for another prompt.`,
   }));
 }
 EOF
@@ -127,9 +127,9 @@ seen_ack = False
 for line in open(path, encoding="utf-8"):
     entry = json.loads(line)
     if (
-        entry.get("type") == "custom_message"
-        and entry.get("customType") == "fm-branch-process"
-        and f"[seq {sequence}]" in entry.get("content", "")
+        entry.get("type") == "message"
+        and entry.get("message", {}).get("role") == "user"
+        and f"[seq {sequence}]" in entry.get("message", {}).get("content", "")
     ):
         seen_process = True
     if entry.get("type") != "message" or entry.get("message", {}).get("role") != "assistant":
