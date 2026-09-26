@@ -159,13 +159,12 @@ render_export_dom() {
 }
 
 test_headless_chrome_keychain_isolation() {
-  local fixture fake_chrome args export_file export_dom profile_dir
+  local fixture fake_chrome args export_file export_dom
   fixture="$TMP_ROOT/chrome-isolation"
   fake_chrome="$fixture/fake-chrome"
   args="$fixture/args"
   export_file="$fixture/export.html"
   export_dom="$fixture/export-dom.html"
-  profile_dir="$fixture/profile"
   mkdir -p "$fixture"
   printf '%s\n' '<html></html>' >"$export_file"
   cat >"$fake_chrome" <<'SH'
