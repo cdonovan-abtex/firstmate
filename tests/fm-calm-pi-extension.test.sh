@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Focused rendering, lifecycle, persistence, and interactive TUI checks for /calm.
+# It also pins the keychain-safety contract of the headless Chrome invocation the
+# rendered-export assertions depend on (render_export_dom below).
+# Set FM_CALM_CHROME_ISOLATION_TEST_ONLY=1 to run only that Chrome isolation
+# check; the script then prints a focused-mode notice and exits 0 with the rest
+# of the suite deliberately unrun, so a focused pass is not full coverage.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -89,6 +94,9 @@ find_chrome() {
 # kill signal. The extra flags remove Chrome's background-network and /dev/shm
 # dependencies, which are the start-up surfaces that fail on a runner; neither
 # changes the rendered DOM of a local file.
+# The profile must stay temporary; --password-store=basic and --use-mock-keychain
+# prevent the headless test from touching the developer's real login keychain.
+# test_headless_chrome_keychain_isolation pins these three arguments.
 render_export_dom() {
   local chrome=$1 source_file=$2 out_file=$3 pi_version=$4
   local attempt pid status wait_count wait_limit reap_wait log profile report timed_out
@@ -106,6 +114,8 @@ render_export_dom() {
       --no-sandbox \
       --disable-dev-shm-usage \
       --disable-background-networking \
+      --password-store=basic \
+      --use-mock-keychain \
       --user-data-dir="$profile" \
       --virtual-time-budget=2000 \
       --dump-dom \
@@ -146,6 +156,34 @@ render_export_dom() {
     "$chrome" "$("$chrome" --version 2>&1 | head -1)" "$pi_version" \
     "$(tr '\n' ' ' <"$report")"
   return 1
+}
+
+test_headless_chrome_keychain_isolation() {
+  local fixture fake_chrome args export_file export_dom
+  fixture="$TMP_ROOT/chrome-isolation"
+  fake_chrome="$fixture/fake-chrome"
+  args="$fixture/args"
+  export_file="$fixture/export.html"
+  export_dom="$fixture/export-dom.html"
+  mkdir -p "$fixture"
+  printf '%s\n' '<html></html>' >"$export_file"
+  cat >"$fake_chrome" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$FM_FAKE_CHROME_ARGS"
+printf '%s\n' '<html></html>'
+SH
+  chmod +x "$fake_chrome"
+
+  FM_FAKE_CHROME_ARGS="$args" render_export_dom \
+    "$fake_chrome" "$export_file" "$export_dom" 9.9.9 \
+    || fail "isolated headless Chrome boundary did not produce a DOM"
+  grep -Fxq -- '--password-store=basic' "$args" \
+    || fail "isolated headless Chrome boundary did not select the basic password store"
+  grep -Fxq -- '--use-mock-keychain' "$args" \
+    || fail "isolated headless Chrome boundary did not select the mock keychain"
+  grep -Eq '^--user-data-dir=.*/chrome-profile-[123]$' "$args" \
+    || fail "isolated headless Chrome boundary did not retain its temporary profile"
+  pass "isolated headless Chrome export uses a temporary profile, basic password store, and mock keychain"
 }
 
 test_home_resolution() {
@@ -4196,6 +4234,11 @@ JS
   pass "Pi calm native E2E replaces the stock working row with a moving, resize-clamped working ship that freezes and resumes across two working periods in one Pi session, clears on abort, keeps captain turns visible, hides exact operational user rows without changing persistence, restores stock rendering Calm-off, survives restart, and preserves export plus Ctrl+O behavior"
 }
 
+test_headless_chrome_keychain_isolation
+if [ "${FM_CALM_CHROME_ISOLATION_TEST_ONLY:-0}" = 1 ]; then
+  echo "focused mode: Chrome keychain isolation test completed; intentionally skipped the remainder of the suite"
+  exit 0
+fi
 test_home_resolution
 test_pi_compat_no_upper_bound
 test_pi_compat_degraded_adapter
