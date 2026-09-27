@@ -1935,6 +1935,14 @@ resurface_after_downtime() {
 }
 
 while :; do
+  # A supported outside stop publishes the same home-scoped receipt every arm
+  # boundary already honors. Re-read it in the live cycle so this watcher exits
+  # through its own cleanup path without any process sending a raw watcher-PID
+  # signal. Malformed evidence also stands down, matching startup suppression.
+  if fm_monitoring_stop_blocks "$STATE"; then
+    exit 3
+  fi
+
   # Self-eviction: if the singleton lock no longer names this process, a second
   # watcher has taken over (e.g. a transient duplicate from a racy arm). Stand
   # down so the rightful singleton continues alone. The EXIT trap's release

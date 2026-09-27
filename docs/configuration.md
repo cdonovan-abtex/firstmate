@@ -28,14 +28,24 @@ Ordinary dead-direct-report recovery is owned by `stuck-crewmate-recovery`, whil
 ## Automatic monitoring stop receipt (data/automatic-monitoring-pause/receipt.json)
 
 A home may retain a local private operator stop at `data/automatic-monitoring-pause/receipt.json`; the record is scoped to that exact effective `FM_HOME`, is not inherited by secondmate homes, and is never stored in tracked configuration.
-`bin/fm-monitoring-stop-lib.sh` owns the runtime verdict, and `bin/fm-monitoring-stop.sh status --json` is the read-only operator inspection surface.
+`bin/fm-monitoring-stop-lib.sh` owns the runtime verdict, `bin/fm-monitoring-stop.sh status --json` is the read-only operator inspection surface, and `bin/fm-monitoring-stop.sh stop --home <absolute-home> --reason <text>` is the supported outside stop call for a genuine primary or secondmate home.
+The stop call requires the target's canonical path rather than an ambient `FM_HOME`, so a caller cannot accidentally select another home through inherited environment.
+It returns 0 for a newly recorded stop or a live watcher that stopped, 3 for the idempotent successful result that a previously stopped home has no live watcher, 4 for `could-not-stop`, and 2 for invalid syntax.
+A `could-not-stop` reason is written to stderr, and callers such as a deterministic outside monitor treat only 0 and 3 as successful stop outcomes.
 
 A valid stop receipt is a readable regular non-symlink file containing one JSON object with non-empty string fields `instruction`, `time`, `home`, `scope`, `resume`, and `action`, plus `completed: true`.
 `time` must be an RFC 3339 timestamp, and `home` must equal the effective home path exactly.
 The `resume` field records the policy for obtaining approval and is not itself evidence that approval occurred.
 Explicit resumption requires both a valid RFC 3339 `resumed_at` and a non-empty `resume_instruction`; supplying only one, supplying an invalid value, or otherwise failing the schema makes the receipt malformed.
 Additional audit-history fields are allowed and do not change the verdict.
-The receipt records an operator stop; writing it does not terminate already-running processes.
+The supported outside call writes the compact receipt as one physical JSON line and records `origin: "external"` for a new outside stop plus one `external_stop_request` object naming schema `firstmate.monitoring-stop.external.v1`, the OS-derived caller uid, user, parent pid, process identity, RFC 3339 request time, and caller-supplied reason.
+It accepts no free-text caller label and refuses before writing when the calling process identity cannot be established twice consistently.
+A later outside request against an active receipt replaces only that latest request audit object, leaving the stop timestamp and all other stop authority intact; a new request after explicit resumption creates a new stop and retains the prior stop and resumption timestamps in `previous_stop`.
+The runtime parser validates the complete outside-request object when present, including its timestamp, before trusting the receipt.
+A manually written receipt records an operator stop but does not itself terminate an already-running process.
+The supported outside call publishes that same receipt atomically and then invokes the selected home's `bin/fm-watch-arm.sh --stop` owner path.
+That owner path authenticates the home, watcher path, pid, and process identity from the home-scoped lock, sends no process signal, and waits for the live watcher to observe the receipt and exit through its own cleanup path.
+An absent watcher makes a new stop successful and a repeated active stop already stopped; a malformed or ambiguous lock, an identity mismatch, or a watcher that does not stop within the bounded wait returns `could-not-stop` while leaving the active receipt in force to prevent re-arm.
 
 An active valid stop and malformed stop evidence both suppress automatic watcher startup, restart, continuity retries, turn-end repair prompts, startup extension-restart prompts, and startup-owned secondmate relaunch.
 Malformed evidence suppresses these paths rather than inferring permission, and the diagnostic names the receipt and validation problem.
@@ -48,6 +58,7 @@ Session-start and turn-end adapters, the foreground checkpoint, and the away lau
 The operation guard, background bootstrap, watcher, arm, and daemon processes suppress monitoring without claiming notices, even when their output is captured or discarded.
 The [watcher continuity contract](watcher-continuity.md#actionable-wake-ordering) owns how deliberate suppression preserves actionable wakes across readiness and delivery.
 The first active-stop observation is reported at most once per stop timestamp, even if audit history later changes, and each distinct malformed receipt revision is reported at most once.
+An externally created receipt reports the recorded local process identity rather than fabricating a Captain order; an older operator receipt keeps its existing Captain-order wording even when a later outside request reinforces it.
 Those atomic report claims live under `state/.monitoring-stop-reports/` and do not authorize editing the private receipt.
 Resumption or correction of the receipt remains an explicit owner operation; removing or repairing malformed evidence must never be used to infer operator approval.
 

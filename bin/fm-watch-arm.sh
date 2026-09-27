@@ -59,6 +59,12 @@
 # state/.watch-triage.log remains exclusively the watcher's absorbed-wake debug
 # log and is never written here.
 #
+# --stop: the supported owner path for an already-recorded monitoring stop.
+# It authenticates THIS home's watcher lock and waits for that watcher to observe
+# the receipt and exit through its own cleanup path. It never signals a watcher
+# pid. Exit 0 means a live owner stopped, 3 means no live watcher existed, and 1
+# means the lock was ambiguous or the authenticated owner did not stop in time.
+#
 # --restart: stop ONLY this FM_HOME's watcher (the pid recorded in THIS home's
 # state/.watch.lock) and own a fresh cycle, or attach if a verified live peer
 # wins the singleton while the duplicate child stands down. It
@@ -406,12 +412,169 @@ handling_successor_generation() {
   esac
 }
 
+WATCH_STOP_OWNER_STATE=
+WATCH_STOP_OWNER_DETAIL=
+watch_stop_lock_field() {  # <field> <output-variable>
+  local field=$1 output=$2 path value lines label
+  path="$WATCH_LOCK/$field"
+  label=$field
+  [ "$field" != pid-identity ] || label=identity
+  if [ -L "$path" ] || [ ! -f "$path" ] || [ ! -r "$path" ]; then
+    WATCH_STOP_OWNER_DETAIL="watcher owner $label must be a readable regular non-symlink file"
+    return 1
+  fi
+  lines=$(wc -l < "$path" 2>/dev/null | tr -d '[:space:]') || lines=
+  [ "$lines" = 1 ] || {
+    WATCH_STOP_OWNER_DETAIL="watcher owner $label must contain exactly one line"
+    return 1
+  }
+  IFS= read -r value < "$path" || {
+    WATCH_STOP_OWNER_DETAIL="watcher owner $label could not be read"
+    return 1
+  }
+  [ -n "$value" ] || {
+    WATCH_STOP_OWNER_DETAIL="watcher owner $label must not be empty"
+    return 1
+  }
+  printf -v "$output" '%s' "$value"
+}
+
+watch_stop_owner_status() {
+  local owner='' owner_parent owner_name lock_parent lock_name pid lock_home lock_path lock_identity current_identity
+  WATCH_STOP_OWNER_STATE=malformed
+  WATCH_STOP_OWNER_DETAIL=
+  if [ ! -e "$WATCH_LOCK" ] && [ ! -L "$WATCH_LOCK" ]; then
+    WATCH_STOP_OWNER_STATE=none
+    return 0
+  fi
+  if [ -L "$WATCH_LOCK" ]; then
+    owner=$(fm_lock_link_owner "$WATCH_LOCK" 2>/dev/null || true)
+    owner_parent=${owner%/*}
+    owner_name=${owner##*/}
+    lock_parent=${WATCH_LOCK%/*}
+    lock_name=${WATCH_LOCK##*/}
+    if [ "$owner_parent" != "$lock_parent" ]; then
+      WATCH_STOP_OWNER_DETAIL="watcher lock owner must be a direct child of the selected home's state directory"
+      return 0
+    fi
+    case "$owner_name" in
+      "$lock_name".owner.*) ;;
+      *)
+        WATCH_STOP_OWNER_DETAIL="watcher lock does not name a home-owned lock owner"
+        return 0
+        ;;
+    esac
+    if [ ! -d "$owner" ] || [ -L "$owner" ]; then
+      WATCH_STOP_OWNER_DETAIL="watcher lock owner directory is missing or ambiguous"
+      return 0
+    fi
+  elif [ ! -d "$WATCH_LOCK" ]; then
+    WATCH_STOP_OWNER_DETAIL="watcher lock must be a directory or a home-owned owner link"
+    return 0
+  fi
+
+  watch_stop_lock_field pid pid || return 0
+  watch_stop_lock_field fm-home lock_home || return 0
+  watch_stop_lock_field watcher-path lock_path || return 0
+  watch_stop_lock_field pid-identity lock_identity || return 0
+  if [ -n "$owner" ] && ! fm_lock_points_to_owner "$WATCH_LOCK" "$owner"; then
+    if [ ! -e "$WATCH_LOCK" ] && [ ! -L "$WATCH_LOCK" ]; then
+      WATCH_STOP_OWNER_STATE=none
+    else
+      WATCH_STOP_OWNER_DETAIL="watcher lock owner changed during authentication"
+    fi
+    return 0
+  fi
+  case "$pid" in
+    ''|*[!0-9]*|0)
+      WATCH_STOP_OWNER_DETAIL="watcher owner pid must be a positive integer"
+      return 0
+      ;;
+  esac
+  if [ "$lock_home" != "$FM_HOME" ]; then
+    WATCH_STOP_OWNER_DETAIL="watcher lock home does not match the selected home"
+    return 0
+  fi
+  if [ "$lock_path" != "$WATCH" ]; then
+    WATCH_STOP_OWNER_DETAIL="watcher lock path does not match the selected home's watcher"
+    return 0
+  fi
+  if ! fm_pid_alive "$pid"; then
+    WATCH_STOP_OWNER_STATE=none
+    return 0
+  fi
+  current_identity=$(fm_pid_identity "$pid" 2>/dev/null) || {
+    WATCH_STOP_OWNER_DETAIL="watcher owner identity could not be authenticated"
+    return 0
+  }
+  if [ "$current_identity" != "$lock_identity" ]; then
+    WATCH_STOP_OWNER_DETAIL="watcher owner identity does not match the live pid"
+    return 0
+  fi
+  WATCH_STOP_OWNER_STATE=live
+  WATCH_STOP_OWNER_DETAIL="pid=$pid"
+}
+
+stop_watcher_through_owner() {
+  local timeout=${FM_WATCH_STOP_TIMEOUT:-30} deadline saw_live=0
+  case "$timeout" in
+    ''|*[!0-9]*|0)
+      echo "watcher: could not stop - FM_WATCH_STOP_TIMEOUT must be whole seconds from 1 to 300" >&2
+      return 1
+      ;;
+  esac
+  if [ "$timeout" -gt 300 ]; then
+    echo "watcher: could not stop - FM_WATCH_STOP_TIMEOUT must be whole seconds from 1 to 300" >&2
+    return 1
+  fi
+  deadline=$(( $(date +%s) + timeout ))
+  while :; do
+    watch_stop_owner_status
+    case "$WATCH_STOP_OWNER_STATE" in
+      none)
+        if [ "$saw_live" -eq 1 ]; then
+          echo "watcher: stopped through owner cleanup"
+          return 0
+        fi
+        echo "watcher: no live watcher"
+        return 3
+        ;;
+      malformed)
+        # The authenticated watcher may have removed its link between the
+        # snapshot's existence check and a later field read. Only an actually
+        # absent lock after a previously verified live owner is successful;
+        # every extant or initially malformed shape still refuses.
+        if [ "$saw_live" -eq 1 ] && [ ! -e "$WATCH_LOCK" ] && [ ! -L "$WATCH_LOCK" ]; then
+          echo "watcher: stopped through owner cleanup"
+          return 0
+        fi
+        echo "watcher: could not stop - $WATCH_STOP_OWNER_DETAIL" >&2
+        return 1
+        ;;
+      live) saw_live=1 ;;
+      *)
+        echo "watcher: could not stop - unknown watcher owner state" >&2
+        return 1
+        ;;
+    esac
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "watcher: could not stop - authenticated watcher owner $WATCH_STOP_OWNER_DETAIL did not stop within ${timeout}s" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
 mode=arm
 handling_generation=
 handling_watcher_pid=
 case "${1:-}" in
   ''|arm|--arm) mode=arm ;;
   --restart) mode=restart ;;
+  --stop)
+    [ "$#" -eq 1 ] || { echo "watcher: unexpected stop arguments" >&2; exit 2; }
+    mode=stop
+    ;;
   --handling-delivered)
     mode=handling-delivered
     handling_generation=${2:-}
@@ -421,7 +584,7 @@ case "${1:-}" in
     case "$handling_watcher_pid" in ''|*[!0-9]*) echo "watcher: invalid successor watcher pid" >&2; exit 2 ;; esac
     [ "$#" -eq 4 ] || { echo "watcher: unexpected handling delivery arguments" >&2; exit 2; }
     ;;
-  *) echo "usage: $(basename "$0") [--restart | --handling-delivered GENERATION --watcher-pid PID]" >&2; exit 2 ;;
+  *) echo "usage: $(basename "$0") [--restart | --stop | --handling-delivered GENERATION --watcher-pid PID]" >&2; exit 2 ;;
 esac
 
 if [ "$mode" = handling-delivered ]; then
@@ -429,6 +592,22 @@ if [ "$mode" = handling-delivered ]; then
     && fm_watcher_lock_matches_pid "$STATE" "$WATCH" "$handling_watcher_pid" "$FM_HOME" \
     && fm_recovery_marker_begin_handling "$STATE/.watcher-down" "$handling_generation"
   exit $?
+fi
+
+if [ "$mode" = stop ]; then
+  trap 'exit 1' HUP TERM INT
+  fm_monitoring_stop_status "$STATE"
+  case "$FM_MONITORING_STOP_STATUS" in
+    active) stop_watcher_through_owner; exit $? ;;
+    malformed)
+      echo "watcher: could not stop - monitoring-stop receipt is malformed: $FM_MONITORING_STOP_DETAIL" >&2
+      exit 1
+      ;;
+    *)
+      echo "watcher: could not stop - no active monitoring-stop receipt authorizes owner shutdown" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 # A recorded operator stop outranks every arm mode. Malformed evidence is the

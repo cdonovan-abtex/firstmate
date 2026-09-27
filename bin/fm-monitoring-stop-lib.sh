@@ -16,7 +16,9 @@
 #
 # Call fm_monitoring_stop_status [state-dir] first. It always returns 0 and sets
 # FM_MONITORING_STOP_STATUS, FM_MONITORING_STOP_TIME,
-# FM_MONITORING_STOP_DETAIL, and FM_MONITORING_STOP_RECEIPT.
+# FM_MONITORING_STOP_DETAIL, FM_MONITORING_STOP_RECEIPT,
+# FM_MONITORING_STOP_ORIGIN, FM_MONITORING_STOP_CALLER,
+# FM_MONITORING_STOP_CALLER_IDENTITY, and FM_MONITORING_STOP_REASON.
 
 fm_monitoring_stop_timestamp_valid() {
   local pattern year month day hour minute second offset_hour offset_minute days
@@ -45,7 +47,7 @@ fm_monitoring_stop_timestamp_valid() {
 
 fm_monitoring_stop_status() {  # [state-dir]
   local state=${1:-${FM_STATE_OVERRIDE:-${FM_HOME:-.}/state}}
-  local home data receipt parsed stop_time resumed_at
+  local home data receipt parsed stop_time resumed_at external_at
 
   if [ -n "${FM_HOME:-}" ]; then
     home=$FM_HOME
@@ -59,6 +61,10 @@ fm_monitoring_stop_status() {  # [state-dir]
   FM_MONITORING_STOP_TIME=
   FM_MONITORING_STOP_DETAIL=
   FM_MONITORING_STOP_RECEIPT=$receipt
+  FM_MONITORING_STOP_ORIGIN=
+  FM_MONITORING_STOP_CALLER=
+  FM_MONITORING_STOP_CALLER_IDENTITY=
+  FM_MONITORING_STOP_REASON=
 
   if [ ! -e "$receipt" ] && [ ! -L "$receipt" ]; then
     return 0
@@ -73,9 +79,18 @@ fm_monitoring_stop_status() {  # [state-dir]
     FM_MONITORING_STOP_DETAIL="jq is required to validate the receipt"
     return 0
   fi
-  parsed=$(jq -ser --arg home "$home" '
+  parsed=$(jq -cser --arg home "$home" '
     if length != 1 then error("single-object") else .[0] end |
     def nonempty: type == "string" and length > 0;
+    def valid_external_request:
+      type == "object" and
+      .schema == "firstmate.monitoring-stop.external.v1" and
+      (.caller_uid | type == "number" and floor == . and . >= 0) and
+      (.caller_user | nonempty) and
+      (.caller_pid | type == "number" and floor == . and . > 0) and
+      (.caller_identity | nonempty) and
+      (.at | nonempty) and
+      (.reason | nonempty);
     if type != "object" then error("object")
     elif ((.instruction | nonempty) | not) then error("instruction")
     elif ((.time | nonempty) | not) then error("time")
@@ -88,23 +103,44 @@ fm_monitoring_stop_status() {  # [state-dir]
       and ((has("resumed_at") and has("resume_instruction")) | not)) then error("partial-resume")
     elif (has("resumed_at") and ((.resumed_at | nonempty) | not)) then error("resumed_at")
     elif (has("resume_instruction") and ((.resume_instruction | nonempty) | not)) then error("resume_instruction")
-    else [.time, (.resumed_at // "")] | @tsv
+    elif (has("external_stop_request") and ((.external_stop_request | valid_external_request) | not)) then error("external_stop_request")
+    elif (.origin == "external" and ((has("external_stop_request") and (.external_stop_request | valid_external_request)) | not)) then error("external-origin")
+    else [
+      .time,
+      (.resumed_at // ""),
+      (.origin // ""),
+      (if has("external_stop_request") then
+        (.external_stop_request.caller_user + "[uid=" + (.external_stop_request.caller_uid | tostring) + ",pid=" + (.external_stop_request.caller_pid | tostring) + "]")
+       else "" end),
+      (.external_stop_request.caller_identity // ""),
+      (.external_stop_request.reason // ""),
+      (.external_stop_request.at // "")
+    ]
     end
   ' "$receipt" 2>/dev/null) || {
     FM_MONITORING_STOP_STATUS=malformed
-    FM_MONITORING_STOP_DETAIL="receipt must contain valid JSON with exactly one object matching the required stop/resume schema and effective home"
+    FM_MONITORING_STOP_DETAIL="receipt must contain valid JSON with exactly one object matching the required stop/resume schema, external-request audit schema when present, and effective home"
     return 0
   }
 
-  IFS=$'\t' read -r stop_time resumed_at <<EOF
-$parsed
-EOF
+  stop_time=$(printf '%s\n' "$parsed" | jq -er '.[0]' 2>/dev/null) || stop_time=
+  resumed_at=$(printf '%s\n' "$parsed" | jq -er '.[1]' 2>/dev/null) || resumed_at=
+  FM_MONITORING_STOP_ORIGIN=$(printf '%s\n' "$parsed" | jq -er '.[2]' 2>/dev/null) || FM_MONITORING_STOP_ORIGIN=
+  FM_MONITORING_STOP_CALLER=$(printf '%s\n' "$parsed" | jq -er '.[3]' 2>/dev/null) || FM_MONITORING_STOP_CALLER=
+  FM_MONITORING_STOP_CALLER_IDENTITY=$(printf '%s\n' "$parsed" | jq -er '.[4]' 2>/dev/null) || FM_MONITORING_STOP_CALLER_IDENTITY=
+  FM_MONITORING_STOP_REASON=$(printf '%s\n' "$parsed" | jq -er '.[5]' 2>/dev/null) || FM_MONITORING_STOP_REASON=
+  external_at=$(printf '%s\n' "$parsed" | jq -er '.[6]' 2>/dev/null) || external_at=
   if ! fm_monitoring_stop_timestamp_valid "$stop_time"; then
     FM_MONITORING_STOP_STATUS=malformed
     FM_MONITORING_STOP_DETAIL="receipt time must be an RFC 3339 timestamp"
     return 0
   fi
   FM_MONITORING_STOP_TIME=$stop_time
+  if [ -n "$external_at" ] && ! fm_monitoring_stop_timestamp_valid "$external_at"; then
+    FM_MONITORING_STOP_STATUS=malformed
+    FM_MONITORING_STOP_DETAIL="receipt external_stop_request.at must be an RFC 3339 timestamp"
+    return 0
+  fi
   if [ -n "$resumed_at" ]; then
     if ! fm_monitoring_stop_timestamp_valid "$resumed_at"; then
       FM_MONITORING_STOP_STATUS=malformed
@@ -157,8 +193,13 @@ EOF
   mkdir "$claim" 2>/dev/null || return 0
 
   if [ "$FM_MONITORING_STOP_STATUS" = active ]; then
-    printf 'AUTOMATIC_MONITORING_STOP: monitoring stopped by Captain order at %s. Automatic watcher startup remains disabled; this session retains fleet ownership.\n' \
-      "$FM_MONITORING_STOP_TIME"
+    if [ "$FM_MONITORING_STOP_ORIGIN" = external ]; then
+      printf 'AUTOMATIC_MONITORING_STOP: monitoring stopped by local process %s at %s. Automatic watcher startup remains disabled; this session retains fleet ownership.\n' \
+        "$FM_MONITORING_STOP_CALLER" "$FM_MONITORING_STOP_TIME"
+    else
+      printf 'AUTOMATIC_MONITORING_STOP: monitoring stopped by Captain order at %s. Automatic watcher startup remains disabled; this session retains fleet ownership.\n' \
+        "$FM_MONITORING_STOP_TIME"
+    fi
   else
     printf 'AUTOMATIC_MONITORING_STOP_INVALID: automatic watcher startup remains disabled because %s: %s\n' \
       "$FM_MONITORING_STOP_RECEIPT" "$FM_MONITORING_STOP_DETAIL"
