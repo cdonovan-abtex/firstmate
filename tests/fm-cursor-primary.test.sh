@@ -72,7 +72,7 @@ install_scripts() {
   for f in fm-turnend-guard-cursor.sh fm-turnend-guard.sh fm-sessionstart-cursor.sh \
            fm-sessionstart-run.sh fm-sessionstart-nudge.sh fm-arm-pretool-check.sh \
            fm-cd-pretool-check.sh fm-claude-stop-autoarm.sh fm-hook-host-lib.sh \
-           fm-primary-scope-lib.sh fm-supervision-lib.sh fm-wake-lib.sh \
+           fm-primary-scope-lib.sh fm-supervision-lib.sh fm-monitoring-stop-lib.sh fm-wake-lib.sh \
            fm-session-lock-lib.sh fm-cursor-lib.sh fm-operational-input.sh \
            fm-supervision-instructions.sh fm-harness.sh fm-lock.sh \
            fm-gate-refuse-lib.sh; do
@@ -274,6 +274,34 @@ test_park_silent_when_nothing_in_flight() {
   [ -z "$out" ] || fail "the park emitted a follow-up with nothing in flight: $out"
   [ ! -e "$dir/state/arm-ran" ] || fail "the park armed with nothing to supervise"
   pass "cursor park: silent no-op when no supervision is needed"
+}
+
+test_park_suppresses_active_and_malformed_monitoring_stop() {
+  local kind dir receipt out
+  for kind in active malformed; do
+    dir=$(make_primary_dir "$TMP_ROOT/park-monitoring-stop-$kind")
+    printf 'kind=ship\n' > "$dir/state/task1.meta"
+    write_arm_fixture "$dir" actionable
+    receipt="$dir/data/automatic-monitoring-pause/receipt.json"
+    mkdir -p "${receipt%/*}"
+    if [ "$kind" = active ]; then
+      jq -n --arg home "$dir" '{
+        instruction:"Stop the automatic monitoring",
+        time:"2026-09-21T18:42:20.023025+00:00",
+        home:$home,
+        scope:"Automatic monitoring only; existing workers and validation preserved",
+        resume:"Explicit approval required; no automatic ownership recovery",
+        action:"Stop watcher processes without relinquishing session ownership",
+        completed:true
+      }' > "$receipt"
+    else
+      printf '{bad json\n' > "$receipt"
+    fi
+    out=$(run_park "$dir")
+    [ -z "$out" ] || fail "the park emitted a follow-up under $kind monitoring-stop evidence: $out"
+    assert_absent "$dir/state/arm-ran" "the park armed under $kind monitoring-stop evidence"
+  done
+  pass "cursor park: active and malformed monitoring-stop evidence suppresses watcher launch and follow-up"
 }
 
 test_park_delivers_actionable_wake_as_followup() {
@@ -685,6 +713,7 @@ test_sessionstart_run_stands_down_on_cursor_payload
 test_pretool_guards_deduplicate_and_render_cursor_deny
 test_cd_guard_renders_cursor_deny
 test_park_silent_when_nothing_in_flight
+test_park_suppresses_active_and_malformed_monitoring_stop
 test_park_delivers_actionable_wake_as_followup
 test_park_never_exits_two
 test_park_repair_nag_is_bounded

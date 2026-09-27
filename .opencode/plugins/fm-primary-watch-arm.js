@@ -101,6 +101,60 @@ async function isPrimaryRoot(root, home) {
   return gitDir.stdout.trim() === commonDir.stdout.trim();
 }
 
+function monitoringStopVerdict(paths) {
+  const script = `${paths.root}/bin/fm-monitoring-stop.sh`;
+  const receipt = `${paths.home}/data/automatic-monitoring-pause/receipt.json`;
+  // A plugin can be loaded from a newer global source while an older home has
+  // not yet gained the helper. Absence is compatible only when there is no
+  // stop evidence to interpret; existing evidence without its parser is an
+  // intentional safe refusal.
+  if (!existsSync(script)) {
+    return existsSync(receipt)
+      ? { status: "malformed", detail: "monitoring-stop status helper is missing" }
+      : { status: "none", detail: "" };
+  }
+  const result = spawnSync("bash", [script, "status", "--json"], {
+    cwd: paths.root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      FM_HOME: paths.home,
+      FM_ROOT_OVERRIDE: paths.root,
+      FM_STATE_OVERRIDE: paths.state,
+      FM_CONFIG_OVERRIDE: paths.config,
+    },
+  });
+  if (result.status !== 0) {
+    const detail = String(result.stderr || "").trim();
+    return {
+      status: "malformed",
+      detail: detail || `monitoring-stop status helper exited ${result.status ?? "without status"}`,
+    };
+  }
+  try {
+    const parsed = JSON.parse(String(result.stdout || ""));
+    if (!["none", "active", "resumed", "malformed"].includes(String(parsed?.status))) {
+      throw new Error("status is not recognized");
+    }
+    return {
+      status: parsed.status,
+      detail: typeof parsed.detail === "string" ? parsed.detail : "",
+    };
+  } catch (error) {
+    return {
+      status: "malformed",
+      detail: `monitoring-stop status helper returned invalid JSON: ${error?.message ?? String(error)}`,
+    };
+  }
+}
+
+function monitoringStopArmStatus(paths) {
+  const verdict = monitoringStopVerdict(paths);
+  if (verdict.status === "active") return "monitoring-stopped";
+  if (verdict.status === "malformed") return "monitoring-malformed";
+  return "";
+}
+
 function shouldArm(paths) {
   if (existsSync(`${paths.state}/.afk`)) return false;
   if (existsSync(`${paths.config}/x-mode.env`)) return true;
@@ -291,6 +345,7 @@ async function restoreAfterActionableClose(paths, sessionID, client, predecessor
   let failure = "";
   for (let attempt = 0; attempt <= REARM_RETRY_LIMIT; attempt += 1) {
     const { status, armChild } = await ensureArm(paths, sessionID, client, predecessorArmPid, true);
+    if (["monitoring-stopped", "monitoring-malformed"].includes(status)) return { failure: "" };
     if (status === "armed") return { failure: "", recovery: armRecovery.get(armChild) };
     // An actionable line belongs to this arm's close handler.
     // Do not retire it before that handler can start the successor cycle.
@@ -310,6 +365,11 @@ async function restoreAfterActionableClose(paths, sessionID, client, predecessor
 
 async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid) {
   if (child || retryTimer) return;
+  const stopStatus = monitoringStopArmStatus(paths);
+  if (stopStatus) {
+    setArmStatus(stopStatus);
+    return;
+  }
   if (!(await sessionOwnsLock(paths))) {
     setArmStatus("failed");
     surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode cannot restore continuity because this session no longer owns the lock\n${reason}`);
@@ -325,7 +385,7 @@ async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid
   const timer = setTimeout(() => {
     if (retryTimer === timer) retryTimer = null;
     void ensureArm(paths, sessionID, client, predecessorArmPid).then((status) => {
-      if (["armed", "starting", "wake"].includes(status)) return;
+      if (["armed", "starting", "wake", "monitoring-stopped", "monitoring-malformed"].includes(status)) return;
       surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode could not launch a continuity retry (${status})`);
     });
   }, retryDelay(retryFailures));
@@ -446,6 +506,11 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
 async function beginArm(paths, sessionID, client, predecessorArmPid) {
   if (!sessionID) return { status: "skipped", armChild: null };
   if (!(await isPrimaryRoot(paths.root, paths.home))) return { status: "not-primary", armChild: null };
+  const stopStatus = monitoringStopArmStatus(paths);
+  if (stopStatus) {
+    setArmStatus(stopStatus);
+    return { status: stopStatus, armChild: null };
+  }
   if (!(await sessionOwnsLock(paths))) return { status: "read-only", armChild: null };
   if (child) return { status: "existing", armChild: child };
   if (retryTimer) return { status: "retrying", armChild: null };

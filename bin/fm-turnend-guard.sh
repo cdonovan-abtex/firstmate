@@ -182,6 +182,12 @@ budget_reset() {
 }
 
 fm_supervision_status "$STATE" "$GRACE"
+case "$FM_SUP_MONITORING_STOP_STATUS" in
+  active|malformed)
+    fm_monitoring_stop_report_once "$STATE"
+    exit 0
+    ;;
+esac
 if [ "$FM_SUP_NEEDED" = false ]; then
   [ -e "$FAILURE_NOTICE" ] || budget_reset
   exit 0

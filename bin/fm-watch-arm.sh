@@ -63,6 +63,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
 
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 WATCH_LOCK="$STATE/.watch.lock"
@@ -406,6 +408,18 @@ if [ "$mode" = handling-delivered ]; then
     && fm_recovery_marker_begin_handling "$STATE/.watcher-down" "$handling_generation"
   exit $?
 fi
+
+# A recorded operator stop outranks every arm mode. Malformed evidence is the
+# same safe refusal: automatic supervision cannot infer permission from a
+# receipt it cannot validate. Handling-delivered stays above this boundary so a
+# wake already delivered before the stop can still complete its durable handoff.
+fm_monitoring_stop_status "$STATE"
+case "$FM_MONITORING_STOP_STATUS" in
+  active|malformed)
+    fm_monitoring_stop_report_once "$STATE"
+    exit 3
+    ;;
+esac
 
 if [ "$mode" = restart ]; then
   # Home-scoped stop: only the watcher pid recorded in THIS home's lock.

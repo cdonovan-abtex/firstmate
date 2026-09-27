@@ -797,8 +797,8 @@ EOF
   assert_contains "$out" "another live firstmate session holds the lock" "read-only banner did not surface fm-lock.sh's own error text"
   assert_contains "$out" "Skipping every mutating step" "read-only banner did not explain what was skipped"
   assert_contains "$out" "skipped (read-only session)" "wake-queue section did not report itself skipped"
-  assert_contains "$out" "WATCHER DOWN - SUPERVISION IS OFF" "read-only guard did not surface watcher-liveness alarm"
-  assert_contains "$out" "queued wakes pending - left untouched because this session lacks verified fleet-lock ownership" "read-only guard did not leave queued wakes untouched without verified lock ownership"
+  assert_not_contains "$out" "WATCHER DOWN - SUPERVISION IS OFF" "parked secondmate infrastructure inflated the watcher work count"
+  assert_contains "$out" "record(s) remain queued because this session lacks verified fleet-lock ownership" "read-only guard did not leave queued wakes untouched without verified lock ownership"
   assert_contains "$out" "TANGLE: primary checkout on feature branch 'fm/read-only-tangle'" "read-only bootstrap did not surface the tangle diagnostic"
   assert_contains "$out" "read-only session must leave restore work" "read-only tangle diagnostic did not explain restore ownership"
   assert_contains "$out" "Stay read-only: do not arm" "read-only next step did not block direct watcher repair"
@@ -2670,7 +2670,46 @@ EOF
   pass "session start rejects Pi loaded markers from previous sessions"
 }
 
+test_monitoring_stop_preserves_session_ownership_without_rearm_prompts() {
+  local rec root home fakebin receipt out again count
+  rec=$(new_world monitoring-stop-startup)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf 'kind=ship\n' > "$home/state/active.meta"
+  receipt="$home/data/automatic-monitoring-pause/receipt.json"
+  mkdir -p "${receipt%/*}"
+  jq -n --arg home "$home" '{
+    instruction:"Stop the automatic monitoring",
+    time:"2026-09-21T18:42:20.023025+00:00",
+    home:$home,
+    scope:"Automatic monitoring only; existing workers and validation preserved",
+    resume:"Explicit approval required; no automatic ownership recovery",
+    action:"Stop watcher processes without relinquishing session ownership",
+    completed:true
+  }' > "$receipt"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "monitoring stopped by Captain order at 2026-09-21T18:42:20.023025+00:00" \
+    "startup did not report the active stop and its time"
+  assert_contains "$out" "This session retains the fleet lock" \
+    "stopped startup did not say dispatch and merge authority remain with the owning session"
+  assert_not_contains "$out" "SUPERVISION OPERATING INSTRUCTIONS - primary harness" \
+    "stopped startup still emitted the normal supervision protocol"
+  assert_not_contains "$out" "re-arm" "stopped startup still prompted a watcher re-arm"
+  [ -s "$home/state/.lock" ] || fail "stopped startup relinquished the fleet lock"
+
+  again=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  count=$(printf '%s\n%s\n' "$out" "$again" | grep -Fc 'monitoring stopped by Captain order at 2026-09-21T18:42:20.023025+00:00' || true)
+  [ "$count" -eq 1 ] || fail "startup reported the same monitoring stop $count times"
+  assert_not_contains "$again" "re-arm" "repeated stopped startup emitted a re-arm prompt"
+  pass "session start keeps ownership, suppresses every watcher prompt, and reports an active stop once"
+}
+
 test_context_digest_absent_empty_present
+test_monitoring_stop_preserves_session_ownership_without_rearm_prompts
 test_lock_refusal_read_only_path
 test_lock_write_failure_read_only_path
 test_trace_context_effective_state_is_frozen_after_lock

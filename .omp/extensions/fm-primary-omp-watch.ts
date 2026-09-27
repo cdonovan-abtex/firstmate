@@ -66,6 +66,12 @@ type ExtensionAPI = {
 type ArmResult = {
   ok: boolean;
   message: string;
+  suppressed?: boolean;
+};
+
+type MonitoringStopVerdict = {
+  status: "none" | "active" | "resumed" | "malformed";
+  detail: string;
 };
 
 type LockOwnership = "owned" | "missing" | "other";
@@ -124,6 +130,7 @@ const fmRoot = process.env.FM_ROOT_OVERRIDE || root;
 const state = process.env.FM_STATE_OVERRIDE || `${fmHome}/state`;
 const config = process.env.FM_CONFIG_OVERRIDE || `${fmHome}/config`;
 const armScript = `${fmRoot}/bin/fm-watch-arm.sh`;
+const monitoringStopScript = `${fmRoot}/bin/fm-monitoring-stop.sh`;
 const marker = `${state}/.omp-watch-extension-loaded`;
 const handoffDir = `${state}/extensions/omp-primary-watch`;
 const actionableHandoff = `${handoffDir}/session-replacement-actionable.json`;
@@ -201,6 +208,42 @@ function pidAlive(pid: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+function monitoringStopVerdict(): MonitoringStopVerdict {
+  const result = spawnSync("bash", [monitoringStopScript, "status", "--json"], {
+    cwd: fmRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      FM_HOME: fmHome,
+      FM_ROOT_OVERRIDE: fmRoot,
+      FM_STATE_OVERRIDE: state,
+      FM_CONFIG_OVERRIDE: config,
+    },
+  });
+  if (result.status !== 0) {
+    const detail = String(result.stderr || "").trim();
+    return {
+      status: "malformed",
+      detail: detail || `monitoring-stop status helper exited ${result.status ?? "without status"}`,
+    };
+  }
+  try {
+    const parsed = JSON.parse(String(result.stdout || "")) as { status?: unknown; detail?: unknown };
+    if (!["none", "active", "resumed", "malformed"].includes(String(parsed.status))) {
+      throw new Error("status is not recognized");
+    }
+    return {
+      status: parsed.status as MonitoringStopVerdict["status"],
+      detail: typeof parsed.detail === "string" ? parsed.detail : "",
+    };
+  } catch (error) {
+    return {
+      status: "malformed",
+      detail: `monitoring-stop status helper returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 }
 
@@ -814,6 +857,7 @@ export default function (pi: ExtensionAPI) {
       if (!generationIsLive(owner)) return { failure: "" };
       const replacement = startArm(owner, predecessorArmPid);
       const successorChild = owner.child;
+      if (replacement.suppressed) return { failure: "" };
       if (replacement.ok && successorChild && await waitForReadiness(successorChild)) {
         return { failure: "", recovery: armRecovery.get(successorChild) };
       }
@@ -838,6 +882,8 @@ export default function (pi: ExtensionAPI) {
 
   function scheduleRetry(owner: SessionGeneration, message: string, predecessorArmPid: string): void {
     if (!generationIsLive(owner) || owner.child || owner.retryTimer) return;
+    const stop = monitoringStopVerdict();
+    if (stop.status === "active" || stop.status === "malformed") return;
     const ownership = lockOwnership();
     if (ownership !== "owned") {
       surfaceFailure(owner, `watcher: FAILED - omp extension cannot restore continuity because this session no longer owns the lock\n${message}`);
@@ -862,6 +908,21 @@ export default function (pi: ExtensionAPI) {
 
   function startArm(owner: SessionGeneration, predecessorArmPid = ""): ArmResult {
     if (!generationIsLive(owner)) return { ok: false, message: shuttingDownMessage };
+    const stop = monitoringStopVerdict();
+    if (stop.status === "active") {
+      return {
+        ok: true,
+        suppressed: true,
+        message: "watcher: not armed - automatic monitoring is stopped by a recorded operator instruction",
+      };
+    }
+    if (stop.status === "malformed") {
+      return {
+        ok: true,
+        suppressed: true,
+        message: `watcher: not armed - automatic monitoring stop evidence is malformed: ${stop.detail}`,
+      };
+    }
     const ownership = lockOwnership();
     if (ownership === "other") return { ok: false, message: "watcher: read-only - session lock is held by another firstmate session" };
     if (ownership === "missing") {

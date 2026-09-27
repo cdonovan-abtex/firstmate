@@ -165,7 +165,7 @@ test_herdr_agent_state_preserves_husk_classifier() {
   for row in 'dead missing' 'no-agent dead' 'live alive' 'unknown unreadable'; do
     pane_state=${row%% *}
     expected=${row#* }
-    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
+    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_server_running_state() { printf "running"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
     [ "$out" = "$expected" ] || fail "Herdr pane state $pane_state should map to $expected, got '$out'"
   done
 
@@ -370,6 +370,36 @@ test_sweep_respawns_confirmed_dead_secondmate() {
   pass "sweep: a confirmed-dead secondmate endpoint is killed and respawned"
 }
 
+test_sweep_suppresses_relaunch_under_monitoring_stop() {
+  local kind w fb tmuxfb log receipt out
+  for kind in active malformed; do
+    w=$(new_world "sweep-monitoring-stop-$kind")
+    add_sm_home "$w" sm1 firstmate:fm-sm1
+    fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+    log="$w/calls.log"; : > "$log"
+    receipt="$w/home/data/automatic-monitoring-pause/receipt.json"
+    mkdir -p "${receipt%/*}"
+    if [ "$kind" = active ]; then
+      jq -n --arg home "$w/home" '{
+        instruction:"Stop the automatic monitoring",
+        time:"2026-09-21T18:42:20.023025+00:00",
+        home:$home,
+        scope:"Automatic monitoring only; existing workers and validation preserved",
+        resume:"Explicit approval required; no automatic ownership recovery",
+        action:"Stop watcher processes without relinquishing session ownership",
+        completed:true
+      }' > "$receipt"
+    else
+      printf '{bad json\n' > "$receipt"
+    fi
+
+    out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+    [ ! -s "$log" ] || fail "$kind monitoring-stop evidence relaunched the parked secondmate: $(cat "$log")"
+    assert_not_contains "$out" "respawn failed" "$kind monitoring-stop evidence still attempted secondmate recovery"
+  done
+  pass "sweep: active and malformed monitoring-stop evidence preserves a parked secondmate without relaunch"
+}
+
 test_sweep_leaves_alive_secondmate_untouched() {
   local w fb tmuxfb log out
   w=$(new_world sweep-alive)
@@ -545,6 +575,7 @@ test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
 test_agent_state_dispatcher_and_compatibility
 test_sweep_respawns_confirmed_dead_secondmate
+test_sweep_suppresses_relaunch_under_monitoring_stop
 test_sweep_leaves_alive_secondmate_untouched
 test_sweep_respawns_authoritatively_missing_pi_secondmate
 test_sweep_respawns_authoritatively_missing_pi_signed_secondmate

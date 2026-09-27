@@ -448,7 +448,8 @@ install_omp_extension_fixture() {  # <repo>
   cp "$ROOT/.omp/extensions/fm-primary-turnend-guard.ts" "$ROOT/.omp/extensions/fm-primary-omp-watch.ts" "$repo/.omp/extensions/"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$repo/.pi/extensions/lib/"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/"
-  chmod +x "$repo/bin/fm-operational-input.sh"
+  cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$ROOT/bin/fm-monitoring-stop.sh" "$repo/bin/"
+  chmod +x "$repo/bin/fm-operational-input.sh" "$repo/bin/fm-monitoring-stop.sh"
   printf '{"name":"typebox","type":"module","exports":"./index.js"}\n' > "$repo/node_modules/typebox/package.json"
   printf 'export const Type = { Object(p) { return { type: "object", properties: p }; } };\n' > "$repo/node_modules/typebox/index.js"
 }
@@ -512,6 +513,68 @@ EOF
   expect_code 0 "$status" "omp turn-end guard extension contract: $out"
   [ -z "$out" ] || fail "omp guard extension test printed output: $out"
   pass ".omp turn-end guard: digest delivery, seatbelt block, one compelled continuation, flagged stop stands down"
+}
+
+test_watch_extension_suppresses_monitoring_stop() {
+  local kind repo home log receipt out status
+  for kind in active malformed; do
+    repo="$TMP_ROOT/watch-stop-$kind/repo"; home="$TMP_ROOT/watch-stop-$kind/home"
+    log="$TMP_ROOT/watch-stop-$kind/arm.log"
+    receipt="$home/data/automatic-monitoring-pause/receipt.json"
+    install_omp_extension_fixture "$repo"
+    mkdir -p "$home/state" "${receipt%/*}"
+    cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm\n' >> "${FM_ARM_LOG:?}"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+sleep 30
+SH
+    chmod +x "$repo/bin/fm-watch-arm.sh"
+    if [ "$kind" = active ]; then
+      jq -n --arg home "$home" '{
+        instruction:"Stop the automatic monitoring",
+        time:"2026-09-21T18:42:20.023025+00:00",
+        home:$home,
+        scope:"Automatic monitoring only; existing workers and validation preserved",
+        resume:"Explicit approval required; no automatic ownership recovery",
+        action:"Stop watcher processes without relinquishing session ownership",
+        completed:true
+      }' > "$receipt"
+    else
+      printf '{bad json\n' > "$receipt"
+    fi
+    out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" EXPECTED_KIND="$kind" \
+      EXT="$repo/.omp/extensions/fm-primary-omp-watch.ts" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const handlers = new Map(); let tool = null; const sent = [];
+const pi = {
+  on(event, handler) { handlers.set(event, handler); },
+  registerCommand() {},
+  registerTool(value) { if (value.name === "fm_watch_arm_omp") tool = value; },
+  sendUserMessage(value) { sent.push(value); },
+};
+const mod = await import(pathToFileURL(process.env.EXT).href);
+mod.default(pi);
+await handlers.get("session_start")({ type: "session_start" }, {});
+await new Promise((resolve) => setTimeout(resolve, 100));
+if (existsSync(process.env.FM_ARM_LOG)) throw new Error("automatic omp arm ran under the monitoring stop");
+if (sent.length !== 0) throw new Error(`omp prompted under the monitoring stop: ${JSON.stringify(sent)}`);
+const result = await tool.execute();
+if (result.details?.suppressed !== true) throw new Error(`tool result did not identify intentional suppression: ${JSON.stringify(result)}`);
+if (process.env.EXPECTED_KIND === "malformed" && !result.content[0].text.includes("malformed")) {
+  throw new Error(`malformed evidence lacked a useful diagnostic: ${result.content[0].text}`);
+}
+if (existsSync(process.env.FM_ARM_LOG)) throw new Error("explicit omp arm ran under the monitoring stop");
+await handlers.get("session_shutdown")({}, {});
+EOF
+    )
+    status=$?
+    expect_code 0 "$status" "omp watch extension must suppress $kind monitoring-stop evidence: $out"
+    [ -z "$out" ] || fail "omp monitoring-stop $kind test printed output: $out"
+  done
+  pass ".omp watch extension neither auto-arms nor prompts under active or malformed monitoring-stop evidence"
 }
 
 test_watch_extension_arms_and_delivers() {
@@ -584,4 +647,5 @@ test_busy_extension_lifecycle
 test_control_composer_and_model_tables
 test_ownership_proof_is_omp_keyed
 test_turnend_guard_extension_compels_one_continuation
+test_watch_extension_suppresses_monitoring_stop
 test_watch_extension_arms_and_delivers

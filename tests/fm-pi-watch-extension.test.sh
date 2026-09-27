@@ -39,7 +39,9 @@ install_pi_watch_extension_fixture() {
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
   mkdir -p "$repo/bin"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/fm-operational-input.sh"
-  chmod +x "$repo/bin/fm-operational-input.sh"
+  cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$repo/bin/fm-monitoring-stop-lib.sh"
+  cp "$ROOT/bin/fm-monitoring-stop.sh" "$repo/bin/fm-monitoring-stop.sh"
+  chmod +x "$repo/bin/fm-operational-input.sh" "$repo/bin/fm-monitoring-stop.sh"
   cat > "$repo/node_modules/@earendil-works/pi-coding-agent/package.json" <<'JSON'
 {"name":"@earendil-works/pi-coding-agent","type":"module","exports":"./index.js"}
 JSON
@@ -127,6 +129,76 @@ EOF
   expect_code 0 "$status" "Pi watch loaded marker must stay bound to the canonical session owner: $out"
   [ -z "$out" ] || fail "Pi watch marker-owner test printed output: $out"
   pass "Pi watch loaded marker is published by the canonical session owner and ignores descendant extension loads"
+}
+
+test_pi_watch_extension_suppresses_active_and_malformed_monitoring_stop() {
+  local kind repo home log receipt out status
+  for kind in active malformed; do
+    repo="$TMP_ROOT/pi-monitoring-stop-$kind-root"
+    home="$TMP_ROOT/pi-monitoring-stop-$kind-home"
+    log="$TMP_ROOT/pi-monitoring-stop-$kind-arm.log"
+    receipt="$home/data/automatic-monitoring-pause/receipt.json"
+    mkdir -p "$home/state" "$home/config" "${receipt%/*}"
+    install_pi_watch_extension_fixture "$repo"
+    cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm\n' >> "${FM_ARM_LOG:?}"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+sleep 30
+SH
+    chmod +x "$repo/bin/fm-watch-arm.sh"
+    if [ "$kind" = active ]; then
+      jq -n --arg home "$home" '{
+        instruction:"Stop the automatic monitoring",
+        time:"2026-09-21T18:42:20.023025+00:00",
+        home:$home,
+        scope:"Automatic monitoring only; existing workers and validation preserved",
+        resume:"Explicit approval required; no automatic ownership recovery",
+        action:"Stop watcher processes without relinquishing session ownership",
+        completed:true
+      }' > "$receipt"
+    else
+      printf '{bad json\n' > "$receipt"
+    fi
+    out=$(PLUGIN="$repo/.pi/extensions/fm-primary-pi-watch.ts" FM_HOME="$home" \
+      FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" EXPECTED_KIND="$kind" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const handlers = new Map();
+let tool = null;
+const sent = [];
+const pi = {
+  on(event, handler) {
+    const list = handlers.get(event) ?? [];
+    list.push(handler);
+    handlers.set(event, list);
+  },
+  registerCommand() {},
+  registerTool(value) { if (value.name === "fm_watch_arm_pi") tool = value; },
+  sendUserMessage(value) { sent.push(value); },
+};
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+for (const handler of handlers.get("session_start") ?? []) await handler({ reason: "startup" }, {});
+await new Promise((resolve) => setTimeout(resolve, 100));
+if (existsSync(process.env.FM_ARM_LOG)) throw new Error("automatic Pi arm ran under the monitoring stop");
+if (sent.length !== 0) throw new Error(`Pi prompted under the monitoring stop: ${JSON.stringify(sent)}`);
+if (!tool) throw new Error("watch tool was not registered");
+const result = await tool.execute();
+if (result.details?.suppressed !== true) throw new Error(`tool result did not identify intentional suppression: ${JSON.stringify(result)}`);
+if (process.env.EXPECTED_KIND === "malformed" && !result.content[0].text.includes("malformed")) {
+  throw new Error(`malformed evidence lacked a useful diagnostic: ${result.content[0].text}`);
+}
+if (existsSync(process.env.FM_ARM_LOG)) throw new Error("explicit Pi arm ran under the monitoring stop");
+EOF
+    )
+    status=$?
+    expect_code 0 "$status" "Pi watch extension must suppress $kind monitoring-stop evidence: $out"
+    [ -z "$out" ] || fail "Pi monitoring-stop $kind test printed output: $out"
+  done
+  pass "Pi watch extension neither auto-arms nor prompts under active or malformed monitoring-stop evidence"
 }
 
 test_pi_startup_digest_recognizes_loaded_extensions_after_acquisition() {
@@ -3197,6 +3269,71 @@ EOF
   pass "Pi process-exit cleanup stops the attached arm child"
 }
 
+test_opencode_primary_watch_plugin_suppresses_monitoring_stop() {
+  local kind plugin repo home log receipt out status expected
+  plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
+  for kind in active malformed; do
+    repo="$TMP_ROOT/opencode-monitoring-stop-$kind-root"
+    home="$TMP_ROOT/opencode-monitoring-stop-$kind-home"
+    log="$TMP_ROOT/opencode-monitoring-stop-$kind.log"
+    receipt="$home/data/automatic-monitoring-pause/receipt.json"
+    mkdir -p "$repo/bin" "$home/state" "$home/config" "${receipt%/*}"
+    git init -q "$repo"
+    : > "$repo/AGENTS.md"
+    printf 'kind=ship\n' > "$home/state/task.meta"
+    cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$ROOT/bin/fm-monitoring-stop.sh" "$repo/bin/"
+    chmod +x "$repo/bin/fm-monitoring-stop.sh"
+    cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm\n' >> "${FM_ARM_LOG:?}"
+SH
+    chmod +x "$repo/bin/fm-watch-arm.sh"
+    if [ "$kind" = active ]; then
+      jq -n --arg home "$home" '{
+        instruction:"Stop the automatic monitoring",
+        time:"2026-09-21T18:42:20.023025+00:00",
+        home:$home,
+        scope:"Automatic monitoring only; existing workers and validation preserved",
+        resume:"Explicit approval required; no automatic ownership recovery",
+        action:"Stop watcher processes without relinquishing session ownership",
+        completed:true
+      }' > "$receipt"
+      expected=monitoring-stopped
+    else
+      printf '{bad json\n' > "$receipt"
+      expected=monitoring-malformed
+    fi
+    out=$(PLUGIN="$plugin" WORKTREE="$repo" FM_HOME="$home" FM_ARM_LOG="$log" \
+      EXPECTED_STATUS="$expected" node 2>&1 <<'EOF'
+import { existsSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const prompts = [];
+const client = { session: { promptAsync: async (value) => prompts.push(value) } };
+const hooks = await mod.FmPrimaryWatchArm({
+  client,
+  directory: process.env.WORKTREE,
+  worktree: process.env.WORKTREE,
+});
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+await hooks.event({ event: { type: "session.idle", properties: { sessionID: "session-test" } } });
+const result = await globalThis.__firstmateOpenCodeWatchArm.ensureArmed("session-test", client);
+if (result !== process.env.EXPECTED_STATUS) {
+  throw new Error(`expected ${process.env.EXPECTED_STATUS}, got ${result}`);
+}
+await new Promise((resolve) => setTimeout(resolve, 100));
+if (existsSync(process.env.FM_ARM_LOG)) throw new Error("OpenCode armed under monitoring-stop evidence");
+if (prompts.length !== 0) throw new Error(`OpenCode prompted under monitoring-stop evidence: ${JSON.stringify(prompts)}`);
+EOF
+    )
+    status=$?
+    expect_code 0 "$status" "OpenCode watch plugin must suppress $kind monitoring-stop evidence: $out"
+    [ -z "$out" ] || fail "OpenCode monitoring-stop $kind test printed output: $out"
+  done
+  pass "OpenCode watch plugin neither auto-arms nor prompts under active or malformed monitoring-stop evidence"
+}
+
 test_opencode_plugin_package_boundary_is_explicit_esm() {
   local fixture plugin out status
   fixture="$TMP_ROOT/opencode-esm-boundary/.opencode"
@@ -4171,6 +4308,7 @@ EOF
 }
 
 test_pi_loaded_marker_stays_with_canonical_session_owner
+test_pi_watch_extension_suppresses_active_and_malformed_monitoring_stop
 test_pi_startup_digest_recognizes_loaded_extensions_after_acquisition
 test_pi_extension_reports_external_healthy_watcher
 test_pi_tool_returns_agent_tool_result
@@ -4206,6 +4344,7 @@ test_pi_replacement_persistence_failure_stops_arm_child
 test_pi_process_exit_cleanup_listener_lifecycle
 test_pi_process_exit_cleanup_stops_arm_child
 test_opencode_plugin_package_boundary_is_explicit_esm
+test_opencode_primary_watch_plugin_suppresses_monitoring_stop
 test_opencode_primary_watch_plugin_uses_effective_state_home
 test_opencode_primary_watch_plugin_sources_effective_config
 test_opencode_primary_watch_plugin_requires_session_lock

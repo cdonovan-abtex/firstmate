@@ -450,6 +450,33 @@ fm-claude-stop-autoarm: ok
 The cross-harness evidence combines the 2026-07-17 live pass with Claude's replacement Stop-owned path revalidated on 2026-07-24, all against isolated project and home state.
 No credential material was copied into a fixture.
 
+### Automatic-monitoring stop, 2026-09-27
+
+The reproduced trigger combined a valid active stop receipt, a Pi session that still owned the home lock, no watcher process, and one parked `kind=secondmate` direct report.
+The masking condition was that the persistent secondmate record looked like in-flight work, and the visible symptom was automatic arm and repair pressure despite the stop.
+The counterfactual removed the receipt and added an ordinary ship record, which still required supervision, while the disconfirming case added explicit paired resumption evidence and restored the normal verdict.
+Malformed JSON and partial resumption evidence were separately exercised as safe refusals with useful diagnostics.
+
+Portable executable-interface coverage exercised the shared receipt parser, arm boundary, turn-end and pull guards, session start, startup-owned secondmate liveness, Claude and Cursor shell paths, and the Pi, omp, and OpenCode extension paths.
+The stop verdict is derived entirely from home-owned files and the adapters invoke the same executable helper, so this change adds no vendor-protocol claim and requires no new live-harness evidence to establish the suppression decision.
+A live verification must nevertheless reload or restart the primary process after the tracked change lands, because an already-running Pi process retains the extension source it loaded earlier.
+The safe live route is to have the private-record owner retain or correct the valid receipt, reload or restart Pi without touching the parked Mini home, queue, endpoint, launch jobs, or Herdr server, run session start, and verify that the session lock remains owned while no watcher lock or repair prompt appears.
+A two-machine proof must use the same owner-controlled receipt placement on each home and must not infer resumption from an absent or repaired malformed record.
+No live restart or remote action was performed by this task.
+
+Deterministic entry points:
+
+```sh
+tests/fm-monitoring-stop.test.sh
+tests/fm-turnend-guard.test.sh
+tests/fm-session-start.test.sh
+tests/fm-secondmate-liveness.test.sh
+tests/fm-claude-stop-autoarm.test.sh
+tests/fm-cursor-primary.test.sh
+tests/fm-pi-watch-extension.test.sh
+tests/fm-omp-harness.test.sh
+```
+
 ```text
 Claude Code 2.1.219
 codex-cli 0.144.4

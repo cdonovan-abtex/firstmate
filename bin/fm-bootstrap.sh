@@ -167,6 +167,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
 # shellcheck source=bin/fm-backlog-transition-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
+# shellcheck source=bin/fm-monitoring-stop-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
 # shellcheck source=bin/fm-quota-axi-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
 # shellcheck source=bin/fm-tangle-lib.sh disable=SC1091
@@ -676,6 +678,11 @@ report_relaunch() {  # <id> <cause> <where>
 }
 
 secondmate_liveness_sweep() {
+  # A home-scoped operator stop suspends automatic monitoring, including this
+  # startup-owned automatic relaunch. Preserve the persistent secondmate record,
+  # home, queue, and endpoint exactly as found until explicit resumption.
+  fm_monitoring_stop_blocks "$STATE" && return 0
+
   # Idempotent secondmate liveness guarantee - SESSION START ONLY. The detailed
   # state machine and its only recovery-authorizing states are owned by
   # fm_backend_agent_state. A missing tmux pane is not enough: tmux must prove
