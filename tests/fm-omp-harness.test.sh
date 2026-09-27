@@ -447,6 +447,7 @@ install_omp_extension_fixture() {  # <repo>
   mkdir -p "$repo/.omp/extensions" "$repo/.pi/extensions/lib" "$repo/bin" "$repo/node_modules/typebox"
   cp "$ROOT/.omp/extensions/fm-primary-turnend-guard.ts" "$ROOT/.omp/extensions/fm-primary-omp-watch.ts" "$repo/.omp/extensions/"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$repo/.pi/extensions/lib/"
+  cp "$ROOT/.pi/extensions/lib/fm-monitoring-stop.ts" "$repo/.pi/extensions/lib/"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/"
   cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$ROOT/bin/fm-monitoring-stop.sh" "$repo/bin/"
   chmod +x "$repo/bin/fm-operational-input.sh" "$repo/bin/fm-monitoring-stop.sh"
@@ -562,7 +563,7 @@ await new Promise((resolve) => setTimeout(resolve, 100));
 if (existsSync(process.env.FM_ARM_LOG)) throw new Error("automatic omp arm ran under the monitoring stop");
 if (sent.length !== 0) throw new Error(`omp prompted under the monitoring stop: ${JSON.stringify(sent)}`);
 const result = await tool.execute();
-if (result.details?.suppressed !== true) throw new Error(`tool result did not identify intentional suppression: ${JSON.stringify(result)}`);
+if (result.details?.kind !== "stopped") throw new Error(`tool result did not identify intentional suppression: ${JSON.stringify(result)}`);
 if (process.env.EXPECTED_KIND === "malformed" && !result.content[0].text.includes("malformed")) {
   throw new Error(`malformed evidence lacked a useful diagnostic: ${result.content[0].text}`);
 }

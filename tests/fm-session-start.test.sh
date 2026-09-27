@@ -780,12 +780,16 @@ EOF
   # FM_BOOTSTRAP_DETECT_ONLY=1 actually suppressed the mutating sweep.
   mkdir -p "$home/other-secondmate/state"
   fm_write_secondmate_meta "$home/state/sm-x.meta" "$home/other-secondmate" "firstmate:fm-sm-x" alpha
-  append_wake "$home/state" signal sm-x "done: surfaced before refusal" || fail "seed wake failed"
   git -C "$root" checkout -q -B fm/read-only-tangle
 
   sleep 300 &
   holder_pid=$!
   printf '%s\n' "$holder_pid" > "$home/state/.lock"
+
+  # Parked infrastructure alone needs no watcher; an unhandled wake does.
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_not_contains "$out" "WATCHER DOWN - SUPERVISION IS OFF" "parked secondmate infrastructure inflated the watcher work count"
+  append_wake "$home/state" signal sm-x "done: surfaced before refusal" || fail "seed wake failed"
 
   status=0
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH") || status=$?
@@ -797,7 +801,7 @@ EOF
   assert_contains "$out" "another live firstmate session holds the lock" "read-only banner did not surface fm-lock.sh's own error text"
   assert_contains "$out" "Skipping every mutating step" "read-only banner did not explain what was skipped"
   assert_contains "$out" "skipped (read-only session)" "wake-queue section did not report itself skipped"
-  assert_not_contains "$out" "WATCHER DOWN - SUPERVISION IS OFF" "parked secondmate infrastructure inflated the watcher work count"
+  assert_contains "$out" "WATCHER DOWN - SUPERVISION IS OFF" "read-only guard did not surface watcher-liveness alarm for a queued wake"
   assert_contains "$out" "record(s) remain queued because this session lacks verified fleet-lock ownership" "read-only guard did not leave queued wakes untouched without verified lock ownership"
   assert_contains "$out" "TANGLE: primary checkout on feature branch 'fm/read-only-tangle'" "read-only bootstrap did not surface the tangle diagnostic"
   assert_contains "$out" "read-only session must leave restore work" "read-only tangle diagnostic did not explain restore ownership"
