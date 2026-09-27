@@ -30,7 +30,8 @@ It also requires `AGENTS.md`, `bin/`, and the effective state directory.
 For an in-scope primary, the guard counts in-flight work from `state/*.meta`, excluding records whose exact `kind` is `secondmate` because those describe persistent infrastructure rather than a work task.
 Registered `state/procevent/*.source` records and unresolved secondmate reply expectations also require supervision even though they are not in-flight task metadata.
 Before applying any watcher-health requirement, the shared predicate reads the home-scoped automatic-monitoring stop verdict owned by [`configuration.md`](configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson).
-An active valid stop or malformed stop evidence makes the turn-end guard and pull guard return cleanly without a repair prompt, while the once-only reporter emits either the operator stop time or the malformed-evidence problem.
+An active valid stop or malformed stop evidence makes the turn-end guard and pull guard return cleanly without a repair prompt.
+The turn-end adapter owns the once-only notice; operation guards leave it unclaimed for a visible boundary even when background refresh or sends observe it first.
 Pi and omp display successful guard output as a message without starting another turn; OpenCode adds it to the session with `noReply: true`.
 Cursor uses its once-only informational follow-up before any supervision-needed early return, without requesting watcher repair.
 An absent or explicitly resumed stop record leaves the ordinary predicate unchanged.

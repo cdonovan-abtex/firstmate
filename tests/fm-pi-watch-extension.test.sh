@@ -37,6 +37,7 @@ install_pi_watch_extension_fixture() {
   cp "$ROOT/.pi/extensions/lib/fm-async-exec.ts" "$repo/.pi/extensions/lib/fm-async-exec.ts"
   cp "$ROOT/.pi/extensions/lib/fm-calm-visibility.ts" "$repo/.pi/extensions/lib/fm-calm-visibility.ts"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
+  cp "$ROOT/.pi/extensions/lib/fm-monitoring-stop.ts" "$repo/.pi/extensions/lib/fm-monitoring-stop.ts"
   mkdir -p "$repo/bin"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/fm-operational-input.sh"
   cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$repo/bin/fm-monitoring-stop-lib.sh"
@@ -187,7 +188,7 @@ if (existsSync(process.env.FM_ARM_LOG)) throw new Error("automatic Pi arm ran un
 if (sent.length !== 0) throw new Error(`Pi prompted under the monitoring stop: ${JSON.stringify(sent)}`);
 if (!tool) throw new Error("watch tool was not registered");
 const result = await tool.execute();
-if (result.details?.suppressed !== true) throw new Error(`tool result did not identify intentional suppression: ${JSON.stringify(result)}`);
+if (result.details?.kind !== "stopped") throw new Error(`tool result did not identify intentional suppression: ${JSON.stringify(result)}`);
 if (process.env.EXPECTED_KIND === "malformed" && !result.content[0].text.includes("malformed")) {
   throw new Error(`malformed evidence lacked a useful diagnostic: ${result.content[0].text}`);
 }
@@ -3298,10 +3299,10 @@ SH
         action:"Stop watcher processes without relinquishing session ownership",
         completed:true
       }' > "$receipt"
-      expected=monitoring-stopped
+      expected=stopped
     else
       printf '{bad json\n' > "$receipt"
-      expected=monitoring-malformed
+      expected=stopped
     fi
     out=$(PLUGIN="$plugin" WORKTREE="$repo" FM_HOME="$home" FM_ARM_LOG="$log" \
       EXPECTED_STATUS="$expected" node 2>&1 <<'EOF'
@@ -3342,6 +3343,8 @@ test_opencode_plugin_package_boundary_is_explicit_esm() {
   printf '%s\n' '{"dependencies":{}}' > "$fixture/package.json"
   cp "$ROOT/.opencode/plugins/package.json" "$fixture/plugins/package.json"
   cp "$ROOT/.opencode/plugins/fm-primary-watch-arm.js" "$plugin"
+  mkdir -p "$fixture/../.pi/extensions/lib"
+  cp "$ROOT/.pi/extensions/lib/fm-monitoring-stop.ts" "$fixture/../.pi/extensions/lib/"
   cp "$ROOT/.opencode/plugins/lib/fm-operational-input.js" "$fixture/plugins/lib/fm-operational-input.js"
   out=$(PLUGIN="$plugin" node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";

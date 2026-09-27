@@ -43,7 +43,9 @@ A stopped home keeps its session lock and its otherwise authorized ability to di
 A persistent `kind=secondmate` metadata record is infrastructure rather than in-flight task work, so it does not create supervision need by itself even when no stop is recorded.
 An unresolved secondmate reply expectation requires supervision until it is resolved, and queued outcomes continue to require supervision until they are acknowledged.
 
-Session-start and guard adapters, the foreground checkpoint, and the away launcher own visible reporting; watcher, arm, and daemon processes only suppress startup and never claim the report.
+Session-start and turn-end adapters, the foreground checkpoint, and the away launcher own visible reporting.
+The operation guard, background bootstrap, watcher, arm, and daemon processes suppress monitoring without claiming notices, even when their output is captured or discarded.
+Watcher exit code 3 means deliberate suppression; the shared extension bridge in `.pi/extensions/lib/fm-monitoring-stop.ts` carries `stopped` separately from `ready` and `failed` through asynchronous readiness and restoration.
 The first active-stop observation is reported at most once per stop timestamp, even if audit history later changes, and each distinct malformed receipt revision is reported at most once.
 Those atomic report claims live under `state/.monitoring-stop-reports/` and do not authorize editing the private receipt.
 Resumption or correction of the receipt remains an explicit owner operation; removing or repairing malformed evidence must never be used to infer operator approval.

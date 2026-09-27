@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { encodeFirstmateOperationalInput } from "./lib/fm-operational-input.js";
+import { monitoringStopped, watcherCloseResult } from "../../.pi/extensions/lib/fm-monitoring-stop.ts";
 
 const COORDINATOR_KEY = "__firstmateOpenCodeWatchArm";
 // 35s on Windows so the budget stays above arm's MSYS confirm default (30s in
@@ -34,11 +35,11 @@ function setArmStatus(status) {
   armStatus = status;
 }
 
-function waitForArmReady(armChild) {
+function waitForArmReady(paths, armChild) {
   const readiness = armReadiness.get(armChild);
   if (!readiness) return Promise.resolve("failed");
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve("timeout"), ARM_READY_TIMEOUT_MS);
+    const timer = setTimeout(() => resolve(monitoringStopped(paths) ? "stopped" : "timeout"), ARM_READY_TIMEOUT_MS);
     timer.unref();
     void readiness.then((status) => {
       clearTimeout(timer);
@@ -101,48 +102,8 @@ async function isPrimaryRoot(root, home) {
   return gitDir.stdout.trim() === commonDir.stdout.trim();
 }
 
-function monitoringStopVerdict(paths) {
-  const script = `${paths.root}/bin/fm-monitoring-stop.sh`;
-  const result = spawnSync("bash", [script, "status", "--json"], {
-    cwd: paths.root,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      FM_HOME: paths.home,
-      FM_ROOT_OVERRIDE: paths.root,
-      FM_STATE_OVERRIDE: paths.state,
-      FM_CONFIG_OVERRIDE: paths.config,
-    },
-  });
-  if (result.status !== 0) {
-    const detail = String(result.stderr || "").trim();
-    return {
-      status: "malformed",
-      detail: detail || `monitoring-stop status helper exited ${result.status ?? "without status"}`,
-    };
-  }
-  try {
-    const parsed = JSON.parse(String(result.stdout || ""));
-    if (!["none", "active", "resumed", "malformed"].includes(String(parsed?.status))) {
-      throw new Error("status is not recognized");
-    }
-    return {
-      status: parsed.status,
-      detail: typeof parsed.detail === "string" ? parsed.detail : "",
-    };
-  } catch (error) {
-    return {
-      status: "malformed",
-      detail: `monitoring-stop status helper returned invalid JSON: ${error?.message ?? String(error)}`,
-    };
-  }
-}
-
 function monitoringStopArmStatus(paths) {
-  const verdict = monitoringStopVerdict(paths);
-  if (verdict.status === "active") return "monitoring-stopped";
-  if (verdict.status === "malformed") return "monitoring-malformed";
-  return "";
+  return monitoringStopped(paths) ? "stopped" : "";
 }
 
 function shouldArm(paths) {
@@ -293,6 +254,7 @@ function wakePrompt(reason) {
 }
 
 function surfaceFailure(paths, client, sessionID, reason) {
+  if (monitoringStopped(paths)) return;
   void sendPrompt(paths, client, sessionID, wakePrompt(reason)).catch(() => {
     // OpenCode owns delivery errors; continuity restoration never waits on prompting.
   });
@@ -335,7 +297,7 @@ async function restoreAfterActionableClose(paths, sessionID, client, predecessor
   let failure = "";
   for (let attempt = 0; attempt <= REARM_RETRY_LIMIT; attempt += 1) {
     const { status, armChild } = await ensureArm(paths, sessionID, client, predecessorArmPid, true);
-    if (["monitoring-stopped", "monitoring-malformed"].includes(status)) return { failure: "" };
+    if (status === "stopped") return { failure: "" };
     if (status === "armed") return { failure: "", recovery: armRecovery.get(armChild) };
     // An actionable line belongs to this arm's close handler.
     // Do not retire it before that handler can start the successor cycle.
@@ -375,7 +337,7 @@ async function scheduleRetry(paths, sessionID, client, reason, predecessorArmPid
   const timer = setTimeout(() => {
     if (retryTimer === timer) retryTimer = null;
     void ensureArm(paths, sessionID, client, predecessorArmPid).then((status) => {
-      if (["armed", "starting", "wake", "monitoring-stopped", "monitoring-malformed"].includes(status)) return;
+      if (["armed", "starting", "wake", "stopped"].includes(status)) return;
       surfaceFailure(paths, client, sessionID, `watcher: FAILED - OpenCode could not launch a continuity retry (${status})`);
     });
   }, retryDelay(retryFailures));
@@ -439,14 +401,13 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     settled = true;
     resolveClosed();
     releaseChild();
-    const stopStatus = code === 3 ? monitoringStopArmStatus(paths) : "";
-    if (stopStatus) {
-      setArmStatus(stopStatus);
-      settleReadiness(stopStatus);
+    const classification = classifyArmClose(stdout, stderr, code, signal);
+    const result = watcherCloseResult(paths, code);
+    settleReadiness(classification.kind === "actionable" ? "wake" : result);
+    if (classification.kind !== "actionable" && result === "stopped") {
+      setArmStatus(result);
       return;
     }
-    const classification = classifyArmClose(stdout, stderr, code, signal);
-    settleReadiness(classification.kind === "actionable" ? "wake" : "failed");
     const predecessor = String(armChild.pid ?? "");
     if (classification.kind === "actionable") {
       if (restorationInFlight) return;
@@ -456,7 +417,7 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
       restorationInFlight = restoration;
       void restoration.then(async (result) => {
         try {
-          const message = result.failure ? `${classification.message}\n\n${result.failure}` : classification.message;
+          const message = result.failure && !monitoringStopped(paths) ? `${classification.message}\n\n${result.failure}` : classification.message;
           await deliverActionableWake(paths, client, sessionID, message, result.recovery);
         } finally {
           if (restorationInFlight === restoration) restorationInFlight = null;
@@ -483,7 +444,9 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     settled = true;
     resolveClosed();
     releaseChild();
-    settleReadiness("failed");
+    const result = watcherCloseResult(paths, null);
+    settleReadiness(result);
+    if (result === "stopped") { setArmStatus(result); return; }
     if (restorationInFlight) {
       setArmStatus("failed");
       return;
@@ -535,7 +498,9 @@ async function ensureArm(paths, sessionID, client, predecessorArmPid = "", inclu
   if (!armChild) {
     return armAttempt(launchResult.status, null, includeArmChild);
   }
-  return armAttempt(await waitForArmReady(armChild), armChild, includeArmChild);
+  const status = await waitForArmReady(paths, armChild);
+  if (status === "stopped") await retireArm(armChild);
+  return armAttempt(status, armChild, includeArmChild);
 }
 
 export const FmPrimaryWatchArm = async ({ client, directory, worktree }) => {

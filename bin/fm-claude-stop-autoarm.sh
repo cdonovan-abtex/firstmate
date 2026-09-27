@@ -274,10 +274,16 @@ while [ "$attempt" -lt "$AUTOARM_ATTEMPTS" ]; do
   fi
   attempt=$((attempt + 1))
   OUT=$(mktemp "$STATE/.claude-autoarm-output.XXXXXX") || OUT=
+  ARM_RC=0
   if [ -n "$OUT" ]; then
-    FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" >"$OUT" 2>&1 || true
+    FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" >"$OUT" 2>&1 || ARM_RC=$?
   else
-    FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" >/dev/null 2>&1 || true
+    FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" >/dev/null 2>&1 || ARM_RC=$?
+  fi
+  if [ "$ARM_RC" -eq 3 ] || fm_monitoring_stop_blocks "$STATE"; then
+    autoarm_record clean
+    [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
+    exit 0
   fi
 
   # AFK may have appeared mid-cycle: the daemon owns triage now, so suppress

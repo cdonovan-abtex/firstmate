@@ -177,7 +177,6 @@ needed=$FM_SUP_NEEDED
 beacon_desc=$FM_SUP_BEACON_DESC
 case "$FM_SUP_MONITORING_STOP_STATUS" in
   active|malformed)
-    [ "$READ_ONLY" -eq 1 ] || fm_monitoring_stop_report_once "$STATE"
     [ "$READ_ONLY" -eq 1 ] || fm_guard_clear_stale_banner
     exit 0
     ;;

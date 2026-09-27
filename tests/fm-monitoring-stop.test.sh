@@ -379,7 +379,7 @@ const { FmPrimaryWatchArm } = await import(pathToFileURL(`${process.env.ROOT}/.o
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
 await FmPrimaryWatchArm({ worktree: process.env.FM_HOME, client: {} });
 const status = await globalThis.__firstmateOpenCodeWatchArm.ensureArmed("test", {});
-assert.equal(status, "monitoring-malformed");
+assert.equal(status, "stopped");
 JS
 ); status=$?
   expect_code 0 "$status" "OpenCode must not invent a no-stop verdict without shared helper: $out"
@@ -584,7 +584,7 @@ test_away_launcher_reports_visible_stop() {
   pass "away launcher reports stops visibly, including hidden daemon startup races"
 }
 
-test_bootstrap_nudges_forward_stop_diagnostic_once() {
+test_bootstrap_nudges_leave_notices_for_visible_boundary() {
   local scenario world test_home primary mate fakebin out second status
   fm_git_identity
   for scenario in success failure; do
@@ -625,8 +625,8 @@ SH
     out=$(PATH="$fakebin:$PATH" FM_HOME="$test_home" FM_ROOT_OVERRIDE="$primary" \
       FM_BACKEND=tmux FM_SEND_SETTLE=0 FM_BOOTSTRAP_NETWORK=only "$ROOT/bin/fm-bootstrap.sh" 2>&1); status=$?
     expect_code 0 "$status" "bootstrap must complete with malformed evidence: $out"
-    [ "$(printf '%s\n' "$out" | grep -c AUTOMATIC_MONITORING_STOP_INVALID)" = 1 ] || fail "bootstrap $scenario lost or repeated its captured diagnostic: $out"
-    assert_contains "$out" 'valid JSON' "bootstrap lost the malformed-receipt reason"
+    assert_not_contains "$out" AUTOMATIC_MONITORING_STOP "background bootstrap claimed a visible notice"
+    assert_absent "$test_home/state/.monitoring-stop-reports" "nested send consumed the visible notice"
     assert_not_contains "$out" 'TURN WOULD END BLIND' "bootstrap prompted re-arm under a stop"
     [ "$(cat "$test_home/state/.lock")" = "$$" ] || fail "bootstrap relinquished session ownership"
     assert_absent "$test_home/state/.watch.lock" "bootstrap armed a stopped watcher"
@@ -645,9 +645,15 @@ SH
     assert_absent "$test_home/state/.secondmate-nudge-pending/mini.pending" "successful retry retained its marker: $second"
     assert_contains "$(cat "$test_home/state/mini.inbox/001.msg")" 'please re-read your AGENTS.md' "bootstrap retry did not deliver the nudge"
     second=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$primary" "$ROOT/bin/fm-guard.sh" 2>&1)
-    assert_not_contains "$second" AUTOMATIC_MONITORING_STOP "visible guard repeated bootstrap's diagnostic"
+    assert_not_contains "$second" AUTOMATIC_MONITORING_STOP "operation guard claimed a visible notice"
+    assert_absent "$test_home/state/.monitoring-stop-reports" "background operations claimed the notice"
+    out=$(printf '{}' | FM_HOME="$test_home" FM_ROOT_OVERRIDE="$primary" "$ROOT/bin/fm-turnend-guard.sh" 2>&1); status=$?
+    expect_code 0 "$status" "visible turn-end must be nonblocking under stop"
+    assert_contains "$out" AUTOMATIC_MONITORING_STOP_INVALID "visible turn-end lost background-observed evidence"
+    second=$(printf '{}' | FM_HOME="$test_home" FM_ROOT_OVERRIDE="$primary" "$ROOT/bin/fm-turnend-guard.sh" 2>&1)
+    assert_not_contains "$second" AUTOMATIC_MONITORING_STOP "visible boundary repeated its notice"
   done
-  pass "startup forwards captured stop diagnostics once while preserving nudge delivery and retry"
+  pass "startup preserves live secondmates and nudge delivery without claiming visible notices"
 }
 
 test_opencode_idle_reports_arm_suppression_race() {
@@ -704,7 +710,7 @@ assert.equal(continuations, 0, "suppression requested a repair turn");
 assert.equal(existsSync(`${home}/state/.watch.lock`), false);
 assert.equal(readFileSync(`${home}/state/.lock`, "utf8").trim(), String(process.pid));
 assert.equal(await globalThis.__firstmateOpenCodeWatchArm.ensureArmed("test", client),
-  process.env.STOP_KIND === "malformed" ? "monitoring-malformed" : "monitoring-stopped");
+  "stopped");
 await hooks.event(idle);
 assert.equal(messages.length, 1, "later idle repeated the diagnostic");
 assert.equal(readFileSync(`${home}/arm-attempts`, "utf8"), "attempt\n", "suppression retried the arm");
@@ -714,6 +720,208 @@ JS
     expect_code 0 "$status" "OpenCode must report $kind arm suppression in the same idle: $out"
   done
   pass "OpenCode propagates arm suppression to nonblocking reporting in the current idle"
+}
+
+test_background_refresh_cannot_consume_visible_notice() {
+  local test_home kind out status
+  for kind in active malformed absent resumed; do
+    test_home="$TMP_ROOT/background-$kind"
+    make_guard_home "$test_home"
+    mkdir -p "$test_home/projects"
+    printf 'kind=ship\n' > "$test_home/state/task.meta"
+    if [ "$kind" != absent ]; then
+      write_active_receipt "$test_home"
+      if [ "$kind" = malformed ]; then
+        printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+      elif [ "$kind" = resumed ]; then
+        jq '. + {resumed_at:"2026-09-28T10:00:00Z",resume_instruction:"Resume monitoring"}' \
+          "$test_home/data/automatic-monitoring-pause/receipt.json" > "$test_home/receipt.next"
+        mv "$test_home/receipt.next" "$test_home/data/automatic-monitoring-pause/receipt.json"
+      fi
+    fi
+    FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" "$test_home/bin/fm-fleet-sync.sh" >/dev/null 2>&1
+    assert_absent "$test_home/state/.monitoring-stop-reports" "background fleet refresh consumed $kind notice"
+    out=$(printf '{}' | FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" "$test_home/bin/fm-turnend-guard.sh" 2>&1); status=$?
+    case "$kind" in
+      active|malformed)
+        expect_code 0 "$status" "$kind primary turn-end prompted repair: $out"
+        assert_contains "$out" AUTOMATIC_MONITORING_STOP "visible primary turn-end lost $kind notice"
+        assert_not_contains "$out" 'TURN WOULD END BLIND' "$kind receipt prompted repair"
+        out=$(printf '{}' | FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" "$test_home/bin/fm-turnend-guard.sh" 2>&1)
+        [ -z "$out" ] || fail "visible primary turn-end repeated $kind notice: $out"
+        ;;
+      *)
+        expect_code 2 "$status" "$kind work lost ordinary supervision: $out"
+        assert_contains "$out" 'TURN WOULD END BLIND' "$kind work lost repair reporting"
+        ;;
+    esac
+  done
+  pass "background refresh leaves once-only notices to primary turn-end, preserving normal supervision"
+}
+
+test_pi_and_omp_late_suppression_is_not_failure() {
+  local test_home adapter kind out status
+  for adapter in pi omp; do
+    for kind in active malformed timeout absent resumed failure; do
+      test_home="$TMP_ROOT/late-$adapter-$kind"
+      make_guard_home "$test_home"
+      mkdir -p "$test_home/.pi/extensions" "$test_home/.omp/extensions" \
+        "$test_home/node_modules/@earendil-works/pi-tui" "$test_home/node_modules/typebox" \
+        "$test_home/node_modules/@earendil-works/pi-coding-agent"
+      cp -R "$ROOT/.pi/extensions/lib" "$test_home/.pi/extensions/"
+      cp "$ROOT/.pi/extensions/fm-primary-pi-watch.ts" "$test_home/.pi/extensions/"
+      cp "$ROOT/.omp/extensions/fm-primary-omp-watch.ts" "$test_home/.omp/extensions/"
+      printf '{"type":"module","exports":"./index.js"}\n' > "$test_home/node_modules/@earendil-works/pi-tui/package.json"
+      printf 'export class Box { addChild(){} clear(){} setBgFn(){} }; export class Container {}; export class Text {};\n' > "$test_home/node_modules/@earendil-works/pi-tui/index.js"
+      printf '{"type":"module","exports":"./index.js"}\n' > "$test_home/node_modules/typebox/package.json"
+      printf 'export const Type = {Object: (properties) => ({type:"object",properties})};\n' > "$test_home/node_modules/typebox/index.js"
+      printf '{"type":"module","exports":"./index.js"}\n' > "$test_home/node_modules/@earendil-works/pi-coding-agent/package.json"
+      printf 'export function getMarkdownTheme(){return {}}; export class UserMessageComponent {render(){return []} invalidate(){}};\n' > "$test_home/node_modules/@earendil-works/pi-coding-agent/index.js"
+      write_active_receipt "$test_home"
+      [ "$kind" != malformed ] || printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+      if [ "$kind" = resumed ]; then
+        jq '. + {resumed_at:"2026-09-28T10:00:00Z",resume_instruction:"Resume monitoring"}' \
+          "$test_home/data/automatic-monitoring-pause/receipt.json" > "$test_home/receipt.next"
+        mv "$test_home/receipt.next" "$test_home/data/automatic-monitoring-pause/receipt.json"
+      fi
+      mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+      mv "$test_home/bin/fm-watch-arm.sh" "$test_home/bin/fm-watch-arm-real.sh"
+      cat > "$test_home/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'attempt\n' >> "$FM_HOME/attempts"
+count=$(wc -l < "$FM_HOME/attempts" | tr -d '[:space:]')
+case "$count" in
+  1) printf 'watcher: started pid=%s (beacon fresh)\nsignal: test outcome\n' "$$"; exit 0 ;;
+  2) exit 1 ;;
+esac
+case "$STOP_KIND" in
+  active|malformed)
+    mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+    exec "$FM_HOME/bin/fm-watch-arm-real.sh" "$@"
+    ;;
+  timeout) mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json" ;;
+  resumed)
+    mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+    printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+    ;;
+  absent) printf 'watcher: started pid=%s (beacon fresh)\n' "$$" ;;
+  failure) exit 1 ;;
+esac
+trap 'exit 0' TERM INT
+for ((i=0; i<200; i++)); do sleep 0.05; done
+SH
+      chmod +x "$test_home/bin/fm-watch-arm.sh"
+      out=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" ADAPTER="$adapter" STOP_KIND="$kind" \
+        FM_PI_ARM_READY_TIMEOUT_MS=2000 FM_OMP_ARM_READY_TIMEOUT_MS=2000 FM_WATCH_REARM_RETRY_LIMIT=1 \
+        FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 NODE_NO_WARNINGS=1 node --input-type=module 2>&1 <<'JS'
+import assert from "node:assert/strict";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const home = process.env.FM_HOME, adapter = process.env.ADAPTER, kind = process.env.STOP_KIND;
+writeFileSync(`${home}/state/.lock`, `${process.pid}\n`);
+const handlers = new Map(), messages = [];
+let tool;
+const api = {
+  on: (name, handler) => handlers.set(name, handler),
+  registerTool: (value) => { tool = value; },
+  registerCommand() {},
+  sendUserMessage: async (message) => { messages.push(message); },
+};
+const mod = await import(pathToFileURL(`${home}/.${adapter}/extensions/fm-primary-${adapter === "pi" ? "pi" : "omp"}-watch.ts`));
+mod.default(api);
+await tool.execute("start", {}, undefined, undefined, {});
+try {
+  const deadline = Date.now() + 12000;
+  while (!messages.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(messages.length, 1, `expected original outcome, got ${messages}`);
+  assert.match(messages[0], /signal: test outcome/);
+  assert.equal(readFileSync(`${home}/attempts`, "utf8"), "attempt\nattempt\nattempt\n");
+  if (kind === "failure") assert.match(messages[0], /could not restore watcher continuity/);
+  else assert.doesNotMatch(messages[0], /watcher: FAILED|could not restore|repair missing/);
+  assert.equal(readFileSync(`${home}/state/.lock`, "utf8").trim(), String(process.pid));
+  assert.equal(existsSync(`${home}/state/.monitoring-stop-reports`), false, "background readiness claimed notice");
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(messages.length, 1, "suppression retried or requested repair");
+} finally {
+  await handlers.get("session_shutdown")({reason:"quit"});
+}
+JS
+); status=$?
+      expect_code 0 "$status" "$adapter $kind readiness must distinguish stop and failure: $out"
+    done
+  done
+  pass "Pi and omp distinguish final-attempt stops, timeouts, failures, and ordinary readiness"
+}
+
+test_startup_liveness_respects_monitoring_policy() {
+  local test_home kind out status fakebin
+  for kind in active malformed absent resumed; do
+    test_home="$TMP_ROOT/startup-liveness-$kind"
+    make_guard_home "$test_home"
+    fakebin="$test_home/fakebin"
+    mkdir -p "$fakebin"
+    fm_fake_exit0 "$fakebin" gh
+    cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  list-windows*) printf 'fm-mini\n' ;;
+  *display-message*'#{pane_current_command}'*) printf 'zsh\n' ;;
+esac
+exit 0
+SH
+    cat > "$test_home/bin/fm-spawn.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_HOME/respawns"
+SH
+    chmod +x "$fakebin/tmux" "$test_home/bin/fm-spawn.sh"
+    printf 'kind=secondmate\nharness=codex\nwindow=firstmate:fm-mini\n' > "$test_home/state/mini.meta"
+    cp "$test_home/state/mini.meta" "$test_home/meta.before"
+    if [ "$kind" != absent ]; then
+      write_active_receipt "$test_home"
+      if [ "$kind" = malformed ]; then
+        printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+      elif [ "$kind" = resumed ]; then
+        jq '. + {resumed_at:"2026-09-28T10:00:00Z",resume_instruction:"Resume monitoring"}' \
+          "$test_home/data/automatic-monitoring-pause/receipt.json" > "$test_home/receipt.next"
+        mv "$test_home/receipt.next" "$test_home/data/automatic-monitoring-pause/receipt.json"
+      fi
+    fi
+    out=$(PATH="$fakebin:$PATH" FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" FM_BACKEND=tmux \
+      FM_BOOTSTRAP_NETWORK=only "$test_home/bin/fm-bootstrap.sh" 2>&1); status=$?
+    expect_code 0 "$status" "$kind startup liveness failed: $out"
+    case "$kind" in
+      active|malformed) assert_absent "$test_home/respawns" "$kind startup restarted parked infrastructure" ;;
+      *) [ "$(cat "$test_home/respawns")" = 'mini --secondmate' ] || fail "$kind startup lost ordinary liveness: $out" ;;
+    esac
+    cmp "$test_home/meta.before" "$test_home/state/mini.meta" || fail "startup changed persistent metadata"
+    assert_absent "$test_home/state/.monitoring-stop-reports" "background liveness claimed visible notice"
+  done
+  pass "startup liveness suppresses stopped relaunches and preserves absent/resumed recovery"
+}
+
+test_claude_late_stop_is_terminal_without_repair() {
+  local test_home out status
+  test_home="$TMP_ROOT/claude-late-stop"
+  make_guard_home "$test_home"
+  mkdir -p "$test_home/data/automatic-monitoring-pause"
+  printf 'kind=ship\n' > "$test_home/state/work.meta"
+  cat > "$test_home/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'attempt\n' >> "$FM_HOME/attempts"
+printf '{bad json\n' > "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+exit 3
+SH
+  chmod +x "$test_home/bin/fm-watch-arm.sh"
+  out=$(printf '{"session_id":"late-stop","stop_hook_active":false}' \
+    | env -u PI_CODING_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" \
+      "$TMP_ROOT/harnesses/claude" "$test_home/bin/fm-claude-stop-autoarm.sh" 2>&1); status=$?
+  expect_code 0 "$status" "Claude suppression requested repair: $out"
+  [ "$(cat "$test_home/attempts")" = attempt ] || fail "Claude retried an intentionally stopped arm"
+  [ -z "$out" ] || fail "background Claude arm emitted a repair prompt: $out"
+  assert_absent "$test_home/state/.monitoring-stop-reports" "background Claude arm claimed a visible notice"
+  out=$(printf '{}' | FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" "$test_home/bin/fm-turnend-guard.sh" 2>&1)
+  assert_contains "$out" AUTOMATIC_MONITORING_STOP_INVALID "primary turn-end lost late-stop notice"
+  pass "Claude treats late arm suppression as terminal and leaves notice to primary turn-end"
 }
 
 test_status_distinguishes_absent_active_resumed_and_malformed
@@ -732,5 +940,9 @@ make_hook_harnesses
 test_resolved_secondmate_outcome_reaches_hooks
 test_cursor_reports_before_early_return_and_after_arm_race
 test_away_launcher_reports_visible_stop
-test_bootstrap_nudges_forward_stop_diagnostic_once
+test_bootstrap_nudges_leave_notices_for_visible_boundary
 test_opencode_idle_reports_arm_suppression_race
+test_background_refresh_cannot_consume_visible_notice
+test_pi_and_omp_late_suppression_is_not_failure
+test_startup_liveness_respects_monitoring_policy
+test_claude_late_stop_is_terminal_without_repair

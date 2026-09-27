@@ -649,11 +649,6 @@ if [ "$LOCK_RC" -ne 0 ]; then
     printf '%s\n' "$BAR"
   }
 fi
-fm_monitoring_stop_status "$STATE"
-MONITORING_STOP_BLOCKED=0
-case "$FM_MONITORING_STOP_STATUS" in
-  active|malformed) MONITORING_STOP_BLOCKED=1 ;;
-esac
 REBUILDING_SESSION_PID=$(fm_harness_ancestry_pid 2>/dev/null || true)
 print_agents_refresh_if_required "$REBUILDING_SESSION_PID"
 
@@ -754,6 +749,8 @@ fi
 
 # --- 4. supervision operating instructions ----------------------------------
 stage supervision-instructions
+MONITORING_STOP_BLOCKED=0
+fm_monitoring_stop_blocks "$STATE" && MONITORING_STOP_BLOCKED=1
 AFK_PRESENT=0
 [ -e "$STATE/.afk" ] && AFK_PRESENT=1
 AFK_MODE=$(fm_afk_mode "$STATE")
@@ -794,12 +791,14 @@ if [ "$MONITORING_STOP_BLOCKED" -eq 0 ] && [ "$PRIMARY_HARNESS" = omp ]; then
     printf 'OMP_WATCH_EXTENSION: not loaded - restart omp with this home as its working directory so %s and %s auto-load from .omp/extensions/ for turn-end guard and background wake coverage; pass -e %s -e %s only when omp must start from another directory, never together with auto-discovery (omp loads a file named both ways twice)\n' "$OMP_TURNEND_EXT" "$OMP_EXT" "$OMP_TURNEND_EXT" "$OMP_EXT"
   fi
 fi
-if [ "$MONITORING_STOP_BLOCKED" -eq 1 ]; then
+if fm_monitoring_stop_blocks "$STATE"; then
+  MONITORING_STOP_BLOCKED=1
   if [ "$READ_ONLY" -eq 0 ]; then
     fm_monitoring_stop_report_once "$STATE"
   fi
   printf 'Automatic watcher startup is suppressed by the home monitoring-stop record.\n'
 else
+  MONITORING_STOP_BLOCKED=0
   "$SCRIPT_DIR/fm-supervision-instructions.sh" \
     --harness "$PRIMARY_HARNESS" \
     --read-only "$READ_ONLY" \
