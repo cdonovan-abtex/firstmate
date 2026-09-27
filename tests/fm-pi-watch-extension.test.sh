@@ -2794,7 +2794,7 @@ fi
 if [ "$count" -eq 2 ]; then
   sleep 0.1
   printf 'watcher: FAILED - successor lost its beacon\n'
-  exit 3
+  exit 1
 fi
 trap 'exit 0' TERM INT
 while [ ! -e "$FM_STOP_FILE" ]; do sleep 0.02; done
