@@ -1,0 +1,217 @@
+
+SCENARIO: Active and malformed stop suppress every watcher entrypoint and report once at turn end
+$ fm-watch.sh [home=entry-active]
+exit=3
+
+$ fm-watch-arm.sh [home=entry-active]
+exit=3
+
+$ fm-supervise-daemon.sh [home=entry-active]
+exit=3
+
+$ fm-turnend-guard.sh [home=entry-active]
+exit=0
+AUTOMATIC_MONITORING_STOP: monitoring stopped by Captain order at 2026-09-21T18:42:20.023025+00:00. Automatic watcher startup remains disabled; this session retains fleet ownership.
+
+$ fm-turnend-guard.sh [home=entry-active]
+exit=0
+
+$ fm-watch-checkpoint.sh --seconds 2 [home=entry-active]
+exit=3
+
+STATE: no watcher lock or beacon; background entrypoints left notice unclaimed; turn-end displayed exactly one notice
+$ fm-watch.sh [home=entry-malformed]
+exit=3
+
+$ fm-watch-arm.sh [home=entry-malformed]
+exit=3
+
+$ fm-supervise-daemon.sh [home=entry-malformed]
+exit=3
+
+$ fm-turnend-guard.sh [home=entry-malformed]
+exit=0
+AUTOMATIC_MONITORING_STOP_INVALID: automatic watcher startup remains disabled because /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/entry-malformed/data/automatic-monitoring-pause/receipt.json: receipt must contain valid JSON with exactly one object matching the required stop/resume schema and effective home
+
+$ fm-turnend-guard.sh [home=entry-malformed]
+exit=0
+
+$ fm-watch-checkpoint.sh --seconds 2 [home=entry-malformed]
+exit=3
+
+STATE: no watcher lock or beacon; background entrypoints left notice unclaimed; turn-end displayed exactly one notice
+OBSERVED: scenario satisfied
+
+SCENARIO: Invalid resumption, wrong-home receipts, impossible timestamps and symlinks fail closed
+$ fm-monitoring-stop.sh status --json [home=partial-resume]
+exit=0
+{
+  "status": "malformed",
+  "time": "",
+  "detail": "receipt must contain valid JSON with exactly one object matching the required stop/resume schema and effective home",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/partial-resume/data/automatic-monitoring-pause/receipt.json"
+}
+
+$ fm-watch-arm.sh [home=partial-resume]
+exit=3
+
+$ fm-turnend-guard.sh [home=partial-resume]
+exit=0
+AUTOMATIC_MONITORING_STOP_INVALID: automatic watcher startup remains disabled because /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/partial-resume/data/automatic-monitoring-pause/receipt.json: receipt must contain valid JSON with exactly one object matching the required stop/resume schema and effective home
+
+$ fm-monitoring-stop.sh status --json [home=wrong-home]
+exit=0
+{
+  "status": "malformed",
+  "time": "",
+  "detail": "receipt must contain valid JSON with exactly one object matching the required stop/resume schema and effective home",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/wrong-home/data/automatic-monitoring-pause/receipt.json"
+}
+
+$ fm-watch-arm.sh [home=wrong-home]
+exit=3
+
+$ fm-turnend-guard.sh [home=wrong-home]
+exit=0
+AUTOMATIC_MONITORING_STOP_INVALID: automatic watcher startup remains disabled because /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/wrong-home/data/automatic-monitoring-pause/receipt.json: receipt must contain valid JSON with exactly one object matching the required stop/resume schema and effective home
+
+$ fm-monitoring-stop.sh status --json [home=impossible-time]
+exit=0
+{
+  "status": "malformed",
+  "time": "",
+  "detail": "receipt time must be an RFC 3339 timestamp",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/impossible-time/data/automatic-monitoring-pause/receipt.json"
+}
+
+$ fm-watch-arm.sh [home=impossible-time]
+exit=3
+
+$ fm-turnend-guard.sh [home=impossible-time]
+exit=0
+AUTOMATIC_MONITORING_STOP_INVALID: automatic watcher startup remains disabled because /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/impossible-time/data/automatic-monitoring-pause/receipt.json: receipt time must be an RFC 3339 timestamp
+
+$ fm-monitoring-stop.sh status --json [home=symlink]
+exit=0
+{
+  "status": "malformed",
+  "time": "",
+  "detail": "receipt must be a readable regular non-symlink file",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/symlink/data/automatic-monitoring-pause/receipt.json"
+}
+
+$ fm-watch-arm.sh [home=symlink]
+exit=3
+
+$ fm-turnend-guard.sh [home=symlink]
+exit=0
+AUTOMATIC_MONITORING_STOP_INVALID: automatic watcher startup remains disabled because /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/symlink/data/automatic-monitoring-pause/receipt.json: receipt must be a readable regular non-symlink file
+
+OBSERVED: scenario satisfied
+
+SCENARIO: Absent or explicitly resumed stop preserves the guard and a real registered-check wake
+$ fm-check-register.sh operator-check [home=checkpoint-absent]
+exit=0
+registered: state/operator-check.check.sh
+
+$ fm-turnend-guard.sh [home=checkpoint-absent]
+exit=2
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  TURN WOULD END BLIND - SUPERVISION IS OFF
+●  1 registered custom check(s), but no live watcher holds this home lock (last beat: never).
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ fm-watch-checkpoint.sh --seconds 12 [home=checkpoint-absent]
+exit=0
+check: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/checkpoint-absent/state/operator-check.check.sh: operator verification completed
+
+PERSISTED WAKE QUEUE:
+1790541499	1	check	/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/checkpoint-absent/state/operator-check.check.sh	check: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/checkpoint-absent/state/operator-check.check.sh: operator verification completed
+
+$ fm-check-register.sh operator-check [home=checkpoint-resumed]
+exit=0
+registered: state/operator-check.check.sh
+
+$ fm-turnend-guard.sh [home=checkpoint-resumed]
+exit=2
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  TURN WOULD END BLIND - SUPERVISION IS OFF
+●  1 registered custom check(s), but no live watcher holds this home lock (last beat: never).
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ fm-watch-checkpoint.sh --seconds 12 [home=checkpoint-resumed]
+exit=0
+check: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/checkpoint-resumed/state/operator-check.check.sh: operator verification completed
+
+PERSISTED WAKE QUEUE:
+1790541500	1	check	/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/checkpoint-resumed/state/operator-check.check.sh	check: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/checkpoint-resumed/state/operator-check.check.sh: operator verification completed
+
+OBSERVED: scenario satisfied
+
+SCENARIO: Parked Mini does not count as work; ordinary work still requires supervision unless stopped
+$ fm-turnend-guard.sh [home=parked-mini]
+exit=0
+
+$ fm-turnend-guard.sh [home=parked-mini]
+exit=2
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  TURN WOULD END BLIND - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher holds this home lock (last beat: never).
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ fm-turnend-guard.sh [home=parked-mini]
+exit=0
+AUTOMATIC_MONITORING_STOP: monitoring stopped by Captain order at 2026-09-21T18:42:20.023025+00:00. Automatic watcher startup remains disabled; this session retains fleet ownership.
+
+OBSERVED: Mini alone allowed turn-end; one ordinary task required supervision; same work permitted after operator stop
+OBSERVED: scenario satisfied
+
+SCENARIO: Stopping a running watcher retires both owning and attached arms without a repair prompt
+FAIL: Traceback (most recent call last):
+  File "/Users/christiandonovan/.no-mistakes/evidence/01M3HVZZRWW11B70AJT0JZKZX7/live-cli-driver.py", line 40, in scenario
+    try: fn();results.append(dict(name=name,result='pass',live=True));emit('OBSERVED: scenario satisfied')
+         ~~^^
+  File "/Users/christiandonovan/.no-mistakes/evidence/01M3HVZZRWW11B70AJT0JZKZX7/live-cli-driver.py", line 111, in late_stop
+    wait_file(h/'state/.last-watcher-beat')
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/christiandonovan/.no-mistakes/evidence/01M3HVZZRWW11B70AJT0JZKZX7/live-cli-driver.py", line 104, in wait_file
+    raise AssertionError('not created: '+str(p))
+AssertionError: not created: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/running-active/state/.last-watcher-beat
+
+
+SCENARIO: Stop during a Codex checkpoint exit or timeout returns deliberate-stop status
+$ fm-watch-checkpoint.sh --seconds 4 (stop during termination)
+exit=3
+AUTOMATIC_MONITORING_STOP: monitoring stopped by Captain order at 2026-09-21T18:42:20.023025+00:00. Automatic watcher startup remains disabled; this session retains fleet ownership.
+
+$ fm-watch-checkpoint.sh --seconds 4 (stop during timeout)
+exit=3
+AUTOMATIC_MONITORING_STOP: monitoring stopped by Captain order at 2026-09-21T18:42:20.023025+00:00. Automatic watcher startup remains disabled; this session retains fleet ownership.
+
+OBSERVED: scenario satisfied
+
+SCENARIO: Stopping a running watcher retires both owning and attached arms without a repair prompt
+$ fm-watch-arm.sh (owner, stop=active, watcher pid=36002)
+exit=3
+watcher: started pid=36002 (beacon fresh)
+
+$ fm-watch-arm.sh (attached, stop=active, watcher pid=36002)
+exit=3
+watcher: attached pid=36002 (beacon 0s)
+
+STATE: both real arms returned intentional-stop exit 3
+$ fm-watch-arm.sh (owner, stop=malformed, watcher pid=36909)
+exit=3
+watcher: started pid=36909 (beacon fresh)
+
+$ fm-watch-arm.sh (attached, stop=malformed, watcher pid=36909)
+exit=3
+watcher: attached pid=36909 (beacon 0s)
+
+STATE: both real arms returned intentional-stop exit 3
+OBSERVED: scenario satisfied
+
+TEST DRIVER SETUP NOTE: The initial running-watcher probe incorrectly waited for nonempty beacon contents; the product uses a timestamp-only empty beacon. After correcting the probe to wait for existence, the owning and attached real watcher scenarios were re-driven for both active and malformed stops and passed, as recorded above.

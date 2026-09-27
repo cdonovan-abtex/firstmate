@@ -1,0 +1,13 @@
+{
+  "pi": "0.85.1",
+  "unavailable_on_path": [
+    "omp",
+    "opencode",
+    "grok",
+    "cursor-agent",
+    "agent",
+    "pi-signed"
+  ],
+  "cursor_resolver": "fm_cursor_resolve_binary returned no verified executable",
+  "remote_probe": "No isolated remote Mini host, SSH route, or test credentials supplied"
+}

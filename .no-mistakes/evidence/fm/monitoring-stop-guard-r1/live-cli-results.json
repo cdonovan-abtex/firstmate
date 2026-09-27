@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Active and malformed stop suppress every watcher entrypoint and report once at turn end",
+    "result": "pass",
+    "live": true
+  },
+  {
+    "name": "Invalid resumption, wrong-home receipts, impossible timestamps and symlinks fail closed",
+    "result": "pass",
+    "live": true
+  },
+  {
+    "name": "Absent or explicitly resumed stop preserves the guard and a real registered-check wake",
+    "result": "pass",
+    "live": true
+  },
+  {
+    "name": "Parked Mini does not count as work; ordinary work still requires supervision unless stopped",
+    "result": "pass",
+    "live": true
+  },
+  {
+    "name": "Stop during a Codex checkpoint exit or timeout returns deliberate-stop status",
+    "result": "pass",
+    "live": true
+  },
+  {
+    "name": "Stopping a running watcher retires both owning and attached arms without a repair prompt",
+    "result": "pass",
+    "live": true
+  }
+]

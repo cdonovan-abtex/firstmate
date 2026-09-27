@@ -1,0 +1,112 @@
+
+================================================================================
+SESSION START - /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/pi-native-verified
+================================================================================
+
+LOCK
+--------------------------------------------------------------------------------
+lock acquired: harness pid 46306
+
+BOOTSTRAP
+--------------------------------------------------------------------------------
+(silent - all good)
+
+WAKE QUEUE
+--------------------------------------------------------------------------------
+(no queued wakes)
+AUTOMATIC_MONITORING_STOP: monitoring stopped by Captain order at 2026-09-21T18:42:20.023025+00:00. Automatic watcher startup remains disabled; this session retains fleet ownership.
+Automatic watcher startup is suppressed by the home monitoring-stop record.
+
+================================================================================
+READ-ONCE CONTRACT
+================================================================================
+Everything below is printed in full for this session start: every state/*.meta,
+a compact data/backlog.md listing, a bounded tail of every state/*.status,
+data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md,
+and data/learnings.md.
+Do NOT re-read any of them after reading this digest, and do NOT bulk-read
+data/backlog.md or state/*.status: re-reading everything defeats the entire
+point of this command.
+
+Go to a source directly only when:
+  - this digest flagged it ABSENT (then rebuild or create it per AGENTS.md),
+  - its contents looked unparseable or corrupt,
+  - an individual full status log is needed for older wake-event history, or a
+    status line was capped and its tail matters (each task's full log path is
+    printed with its tail),
+  - a full task body is needed (bin/fm-tasks-axi.sh show <id> --full, or data/backlog.md),
+  - the backlog listing disclosed omitted queued items and this turn needs them,
+  - the NETWORK CHECKS section reported its checks still IN PROGRESS and this
+    turn needs their verdict (bin/fm-startup-network.sh report),
+  - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
+    which case that stage's sources were never emitted and must be reconciled.
+
+================================================================================
+FLEET STATE
+================================================================================
+
+data/backlog.md
+--------------------------------------------------------------------------------
+ABSENT
+
+Work under way (state/*.meta)
+--------------------------------------------------------------------------------
+
+--- mini ---
+kind=secondmate
+harness=pi
+window=monitoring-test:parked-mini
+backend=tmux
+endpoint: alive (backend=tmux window=monitoring-test:parked-mini)
+status tail: (no status file yet: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/pi-native-verified/state/mini.status)
+
+Orphan status logs (state/*.status without matching .meta)
+--------------------------------------------------------------------------------
+(none)
+
+AFK
+--------------------------------------------------------------------------------
+absent
+
+================================================================================
+NETWORK CHECKS
+================================================================================
+IN PROGRESS - the deferred network checks have not finished yet.
+NOT yet confirmed: GitHub authentication, dead-secondmate relaunch, secondmate convergence, pending handoff delivery, project clone refresh with its drift reporting, and inactive terminal-outcome reconciliation.
+Started 1s ago, bounded at 20s.
+Only a FAILED or otherwise actionable result arrives as a `check: startup-network` wake; a clean success stays silent.
+The durable result is readable on demand with /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3HVZZRWW11B70AJT0JZKZX7/.monitoring-test-lab/runtime/bin/fm-startup-network.sh report; until it finishes, treat none of it as confirmed.
+
+================================================================================
+CONTEXT
+================================================================================
+
+data/projects.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/secondmates.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/captain.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)
+--------------------------------------------------------------------------------
+ABSENT
+
+data/learnings.md
+--------------------------------------------------------------------------------
+ABSENT
+
+================================================================================
+NEXT STEP
+================================================================================
+This session retains the fleet lock and may dispatch, steer, or merge when
+otherwise authorized. Automatic watcher startup remains suppressed by the
+home monitoring-stop record; do not start a watcher from this session.
+
+The digest above is complete for this session start. The READ-ONCE CONTRACT
+section near the top of it governs what may still be read from disk.
