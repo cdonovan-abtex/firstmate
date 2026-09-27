@@ -189,8 +189,11 @@ function observeArmOutput(stdout, stderr, settleReadiness) {
   }
 }
 
-async function sendPrompt(paths, client, sessionID, text) {
-  const encoded = await encodeFirstmateOperationalInput(paths.root, "watcher", text);
+async function sendPrompt(paths, client, sessionID, text, failure = "") {
+  let encoded = await encodeFirstmateOperationalInput(paths.root, "watcher", failure ? `${text}\n\n${failure}` : text);
+  if (failure && monitoringStopped(paths)) {
+    encoded = await encodeFirstmateOperationalInput(paths.root, "watcher", text);
+  }
   await client.session.promptAsync({
     path: { id: sessionID },
     body: {
@@ -200,6 +203,7 @@ async function sendPrompt(paths, client, sessionID, text) {
 }
 
 function confirmHandlingDelivery(paths, recovery) {
+  if (monitoringStopped(paths)) return { kind: "stopped", detail: "" };
   try {
     const result = spawnSync(
       "bash",
@@ -210,15 +214,19 @@ function confirmHandlingDelivery(paths, recovery) {
         env: { ...process.env, FM_HOME: paths.home, FM_STATE_OVERRIDE: paths.state, FM_ROOT_OVERRIDE: paths.root },
       },
     );
-    if (result.status === 0) return { ok: true, detail: "" };
+    if (result.status === 0) return { kind: "ready", detail: "" };
+    const kind = watcherCloseResult(paths, result.status);
+    if (kind === "stopped") return { kind, detail: "" };
     const stderr = String(result.stderr || "").trim();
     return {
-      ok: false,
+      kind,
       detail: `watcher: FAILED - handling delivery confirmation was rejected (status=${result.status ?? "none"} generation=${recovery.generation} watcherPid=${recovery.watcherPid})${stderr ? `\n${stderr}` : ""}`,
     };
   } catch (error) {
+    const kind = watcherCloseResult(paths, null);
+    if (kind === "stopped") return { kind, detail: "" };
     return {
-      ok: false,
+      kind,
       detail: `watcher: FAILED - handling delivery confirmation could not be executed (generation=${recovery.generation} watcherPid=${recovery.watcherPid})\n${String(error?.message ?? error)}`,
     };
   }
@@ -227,14 +235,17 @@ function confirmHandlingDelivery(paths, recovery) {
 function confirmHandlingDeliveryWithRetry(paths, recovery) {
   const snapshot = () => armRecovery.get(child) ?? recovery;
   const first = confirmHandlingDelivery(paths, snapshot());
-  if (first.ok) return first;
+  if (first.kind !== "failed") return first;
   return confirmHandlingDelivery(paths, snapshot());
 }
 
-async function deliverActionableWake(paths, client, sessionID, message, recovery) {
+async function deliverActionableWake(paths, client, sessionID, message, restoration) {
+  const { recovery } = restoration;
+  let failure = restoration.failure;
   if (recovery) {
     const confirmed = confirmHandlingDeliveryWithRetry(paths, recovery);
-    if (!confirmed.ok) {
+    if (confirmed.kind === "stopped") failure = "";
+    if (confirmed.kind === "failed") {
       if (recovery.watcherPid) {
         try {
           process.kill(Number(recovery.watcherPid), 0);
@@ -242,11 +253,10 @@ async function deliverActionableWake(paths, client, sessionID, message, recovery
           await retireArm(child);
         }
       }
-      await sendPrompt(paths, client, sessionID, wakePrompt(`${message}\n\n${confirmed.detail}`));
-      return;
+      failure = [failure, confirmed.detail].filter(Boolean).join("\n\n");
     }
   }
-  await sendPrompt(paths, client, sessionID, wakePrompt(message));
+  await sendPrompt(paths, client, sessionID, wakePrompt(message), failure);
 }
 
 function wakePrompt(reason) {
@@ -417,8 +427,7 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
       restorationInFlight = restoration;
       void restoration.then(async (result) => {
         try {
-          const message = result.failure && !monitoringStopped(paths) ? `${classification.message}\n\n${result.failure}` : classification.message;
-          await deliverActionableWake(paths, client, sessionID, message, result.recovery);
+          await deliverActionableWake(paths, client, sessionID, classification.message, result);
         } finally {
           if (restorationInFlight === restoration) restorationInFlight = null;
         }
