@@ -20,7 +20,15 @@
 # docs/arm-pretool-check.md for the blessed tree and deny reason codes. It is a
 # pre-execution seatbelt, not a substitute for the verification here.
 #
-# This script forks the watcher as a tracked child, then VERIFIES the outcome
+# A stop verdict from bin/fm-monitoring-stop-lib.sh returns 3 without launching
+# or retrying a watcher and without a FAILED line. Completion rechecks that
+# verdict even after a running or attached cycle exits for another reason;
+# any actionable child output is preserved, and the durable queue is untouched.
+# This background-capable wrapper never claims the visible stop notice.
+# --handling-delivered remains available to acknowledge a wake already delivered.
+# The receipt policy is owned by docs/configuration.md.
+#
+# When monitoring is enabled, this script forks a tracked child and VERIFIES the outcome
 # before it settles in. It confirms a watcher process is genuinely alive AND the
 # liveness beacon (state/.last-watcher-beat) is fresh within FM_GUARD_GRACE (the
 # single source of truth, shared with fm-watch.sh and fm-guard.sh), and prints

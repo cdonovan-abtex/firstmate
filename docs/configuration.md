@@ -30,22 +30,23 @@ Ordinary dead-direct-report recovery is owned by `stuck-crewmate-recovery`, whil
 A home may retain a local private operator stop at `data/automatic-monitoring-pause/receipt.json`; the record is scoped to that exact effective `FM_HOME`, is not inherited by secondmate homes, and is never stored in tracked configuration.
 `bin/fm-monitoring-stop-lib.sh` owns the runtime verdict, and `bin/fm-monitoring-stop.sh status --json` is the read-only operator inspection surface.
 
-A valid stop receipt is one JSON object with non-empty string fields `instruction`, `time`, `home`, `scope`, `resume`, and `action`, plus `completed: true`.
+A valid stop receipt is a readable regular non-symlink file containing one JSON object with non-empty string fields `instruction`, `time`, `home`, `scope`, `resume`, and `action`, plus `completed: true`.
 `time` must be an RFC 3339 timestamp, and `home` must equal the effective home path exactly.
 The `resume` field records the policy for obtaining approval and is not itself evidence that approval occurred.
 Explicit resumption requires both a valid RFC 3339 `resumed_at` and a non-empty `resume_instruction`; supplying only one, supplying an invalid value, or otherwise failing the schema makes the receipt malformed.
 Additional audit-history fields are allowed and do not change the verdict.
+The receipt records an operator stop; writing it does not terminate already-running processes.
 
 An active valid stop and malformed stop evidence both suppress automatic watcher startup, restart, continuity retries, turn-end repair prompts, startup extension-restart prompts, and startup-owned secondmate relaunch.
 Malformed evidence suppresses these paths rather than inferring permission, and the diagnostic names the receipt and validation problem.
 An absent receipt or a valid explicitly resumed receipt preserves ordinary supervision behavior.
 A stopped home keeps its session lock and its otherwise authorized ability to dispatch, steer, and merge; this receipt suspends automatic monitoring rather than relinquishing fleet ownership.
-A persistent `kind=secondmate` metadata record is infrastructure rather than in-flight task work, so it does not create supervision need by itself even when no stop is recorded.
-An unresolved secondmate reply expectation requires supervision until it is resolved, and queued outcomes continue to require supervision until they are acknowledged.
+Session start replaces its ordinary harness supervision block with the stop status.
+The ordinary work-count and supervision-need rules are owned by the [guard predicates](turnend-guard.md#guard-predicates).
 
 Session-start and turn-end adapters, the foreground checkpoint, and the away launcher own visible reporting.
 The operation guard, background bootstrap, watcher, arm, and daemon processes suppress monitoring without claiming notices, even when their output is captured or discarded.
-Watcher exit code 3 means deliberate suppression; the shared extension bridge in `.pi/extensions/lib/fm-monitoring-stop.ts` carries `stopped` separately from `ready` and `failed` through asynchronous readiness and restoration.
+The [watcher continuity contract](watcher-continuity.md#actionable-wake-ordering) owns how deliberate suppression preserves actionable wakes across readiness and delivery.
 The first active-stop observation is reported at most once per stop timestamp, even if audit history later changes, and each distinct malformed receipt revision is reported at most once.
 Those atomic report claims live under `state/.monitoring-stop-reports/` and do not authorize editing the private receipt.
 Resumption or correction of the receipt remains an explicit owner operation; removing or repairing malformed evidence must never be used to infer operator approval.

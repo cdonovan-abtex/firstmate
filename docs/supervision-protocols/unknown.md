@@ -1,5 +1,7 @@
 Mode: Unknown harness fallback.
 
+The [home monitoring-stop policy](../configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson) takes precedence over the cycle and repair instructions below.
+
 This primary harness does not have a verified watcher wake adapter.
 Follow the generic supervision contract in `AGENTS.md`.
 First cycle: drain queued wakes, then choose a supervision wait that the harness can actually wake from.

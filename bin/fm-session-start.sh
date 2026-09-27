@@ -39,8 +39,9 @@
 #   3. wake-drain     - presents durable wakes and advances recovery handling
 #                       state, so it only runs when locked. The local bounded
 #                       inactive-outcome startup scan runs in the deferred worker.
-#   4. supervision-instructions - the one emitted operating block for the
-#                       detected primary harness.
+#   4. supervision-instructions - the stop status or one operating block for the
+#                       detected primary harness, under the monitoring-stop
+#                       policy in docs/configuration.md.
 #   5. read-once contract - the do-not-re-read contract covering every source
 #                       represented by the two digests below.
 #   6. fleet digest   - a compact data/backlog.md identity/metadata listing,
@@ -100,9 +101,9 @@
 # The LOCK/BOOTSTRAP/WAKE-QUEUE safety preamble keeps its order: it establishes
 # mutation authority and this turn's work queue before anything else is read.
 #
-# On a Pi primary, the supervision-block step also checks whether Pi's two
-# tracked primary extensions are loaded and prints a PI_WATCH_EXTENSION
-# reminder line when one is missing.
+# When monitoring is enabled on a Pi primary, the supervision-block step also
+# checks whether Pi's two tracked primary extensions are loaded and prints a
+# PI_WATCH_EXTENSION reminder line when one is missing.
 #
 # Why lock first: the old documented order (bootstrap, THEN lock) let a
 # SECOND concurrent session run bootstrap's mutating sweeps - converging

@@ -18,6 +18,8 @@ Hold-for-return is the default and the only reach profile this release records: 
 
 ## Entering: `/afk [words]`
 
+Apply the [home monitoring-stop policy](../../../docs/configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson) to all daemon-start, cycle-continuation, and supervision-repair steps in this skill.
+
 1. **Translate the captain's words into mandate clauses.**
    The words are recorded verbatim; the clauses are your reading of them as explicit fields `bin/fm-afk-contract.sh` records: an action from its fixed verb list, the object in the captain's words, and the stated precondition in the captain's words, plus an optional stop.
    Read `bin/fm-afk-contract.sh --help` for the field flags, verb list, and coarse best-effort never-set flag rather than memorizing them.

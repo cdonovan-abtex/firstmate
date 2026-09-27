@@ -59,6 +59,10 @@
 #   fm-afk-launch.sh start-native
 #                              Prepare lifecycle state for a harness-native
 #                              background job and record that no terminal exists.
+#                              Both start modes return 3 for deliberate
+#                              monitoring suppression and report the stop once;
+#                              do not retry it as a daemon startup failure.
+#                              Receipt policy: docs/configuration.md.
 #   fm-afk-launch.sh stop      Correct-ordered exit: SIGTERM the daemon so its
 #                              cleanup flushes WHILE state/.afk is still present,
 #                              wait for it, close the recorded terminal by exact
