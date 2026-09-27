@@ -945,6 +945,7 @@ test_cursor_fallback_delivers_late_stop_as_json() {
     esac
     mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
     printf 'kind=ship\n' > "$test_home/state/work.meta"
+    # shellcheck disable=SC2016 # The generated script expands FM_HOME when it runs.
     printf '#!/usr/bin/env bash\nprintf "attempt\\n" >> "$FM_HOME/attempts"\nexit 1\n' > "$test_home/bin/fm-watch-arm.sh"
     mv "$test_home/bin/fm-turnend-guard.sh" "$test_home/bin/fm-turnend-guard-real.sh"
     cat > "$test_home/bin/fm-turnend-guard.sh" <<'SH'
@@ -1205,6 +1206,7 @@ test_running_and_attached_arm_stop_on_termination() {
       fi
       mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
       mkdir -p "$test_home/fakebin"
+      # shellcheck disable=SC2016 # The generated script reads its own first argument.
       printf '#!/usr/bin/env bash\n[ "${1:-}" = list-windows ]\n' > "$test_home/fakebin/tmux"
       chmod +x "$test_home/fakebin/tmux"
       touch "$test_home/state/home-summary.json"
@@ -1277,6 +1279,7 @@ test_superseded_cursor_park_cannot_claim_stop_notice() {
     [ "$kind" != malformed ] || printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
     mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
     printf 'kind=ship\n' > "$test_home/state/work.meta"
+    # shellcheck disable=SC2016 # The generated script expands FM_HOME when it runs.
     printf '#!/usr/bin/env bash\nprintf "attempt\\n" >> "$FM_HOME/attempts"\nexit 1\n' > "$test_home/bin/fm-watch-arm.sh"
     mv "$test_home/bin/fm-turnend-guard.sh" "$test_home/bin/fm-turnend-guard-real.sh"
     cat > "$test_home/bin/fm-turnend-guard.sh" <<'SH'
