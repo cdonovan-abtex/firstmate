@@ -103,8 +103,8 @@ test_arm_wrapper_refuses_active_and_malformed_stop() {
   write_active_receipt "$home"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-watch-arm.sh" 2>&1); status=$?
   expect_code 3 "$status" "watch arm must refuse an active operator stop"
-  assert_contains "$out" "monitoring stopped by Captain order at 2026-09-21T18:42:20.023025+00:00" \
-    "active arm refusal did not report the stop once"
+  [ -z "$out" ] || fail "arm must leave reporting to its visible caller: $out"
+  assert_absent "$home/state/.monitoring-stop-reports" "arm consumed the active stop notice"
   assert_absent "$home/state/.watch.lock" "active stop still created a watcher lock"
 
   home="$TMP_ROOT/arm-malformed"
@@ -112,7 +112,8 @@ test_arm_wrapper_refuses_active_and_malformed_stop() {
   printf '{bad json\n' > "$home/data/automatic-monitoring-pause/receipt.json"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-watch-arm.sh" 2>&1); status=$?
   expect_code 3 "$status" "watch arm must refuse malformed stop evidence"
-  assert_contains "$out" "AUTOMATIC_MONITORING_STOP_INVALID" "malformed arm refusal did not report a useful diagnostic"
+  [ -z "$out" ] || fail "arm must leave reporting to its visible caller: $out"
+  assert_absent "$home/state/.monitoring-stop-reports" "arm consumed the malformed stop notice"
   assert_absent "$home/state/.watch.lock" "malformed stop evidence still created a watcher lock"
   pass "watch arm refuses active and malformed stop evidence before watcher launch"
 }
@@ -193,7 +194,12 @@ process.exit(result.status ?? 99);
 JS
 ); status=$?
       expect_code 3 "$status" "$entry must intentionally suppress $kind monitoring"
-      assert_contains "$out" AUTOMATIC_MONITORING_STOP "$entry must report suppression"
+      if [ "$entry" = fm-watch-checkpoint.sh ]; then
+        assert_contains "$out" AUTOMATIC_MONITORING_STOP "foreground checkpoint must report suppression"
+      else
+        [ -z "$out" ] || fail "$entry reported from a potentially hidden child: $out"
+        assert_absent "$home/state/.monitoring-stop-reports" "$entry consumed report in a child"
+      fi
       second=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/$entry" 2>&1); status=$?
       expect_code 3 "$status" "$entry must keep suppressing monitoring"
       [ -z "$second" ] || fail "$entry repeated the report: $second"
@@ -240,7 +246,7 @@ JS
 ); status=$?
     expect_code 0 "$status" "daemon must exit cleanly after intentional $kind suppression: $out"
     [ "$(cat "$home/handled")" = handled ] || fail "daemon did not handle exactly one ordinary wake"
-    assert_contains "$out" AUTOMATIC_MONITORING_STOP "daemon swallowed child suppression output"
+    assert_absent "$home/state/.monitoring-stop-reports" "daemon consumed the report inside its terminal"
     assert_not_contains "$(cat "$home/state/.supervise-daemon.log")" 'restarting after' "daemon treated intentional suppression as a crash"
     assert_absent "$home/state/.watch.lock/pid" "daemon left monitoring alive"
     assert_absent "$home/state/.supervise-daemon.pid" "daemon did not retire after stop"
@@ -293,7 +299,8 @@ test_turnend_adapters_display_stop_diagnostic_once() {
     cp "$ROOT/.opencode/plugins/lib/fm-operational-input.js" "$home/.opencode/plugins/lib/"
     out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$home" ADAPTER="$adapter" NODE_NO_WARNINGS=1 node --input-type=module 2>&1 <<'JS'
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 const home = process.env.FM_HOME;
 const adapter = process.env.ADAPTER;
@@ -335,8 +342,13 @@ if (adapter === "opencode") {
 }
 await endTurn();
 assert.equal(messages.length, 0);
+const precheck = spawnSync(`${home}/bin/fm-monitoring-stop.sh`, ["status", "--json"], { encoding: "utf8" });
+assert.equal(JSON.parse(precheck.stdout).status, "none");
 mkdirSync(`${home}/data/automatic-monitoring-pause`, { recursive: true });
 writeFileSync(`${home}/data/automatic-monitoring-pause/receipt.json`, "{bad json\n");
+const capturedArm = spawnSync(`${home}/bin/fm-watch-arm.sh`, [], { encoding: "utf8" });
+assert.equal(capturedArm.status, 3);
+assert.equal(existsSync(`${home}/state/.monitoring-stop-reports`), false, "hidden arm consumed diagnostic");
 await endTurn();
 assert.equal(messages.length, 1, `${adapter} swallowed diagnostic`);
 assert.match(messages[0], /AUTOMATIC_MONITORING_STOP_INVALID/);
@@ -349,7 +361,7 @@ JS
 ); status=$?
     expect_code 0 "$status" "$adapter must visibly deliver nonblocking diagnostic: $out"
   done
-  pass "Pi, omp, and OpenCode display newly malformed evidence once without continuation"
+  pass "Pi, omp, and OpenCode display an arm-start race diagnostic once without continuation"
 }
 
 test_opencode_requires_shared_helper() {
@@ -395,6 +407,183 @@ test_checkpoint_preserves_absent_and_resumed_behavior() {
   pass "absent and explicitly resumed stops preserve real checkpoint supervision"
 }
 
+make_hook_harnesses() {
+  mkdir -p "$TMP_ROOT/harnesses"
+  cat > "$TMP_ROOT/harnesses/host.c" <<'C'
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+  char path[4096];
+  int status;
+  pid_t child;
+  if (argc != 2 || !getenv("FM_HOME")) return 64;
+  snprintf(path, sizeof(path), "%s/state/.lock", getenv("FM_HOME"));
+  FILE *lock = fopen(path, "w");
+  if (!lock) return 73;
+  fprintf(lock, "%ld\n", (long)getpid());
+  fclose(lock);
+  child = fork();
+  if (child < 0) return 70;
+  if (!child) { execl("/bin/bash", "bash", argv[1], (char *)0); _exit(127); }
+  while (waitpid(child, &status, 0) < 0) if (errno != EINTR) return 71;
+  return WIFEXITED(status) ? WEXITSTATUS(status) : 72;
+}
+C
+  cc -o "$TMP_ROOT/harnesses/claude" "$TMP_ROOT/harnesses/host.c" || fail "could not build hook harness"
+  cp "$TMP_ROOT/harnesses/claude" "$TMP_ROOT/harnesses/cursor-agent"
+}
+
+test_resolved_secondmate_outcome_reaches_hooks() {
+  local test_home harness script out status corr phase seq need drain generation
+  for harness in claude cursor-agent; do
+    test_home="$TMP_ROOT/queued-reply-$harness"
+    make_guard_home "$test_home"
+    printf 'kind=secondmate\nstatus=idle\n' > "$test_home/state/mini.meta"
+    corr=$(FM_HOME="$test_home" bash -c '. "$1/bin/fm-pending-reply-lib.sh"; corr=$(fm_pending_reply_create "$2" "$2/state" mini "Report progress") || exit 1; fm_pending_reply_mark_delivered "$2/state" "$corr" || exit 1; printf "%s" "$corr"' _ "$ROOT" "$test_home")
+    printf '%s\n' "$corr" > "$test_home/correlation"
+    cat > "$test_home/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+corr=$(cat "$FM_HOME/correlation")
+printf 'needs-decision [corr=%s]: choose the next action\n' "$corr" > "$FM_HOME/state/mini.status"
+exec "$FM_HOME/bin/fm-watch-checkpoint.sh" --seconds 8
+SH
+    chmod +x "$test_home/bin/fm-watch-arm.sh"
+    if [ "$harness" = claude ]; then script=fm-claude-stop-autoarm.sh; else script=fm-turnend-guard-cursor.sh; fi
+    out=$(printf '{"session_id":"reply-test","stop_hook_active":false,"loop_count":0}' \
+      | env -u PI_CODING_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" \
+        FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CURSOR_PARK_POLL=1 \
+        "$TMP_ROOT/harnesses/$harness" "$test_home/bin/$script" 2>&1); status=$?
+    if [ "$harness" = claude ]; then
+      expect_code 2 "$status" "Claude must deliver the resolved secondmate outcome: $out"
+    else
+      expect_code 0 "$status" "Cursor must deliver the resolved secondmate outcome: $out"
+      out=$(printf '%s' "$out" | jq -er .followup_message) || fail "Cursor returned no follow-up"
+    fi
+    assert_contains "$out" 'firstmate watcher wake' "$harness discarded resolved secondmate outcome"
+    assert_contains "$out" mini.status "$harness omitted the secondmate signal"
+    phase=$(awk -F= '$1=="phase" {print $2}' "$test_home/state/pending-replies/$corr")
+    [ "$phase" = resolved ] || fail "fixture did not resolve reply before delivery"
+    seq=$(awk -F '\t' '$2>max {max=$2} END {print max}' "$test_home/state/.wake-queue")
+    [ -n "$seq" ] || fail "secondmate outcome was not queued"
+    need=$(FM_HOME="$test_home" bash -c '. "$1/bin/fm-supervision-lib.sh"; fm_supervision_status "$2/state"; printf "%s|%s|%s" "$FM_SUP_IN_FLIGHT" "$FM_SUP_PENDING_REPLIES" "$FM_SUP_NEEDED"' _ "$ROOT" "$test_home")
+    [ "$need" = '0|0|true' ] || fail "queued outcome must independently require supervision: $need"
+    write_active_receipt "$test_home"
+    need=$(FM_HOME="$test_home" bash -c '. "$1/bin/fm-supervision-lib.sh"; fm_supervision_status "$2/state"; printf "%s" "$FM_SUP_NEEDED"' _ "$ROOT" "$test_home")
+    [ "$need" = false ] || fail "queued outcome overrode operator stop"
+    rm "$test_home/data/automatic-monitoring-pause/receipt.json"
+    drain=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" "$test_home/bin/fm-wake-drain.sh" 2>&1) || fail "could not present queued outcome: $drain"
+    generation=$(printf '%s\n' "$drain" | awk '/^WAKE_ACK_REQUIRED:/ { for (i=1;i<NF;i++) if ($i=="--recovery-generation") print $(i+1) }')
+    if [ -n "$generation" ]; then
+      FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" "$test_home/bin/fm-wake-drain.sh" --ack-through "$seq" --recovery-generation "$generation" >/dev/null || fail "could not acknowledge queued outcome"
+    else
+      FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" "$test_home/bin/fm-wake-drain.sh" --ack-through "$seq" >/dev/null || fail "could not acknowledge queued outcome"
+    fi
+    need=$(FM_HOME="$test_home" bash -c '. "$1/bin/fm-supervision-lib.sh"; fm_supervision_status "$2/state"; printf "%s|%s|%s" "$FM_SUP_IN_FLIGHT" "$FM_SUP_PENDING_REPLIES" "$FM_SUP_NEEDED"' _ "$ROOT" "$test_home")
+    [ "$need" = '0|0|false' ] || fail "acknowledged outcome kept infrastructure active: $need"
+  done
+  pass "Claude and Cursor deliver resolved secondmate outcomes until acknowledged"
+}
+
+test_cursor_reports_before_early_return_and_after_arm_race() {
+  local test_home timing out status
+  for timing in before-stop during-arm; do
+    test_home="$TMP_ROOT/cursor-notice-$timing"
+    make_guard_home "$test_home"
+    mkdir -p "$test_home/data/automatic-monitoring-pause"
+    printf '{bad json\n' > "$test_home/receipt.ready"
+    cat > "$test_home/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm\n' >> "$FM_HOME/arm-ran"
+mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+exit 3
+SH
+    chmod +x "$test_home/bin/fm-watch-arm.sh"
+    cat > "$test_home/turns.sh" <<'SH'
+#!/usr/bin/env bash
+payload='{"session_id":"cursor-notice","loop_count":0,"cursor_version":"test"}'
+cp "$FM_HOME/state/.lock" "$FM_HOME/owner.before"
+printf '%s' "$payload" | "$FM_HOME/bin/fm-turnend-guard-cursor.sh" > "$FM_HOME/initial"
+if [ "$TIMING" = before-stop ]; then
+  mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+fi
+printf 'kind=ship\n' > "$FM_HOME/state/work.meta"
+printf '%s' "$payload" | "$FM_HOME/bin/fm-turnend-guard-cursor.sh" > "$FM_HOME/first"
+printf '%s' "$payload" | "$FM_HOME/bin/fm-turnend-guard-cursor.sh" > "$FM_HOME/second"
+cmp "$FM_HOME/owner.before" "$FM_HOME/state/.lock"
+SH
+    out=$(env -u PI_CODING_AGENT FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" TIMING="$timing" \
+      FM_CURSOR_PARK_POLL=1 "$TMP_ROOT/harnesses/cursor-agent" "$test_home/turns.sh" 2>&1); status=$?
+    expect_code 0 "$status" "Cursor stop diagnostic delivery failed: $out"
+    [ ! -s "$test_home/initial" ] || fail "idle Cursor emitted a follow-up without stop or work"
+    [ ! -s "$test_home/second" ] || fail "Cursor repeated the stop notice"
+    out=$(jq -er .followup_message "$test_home/first") || fail "Cursor discarded malformed diagnostic"
+    assert_contains "$out" AUTOMATIC_MONITORING_STOP_INVALID "Cursor omitted malformed diagnostic"
+    assert_not_contains "$out" 'TURN WOULD END BLIND' "Cursor requested repair under stop"
+    assert_absent "$test_home/state/.watch.lock" "Cursor armed despite stop"
+    if [ "$timing" = before-stop ]; then
+      assert_absent "$test_home/arm-ran" "Cursor tried to arm after recorded stop"
+    else
+      [ "$(cat "$test_home/arm-ran")" = arm ] || fail "Cursor retried suppressed arm"
+    fi
+  done
+  pass "Cursor reports malformed evidence once before idle return and after arm suppression"
+}
+
+test_away_launcher_reports_visible_stop() {
+  local test_home kind out second status mode
+  for kind in active malformed; do
+    for mode in start start-native; do
+      test_home="$TMP_ROOT/launcher-$kind-$mode"
+      write_active_receipt "$test_home"
+      [ "$kind" != malformed ] || printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+      out=$(FM_HOME="$test_home" "$ROOT/bin/fm-afk-launch.sh" "$mode" 2>&1); status=$?
+      expect_code 3 "$status" "away launcher must intentionally suppress $kind stop: $out"
+      assert_contains "$out" AUTOMATIC_MONITORING_STOP "away launcher did not report stop"
+      second=$(FM_HOME="$test_home" "$ROOT/bin/fm-afk-launch.sh" "$mode" 2>&1); status=$?
+      expect_code 3 "$status" "away launcher must remain suppressed"
+      [ -z "$second" ] || fail "away launcher repeated stop notice: $second"
+      assert_absent "$test_home/state/.afk-daemon-terminal" "stopped launcher created a terminal"
+      assert_absent "$test_home/state/.afk" "stopped launcher changed away posture"
+    done
+    test_home="$TMP_ROOT/launcher-race-$kind"
+    write_active_receipt "$test_home"
+    [ "$kind" != malformed ] || printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+    mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+    out=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$ROOT" bash -c '
+      . "$1/bin/fm-afk-launch.sh"
+      fm_afk_launch_catchup_pending() { return 1; }
+      fm_afk_launch_daemon_allowed() { return 0; }
+      fm_afk_launch_record_require() { return 0; }
+      discover_supervisor_target() { printf "test\n"; }
+      discover_supervisor_backend() { printf "tmux\n"; }
+      tmux() { [ "$1" = new-session ]; }
+      fm_afk_launch_wait_ready() {
+        mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+        "$FM_ROOT/bin/fm-supervise-daemon.sh" > "$FM_HOME/hidden-output" 2>&1
+        printf "%s\n" "$?" > "$FM_HOME/child-status"
+        return 1
+      }
+      fm_afk_launch_close_terminal() { printf "%s:%s\n" "$1" "$2" > "$FM_HOME/closed"; }
+      fm_afk_launch_terminal_absent() { [ -s "$FM_HOME/closed" ]; }
+      fm_afk_launch_main start
+    ' _ "$ROOT" 2>&1); status=$?
+    expect_code 3 "$status" "launcher must recognize stop during hidden daemon startup: $out"
+    [ "$(cat "$test_home/child-status")" = 3 ] || fail "daemon did not suppress startup"
+    [ ! -s "$test_home/hidden-output" ] || fail "daemon reported inside hidden terminal"
+    assert_contains "$out" AUTOMATIC_MONITORING_STOP "launcher swallowed hidden-start diagnostic"
+    assert_not_contains "$out" 'daemon did not become ready' "launcher misreported intentional suppression"
+    assert_absent "$test_home/state/.afk-daemon-terminal" "launcher did not retire suppressed terminal"
+    assert_absent "$test_home/state/.afk" "launcher did not roll back away posture"
+    second=$(FM_HOME="$test_home" "$ROOT/bin/fm-afk-launch.sh" start 2>&1); status=$?
+    expect_code 3 "$status" "launcher must remain suppressed after race"
+    [ -z "$second" ] || fail "launcher race report repeated: $second"
+  done
+  pass "away launcher reports stops visibly, including hidden daemon startup races"
+}
+
 test_status_distinguishes_absent_active_resumed_and_malformed
 test_report_is_once_per_stop_identity
 test_supervision_predicate_honors_stop_and_excludes_secondmate
@@ -407,3 +596,7 @@ test_outstanding_secondmate_reply_keeps_supervision
 test_turnend_adapters_display_stop_diagnostic_once
 test_opencode_requires_shared_helper
 test_checkpoint_preserves_absent_and_resumed_behavior
+make_hook_harnesses
+test_resolved_secondmate_outcome_reaches_hooks
+test_cursor_reports_before_early_return_and_after_arm_race
+test_away_launcher_reports_visible_stop

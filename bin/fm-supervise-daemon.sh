@@ -1538,7 +1538,6 @@ fm_super_main() {
   # shellcheck source=bin/fm-monitoring-stop-lib.sh
   . "$FM_DAEMON_DIR/fm-monitoring-stop-lib.sh"
   if fm_monitoring_stop_blocks "$STATE"; then
-    fm_monitoring_stop_report_once "$STATE"
     return 3
   fi
   mkdir -p "$STATE"

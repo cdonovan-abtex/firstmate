@@ -298,10 +298,14 @@ test_park_suppresses_active_and_malformed_monitoring_stop() {
       printf '{bad json\n' > "$receipt"
     fi
     out=$(run_park "$dir")
-    [ -z "$out" ] || fail "the park emitted a follow-up under $kind monitoring-stop evidence: $out"
+    assert_contains "$(printf '%s' "$out" | jq -r .followup_message)" AUTOMATIC_MONITORING_STOP \
+      "the park did not deliver the stop notice"
+    assert_not_contains "$out" 'TURN WOULD END BLIND' "the park requested repair under a stop"
+    out=$(run_park "$dir")
+    [ -z "$out" ] || fail "the park repeated a $kind monitoring-stop notice: $out"
     assert_absent "$dir/state/arm-ran" "the park armed under $kind monitoring-stop evidence"
   done
-  pass "cursor park: active and malformed monitoring-stop evidence suppresses watcher launch and follow-up"
+  pass "cursor park: active and malformed monitoring-stop evidence suppresses launch and reports once"
 }
 
 test_park_delivers_actionable_wake_as_followup() {

@@ -95,6 +95,10 @@ fi
 set -e
 
 if [ "$RC" -eq 3 ]; then
+  # shellcheck source=bin/fm-monitoring-stop-lib.sh
+  . "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
+  FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
+  fm_monitoring_stop_report_once "${FM_STATE_OVERRIDE:-$FM_HOME/state}"
   [ ! -s "$OUT" ] || cat "$OUT"
   [ ! -s "$ERR" ] || cat "$ERR" >&2
   exit 3

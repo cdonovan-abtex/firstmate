@@ -215,6 +215,21 @@ $reason"
   exit 0
 }
 
+exit_if_monitoring_stopped() {
+  local notice encoded
+  fm_monitoring_stop_blocks "$STATE" || return 0
+  lock_acquire_bounded "$OWNER_LOCK" || exit 0
+  if park_still_ours && current_session_still_ours; then
+    notice=$(fm_monitoring_stop_report_once "$STATE")
+    if [ -n "$notice" ]; then
+      fm_operational_input_encode turn-end-guard "$notice" encoded \
+        && jq -n --arg m "$encoded" '{followup_message:$m}'
+    fi
+  fi
+  fm_lock_release "$OWNER_LOCK"
+  exit 0
+}
+
 # --- park ownership ----------------------------------------------------------
 # Last arrival wins. The short owner lock serializes publication with only the
 # final ownership, away-mode, output, and repair-budget commit.
@@ -265,6 +280,7 @@ case "$OWNER_ID" in ''|*[!0-9]*) exit 0 ;; esac
 
 PARK_SEQ=
 claim_park || exit 0
+exit_if_monitoring_stopped
 
 # Cursor's own loop_limit is the outer ceiling; this inner one bites first so the
 # session is told once, loudly, instead of supervision going quiet unannounced.
@@ -278,6 +294,7 @@ fi
 [ -e "$STATE/.afk" ] && exit 0
 
 if ! fm_supervision_needed "$STATE" "$GRACE"; then
+  exit_if_monitoring_stopped
   budget_reset_if_ours
   exit 0
 fi
@@ -328,6 +345,7 @@ while [ "$attempt" -lt "$ARM_ATTEMPTS" ]; do
   fi
   wait "$ARM_PID" 2>/dev/null || true
   ARM_PID=
+  exit_if_monitoring_stopped
 
   # Away mode may have been entered while parked: the daemon owns triage now.
   [ -e "$STATE/.afk" ] && exit 0
@@ -352,6 +370,7 @@ done
 # The need may have vanished while parked - the fleet was torn down, or Relay
 # was opted out. Nothing left to supervise, so end the turn quietly.
 if ! fm_supervision_needed "$STATE" "$GRACE"; then
+  exit_if_monitoring_stopped
   budget_reset_if_ours
   exit 0
 fi

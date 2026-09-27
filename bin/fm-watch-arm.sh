@@ -416,7 +416,6 @@ fi
 fm_monitoring_stop_status "$STATE"
 case "$FM_MONITORING_STOP_STATUS" in
   active|malformed)
-    fm_monitoring_stop_report_once "$STATE"
     exit 3
     ;;
 esac

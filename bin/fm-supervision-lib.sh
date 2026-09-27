@@ -45,7 +45,8 @@ fm_sup_stat_mtime() {
 #   FM_SUP_NEEDED         true/false - in-flight work, an X-mode relay poll, a
 #                         registered event source (a source is a wait on an
 #                         external process, not a task, so it has no metadata),
-#                         an unresolved secondmate reply, or a registered custom check; forced false while a
+#                         an unresolved secondmate reply, a queued wake, or a
+#                         registered custom check; forced false while a
 #                         valid active or malformed monitoring-stop receipt
 #                         suppresses automatic supervision
 #   FM_SUP_MONITORING_STOP_STATUS
@@ -63,6 +64,7 @@ fm_supervision_status() {
   FM_SUP_WATCHER_FRESH=false
   FM_SUP_BEACON_DESC=never
   FM_SUP_QUEUE_PENDING=false
+  [ -s "$state/.wake-queue" ] && FM_SUP_QUEUE_PENDING=true
 
   for meta in "$state"/*.meta; do
     [ -e "$meta" ] || continue
@@ -95,6 +97,7 @@ fm_supervision_status() {
   done
   if [ "$FM_SUP_IN_FLIGHT" -gt 0 ] \
     || [ -f "$state/x-watch.check.sh" ] \
+    || [ "$FM_SUP_QUEUE_PENDING" = true ] \
     || [ "$FM_SUP_PENDING_REPLIES" -gt 0 ] \
     || [ "$FM_SUP_SOURCES" -gt 0 ] \
     || [ "$FM_SUP_CHECKS" -gt 0 ]; then
@@ -120,8 +123,6 @@ fm_supervision_status() {
     fi
   fi
 
-  # shellcheck disable=SC2034 # Read by callers (fm-guard.sh) after sourcing.
-  [ -s "$state/.wake-queue" ] && FM_SUP_QUEUE_PENDING=true
   return 0
 }
 

@@ -32,6 +32,7 @@ Registered `state/procevent/*.source` records and unresolved secondmate reply ex
 Before applying any watcher-health requirement, the shared predicate reads the home-scoped automatic-monitoring stop verdict owned by [`configuration.md`](configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson).
 An active valid stop or malformed stop evidence makes the turn-end guard and pull guard return cleanly without a repair prompt, while the once-only reporter emits either the operator stop time or the malformed-evidence problem.
 Pi and omp display successful guard output as a message without starting another turn; OpenCode adds it to the session with `noReply: true`.
+Cursor uses its once-only informational follow-up before any supervision-needed early return, without requesting watcher repair.
 An absent or explicitly resumed stop record leaves the ordinary predicate unchanged.
 The default cross-harness mode exits silently with no supervision need.
 Every mode treats `state/x-watch.check.sh` as supervision need, so Relay polling remains guarded without an in-flight task.

@@ -1735,7 +1735,6 @@ fi
 # shellcheck source=bin/fm-monitoring-stop-lib.sh
 . "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
 if fm_monitoring_stop_blocks "$STATE"; then
-  fm_monitoring_stop_report_once "$STATE"
   exit 3
 fi
 
