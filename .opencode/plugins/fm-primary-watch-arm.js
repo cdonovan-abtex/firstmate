@@ -439,6 +439,12 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     settled = true;
     resolveClosed();
     releaseChild();
+    const stopStatus = code === 3 ? monitoringStopArmStatus(paths) : "";
+    if (stopStatus) {
+      setArmStatus(stopStatus);
+      settleReadiness(stopStatus);
+      return;
+    }
     const classification = classifyArmClose(stdout, stderr, code, signal);
     settleReadiness(classification.kind === "actionable" ? "wake" : "failed");
     const predecessor = String(armChild.pid ?? "");

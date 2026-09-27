@@ -584,6 +584,138 @@ test_away_launcher_reports_visible_stop() {
   pass "away launcher reports stops visibly, including hidden daemon startup races"
 }
 
+test_bootstrap_nudges_forward_stop_diagnostic_once() {
+  local scenario world test_home primary mate fakebin out second status
+  fm_git_identity
+  for scenario in success failure; do
+    world="$TMP_ROOT/bootstrap-$scenario"
+    test_home="$world/home"
+    primary="$world/main"
+    mate="$world/mini"
+    fakebin="$world/fakebin"
+    mkdir -p "$test_home/state" "$test_home/config" "$fakebin" "$primary/bin"
+    git init -q -b main "$primary"
+    printf 'state/\ndata/\nconfig/\nprojects/\n.fm-secondmate-home\n' > "$primary/.gitignore"
+    printf 'initial instructions\n' > "$primary/AGENTS.md"
+    printf 'true\n' > "$primary/bin/tool.sh"
+    git -C "$primary" add .
+    git -C "$primary" commit -qm initial
+    git -C "$primary" worktree add -q --detach "$mate" HEAD
+    printf 'mini\n' > "$mate/.fm-secondmate-home"
+    printf 'window=firstmate:fm-mini\nkind=secondmate\nharness=codex\nhome=%s\n' "$mate" > "$test_home/state/mini.meta"
+    printf '%s\n' "$$" > "$test_home/state/.lock"
+    printf 'updated instructions\n' > "$primary/AGENTS.md"
+    git -C "$primary" commit -qam update
+    fm_fake_exit0 "$fakebin" gh
+    cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  list-windows*) printf 'fm-mini\n' ;;
+  *display-message*'#{pane_current_command}'*) printf 'codex\n' ;;
+  *display-message*'#{pane_id}'*) printf '%%1\n' ;;
+  *display-message*'#{cursor_y}'*) printf '0\n' ;;
+  *capture-pane*) printf '❯\n' ;;
+esac
+exit 0
+SH
+    chmod +x "$fakebin/tmux"
+    write_active_receipt "$test_home"
+    printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+    [ "$scenario" != failure ] || : > "$test_home/state/mini.inbox"
+    out=$(PATH="$fakebin:$PATH" FM_HOME="$test_home" FM_ROOT_OVERRIDE="$primary" \
+      FM_BACKEND=tmux FM_SEND_SETTLE=0 FM_BOOTSTRAP_NETWORK=only "$ROOT/bin/fm-bootstrap.sh" 2>&1); status=$?
+    expect_code 0 "$status" "bootstrap must complete with malformed evidence: $out"
+    [ "$(printf '%s\n' "$out" | grep -c AUTOMATIC_MONITORING_STOP_INVALID)" = 1 ] || fail "bootstrap $scenario lost or repeated its captured diagnostic: $out"
+    assert_contains "$out" 'valid JSON' "bootstrap lost the malformed-receipt reason"
+    assert_not_contains "$out" 'TURN WOULD END BLIND' "bootstrap prompted re-arm under a stop"
+    [ "$(cat "$test_home/state/.lock")" = "$$" ] || fail "bootstrap relinquished session ownership"
+    assert_absent "$test_home/state/.watch.lock" "bootstrap armed a stopped watcher"
+    if [ "$scenario" = success ]; then
+      assert_contains "$out" 'BOOTSTRAP_INFO: nudged fm-mini' "stop blocked the startup nudge: $out"
+      assert_contains "$(cat "$test_home/state/mini.inbox/001.msg")" 'please re-read your AGENTS.md' "startup nudge was not delivered"
+    else
+      assert_contains "$out" 'NUDGE_SECONDMATES: secondmate mini: send failed:' "bootstrap lost the send failure behind the stop notice"
+      assert_not_contains "$out" 'send failed: AUTOMATIC_MONITORING_STOP' "bootstrap repeated the stop notice as a send failure"
+      assert_present "$test_home/state/.secondmate-nudge-pending/mini.pending" "failed nudge lost retry marker"
+      rm "$test_home/state/mini.inbox"
+    fi
+    second=$(PATH="$fakebin:$PATH" FM_HOME="$test_home" FM_ROOT_OVERRIDE="$primary" \
+      FM_BACKEND=tmux FM_SEND_SETTLE=0 FM_BOOTSTRAP_NETWORK=only "$ROOT/bin/fm-bootstrap.sh" 2>&1)
+    assert_not_contains "$second" AUTOMATIC_MONITORING_STOP "bootstrap repeated the stop diagnostic"
+    assert_absent "$test_home/state/.secondmate-nudge-pending/mini.pending" "successful retry retained its marker: $second"
+    assert_contains "$(cat "$test_home/state/mini.inbox/001.msg")" 'please re-read your AGENTS.md' "bootstrap retry did not deliver the nudge"
+    second=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$primary" "$ROOT/bin/fm-guard.sh" 2>&1)
+    assert_not_contains "$second" AUTOMATIC_MONITORING_STOP "visible guard repeated bootstrap's diagnostic"
+  done
+  pass "startup forwards captured stop diagnostics once while preserving nudge delivery and retry"
+}
+
+test_opencode_idle_reports_arm_suppression_race() {
+  local test_home kind out status
+  for kind in active malformed; do
+    test_home="$TMP_ROOT/opencode-idle-$kind"
+    make_guard_home "$test_home"
+    write_active_receipt "$test_home"
+    [ "$kind" != malformed ] || printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+    mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+    mv "$test_home/bin/fm-watch-arm.sh" "$test_home/bin/fm-watch-arm-real.sh"
+    cat > "$test_home/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'attempt\n' >> "$FM_HOME/arm-attempts"
+mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+"$FM_HOME/bin/fm-watch-arm-real.sh" "$@"
+status=$?
+printf '%s\n' "$status" > "$FM_HOME/arm-status"
+exit "$status"
+SH
+    chmod +x "$test_home/bin/fm-watch-arm.sh"
+    out=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" ROOT="$ROOT" STOP_KIND="$kind" NODE_NO_WARNINGS=1 node --input-type=module 2>&1 <<'JS'
+import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const home = process.env.FM_HOME;
+const root = process.env.ROOT;
+writeFileSync(`${home}/state/.lock`, `${process.pid}\n`);
+writeFileSync(`${home}/state/task.meta`, "kind=ship\n");
+const messages = [];
+let continuations = 0;
+const client = { session: {
+  prompt: async (request) => {
+    assert.equal(request.path.id, "test");
+    assert.equal(request.body.noReply, true);
+    messages.push(request.body.parts[0].text);
+  },
+  promptAsync: async () => { continuations++; },
+} };
+const { FmPrimaryWatchArm } = await import(pathToFileURL(`${root}/.opencode/plugins/fm-primary-watch-arm.js`));
+const { FmPrimaryTurnendGuard } = await import(pathToFileURL(`${root}/.opencode/plugins/fm-primary-turnend-guard.js`));
+await FmPrimaryWatchArm({ worktree: home, client });
+const hooks = await FmPrimaryTurnendGuard({ worktree: home, client });
+const idle = { event: { type: "session.idle", properties: { sessionID: "test" } } };
+await hooks.event(idle);
+assert.equal(readFileSync(`${home}/arm-status`, "utf8").trim(), "3");
+assert.equal(messages.length, 1, "current idle swallowed arm suppression diagnostic");
+if (process.env.STOP_KIND === "malformed") {
+  assert.match(messages[0], /AUTOMATIC_MONITORING_STOP_INVALID:.*valid JSON/);
+} else {
+  assert.match(messages[0], /monitoring stopped by Captain order at 2026-09-21/);
+}
+assert.equal(continuations, 0, "suppression requested a repair turn");
+assert.equal(existsSync(`${home}/state/.watch.lock`), false);
+assert.equal(readFileSync(`${home}/state/.lock`, "utf8").trim(), String(process.pid));
+assert.equal(await globalThis.__firstmateOpenCodeWatchArm.ensureArmed("test", client),
+  process.env.STOP_KIND === "malformed" ? "monitoring-malformed" : "monitoring-stopped");
+await hooks.event(idle);
+assert.equal(messages.length, 1, "later idle repeated the diagnostic");
+assert.equal(readFileSync(`${home}/arm-attempts`, "utf8"), "attempt\n", "suppression retried the arm");
+assert.equal(continuations, 0);
+JS
+); status=$?
+    expect_code 0 "$status" "OpenCode must report $kind arm suppression in the same idle: $out"
+  done
+  pass "OpenCode propagates arm suppression to nonblocking reporting in the current idle"
+}
+
 test_status_distinguishes_absent_active_resumed_and_malformed
 test_report_is_once_per_stop_identity
 test_supervision_predicate_honors_stop_and_excludes_secondmate
@@ -600,3 +732,5 @@ make_hook_harnesses
 test_resolved_secondmate_outcome_reaches_hooks
 test_cursor_reports_before_early_return_and_after_arm_race
 test_away_launcher_reports_visible_stop
+test_bootstrap_nudges_forward_stop_diagnostic_once
+test_opencode_idle_reports_arm_suppression_race
