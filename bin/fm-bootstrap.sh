@@ -789,6 +789,7 @@ secondmate_liveness_one() {  # <meta> <id>
         [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" != 1 ] || echo "BOOTSTRAP_INFO: remote secondmate $id already live (host=$remote_host)"
         ;;
       dead|missing)
+        fm_monitoring_stop_blocks "$STATE" && return 0
         cause="remote endpoint $agent_state on its configured host"
         if out=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1); then
           secondmate_note_respawned "$id"
@@ -821,12 +822,14 @@ secondmate_liveness_one() {  # <meta> <id>
       fi
       ;;
     dead|missing)
+      fm_monitoring_stop_blocks "$STATE" && return 0
       if [ "$agent_state" = dead ]; then
         cause="confirmed agent absence on existing endpoint"
         fm_backend_kill "$backend" "$target" 2>/dev/null || true
       else
         cause="recorded endpoint confidently missing"
       fi
+      fm_monitoring_stop_blocks "$STATE" && return 0
       if out=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1); then
         secondmate_note_respawned "$id"
         report_relaunch "$id" "$cause" "backend=$backend"

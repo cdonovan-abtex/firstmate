@@ -189,10 +189,11 @@ function observeArmOutput(stdout, stderr, settleReadiness) {
   }
 }
 
-async function sendPrompt(paths, client, sessionID, text, failure = "") {
-  let encoded = await encodeFirstmateOperationalInput(paths.root, "watcher", failure ? `${text}\n\n${failure}` : text);
-  if (failure && monitoringStopped(paths)) {
-    encoded = await encodeFirstmateOperationalInput(paths.root, "watcher", text);
+async function sendPrompt(paths, client, sessionID, message, failure = "") {
+  let encoded = await encodeFirstmateOperationalInput(paths.root, "watcher", wakePrompt([message, failure].filter(Boolean).join("\n\n")));
+  if (monitoringStopped(paths)) {
+    if (!message) return;
+    if (failure) encoded = await encodeFirstmateOperationalInput(paths.root, "watcher", wakePrompt(message));
   }
   await client.session.promptAsync({
     path: { id: sessionID },
@@ -256,7 +257,7 @@ async function deliverActionableWake(paths, client, sessionID, message, restorat
       failure = [failure, confirmed.detail].filter(Boolean).join("\n\n");
     }
   }
-  await sendPrompt(paths, client, sessionID, wakePrompt(message), failure);
+  await sendPrompt(paths, client, sessionID, message, failure);
 }
 
 function wakePrompt(reason) {
@@ -265,7 +266,7 @@ function wakePrompt(reason) {
 
 function surfaceFailure(paths, client, sessionID, reason) {
   if (monitoringStopped(paths)) return;
-  void sendPrompt(paths, client, sessionID, wakePrompt(reason)).catch(() => {
+  void sendPrompt(paths, client, sessionID, "", reason).catch(() => {
     // OpenCode owns delivery errors; continuity restoration never waits on prompting.
   });
 }

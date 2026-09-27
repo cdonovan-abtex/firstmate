@@ -1325,6 +1325,235 @@ SH
   pass "Cursor claims stop notices only while the delivering park owns its output"
 }
 
+test_checkpoint_rechecks_stop_at_completion() {
+  local test_home kind outcome out status expected
+  for outcome in exit timeout wake; do
+    for kind in active malformed absent resumed; do
+      test_home="$TMP_ROOT/checkpoint-completion-$outcome-$kind"
+      make_guard_home "$test_home"
+      write_active_receipt "$test_home"
+      if [ "$kind" = malformed ]; then
+        printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+      elif [ "$kind" = resumed ]; then
+        jq '. + {resumed_at:"2026-09-28T10:00:00Z",resume_instruction:"Resume monitoring"}' \
+          "$test_home/data/automatic-monitoring-pause/receipt.json" > "$test_home/receipt.next"
+        mv "$test_home/receipt.next" "$test_home/data/automatic-monitoring-pause/receipt.json"
+      fi
+      mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+      printf '1\t1\tsignal\ttask\tsignal: durable checkpoint outcome\n' > "$test_home/state/.wake-queue"
+      cp "$test_home/state/.wake-queue" "$test_home/queue.before"
+      cat > "$test_home/bin/fm-watch.sh" <<'SH'
+#!/usr/bin/env bash
+[ "$STOP_KIND" = absent ] || mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+case "$WATCH_OUTCOME" in
+  exit) printf 'watcher: FAILED - test watcher terminated\n'; exit 1 ;;
+  wake) printf 'signal: durable checkpoint outcome\n'; exit 0 ;;
+esac
+trap 'exit 1' TERM INT
+for ((i=0; i<100; i++)); do sleep 0.05; done
+SH
+      chmod +x "$test_home/bin/fm-watch.sh"
+      out=$(FM_HOME="$test_home" STOP_KIND="$kind" WATCH_OUTCOME="$outcome" FM_SIGNAL_GRACE=1 \
+        "$test_home/bin/fm-watch-checkpoint.sh" --seconds 1 2>&1); status=$?
+      case "$kind" in
+        active|malformed)
+          expect_code 3 "$status" "late $kind checkpoint $outcome was not intentionally stopped: $out"
+          assert_contains "$out" AUTOMATIC_MONITORING_STOP "checkpoint lost its visible stop diagnostic"
+          assert_not_contains "$out" 'watcher: FAILED' "stopped checkpoint requested recovery"
+          assert_not_contains "$out" 'no actionable wake within' "stopped checkpoint requested another timeout cycle"
+          ;;
+        *)
+          case "$outcome" in
+            exit) expected=1; assert_contains "$out" 'watcher: FAILED' "ordinary checkpoint failure was hidden" ;;
+            timeout) expected=124; assert_contains "$out" 'no actionable wake within 1s' "ordinary checkpoint timeout was hidden" ;;
+            wake) expected=0 ;;
+          esac
+          expect_code "$expected" "$status" "$kind checkpoint changed ordinary $outcome handling: $out"
+          ;;
+      esac
+      [ "$outcome" != wake ] || assert_contains "$out" 'signal: durable checkpoint outcome' "stop lost the completed watcher outcome"
+      cmp "$test_home/queue.before" "$test_home/state/.wake-queue" || fail "checkpoint consumed queued work"
+    done
+  done
+  pass "checkpoint completion rechecks late stops while preserving wakes and ordinary failures"
+}
+
+test_opencode_suppresses_failure_stopped_during_encoding() {
+  local test_home kind out status
+  for kind in active malformed absent resumed; do
+    test_home="$TMP_ROOT/opencode-encoding-$kind"
+    make_guard_home "$test_home"
+    write_active_receipt "$test_home"
+    if [ "$kind" = malformed ]; then
+      printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+    elif [ "$kind" = resumed ]; then
+      jq '. + {resumed_at:"2026-09-28T10:00:00Z",resume_instruction:"Resume monitoring"}' \
+        "$test_home/data/automatic-monitoring-pause/receipt.json" > "$test_home/receipt.next"
+      mv "$test_home/receipt.next" "$test_home/data/automatic-monitoring-pause/receipt.json"
+    fi
+    mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+    printf '#!/usr/bin/env bash\necho "watcher: FAILED - fixture failure"\nexit 1\n' > "$test_home/bin/fm-watch-arm.sh"
+    mv "$test_home/bin/fm-operational-input.sh" "$test_home/bin/fm-operational-input-real.sh"
+    cat > "$test_home/bin/fm-operational-input.sh" <<'SH'
+#!/usr/bin/env bash
+touch "$FM_HOME/encoding-started"
+for ((i=0; i<400; i++)); do
+  [ -f "$FM_HOME/release-encoder" ] && break
+  sleep 0.01
+done
+"$FM_HOME/bin/fm-operational-input-real.sh" "$@"
+status=$?
+touch "$FM_HOME/encoding-finished"
+exit "$status"
+SH
+    chmod +x "$test_home/bin/fm-watch-arm.sh" "$test_home/bin/fm-operational-input.sh"
+    out=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" ROOT="$ROOT" STOP_KIND="$kind" NODE_NO_WARNINGS=1 \
+      FM_WATCH_REARM_RETRY_LIMIT=1 FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 \
+      node --input-type=module 2>&1 <<'JS'
+import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const home = process.env.FM_HOME, root = process.env.ROOT, kind = process.env.STOP_KIND;
+writeFileSync(`${home}/state/.lock`, `${process.pid}\n`);
+writeFileSync(`${home}/state/work.meta`, "kind=ship\n");
+const queue = "1\t1\tsignal\ttask\tsignal: encoding outcome\n";
+writeFileSync(`${home}/state/.wake-queue`, queue);
+const failures = [], notices = [];
+const client = {session:{
+  promptAsync: async request => failures.push(request.body.parts[0].text),
+  prompt: async request => { assert.equal(request.body.noReply, true); notices.push(request.body.parts[0].text); },
+}};
+const { FmPrimaryWatchArm } = await import(pathToFileURL(`${root}/.opencode/plugins/fm-primary-watch-arm.js`));
+const { FmPrimaryTurnendGuard } = await import(pathToFileURL(`${root}/.opencode/plugins/fm-primary-turnend-guard.js`));
+await FmPrimaryWatchArm({worktree:home, client});
+const guard = await FmPrimaryTurnendGuard({worktree:home, client});
+const waitFor = async predicate => {
+  const deadline = Date.now() + 6000;
+  while (!predicate() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.ok(predicate(), "expected asynchronous encoding boundary was not reached");
+};
+try {
+  await globalThis.__firstmateOpenCodeWatchArm.ensureArmed("test", client);
+  await waitFor(() => existsSync(`${home}/encoding-started`));
+  assert.equal(failures.length, 0);
+  if (kind !== "absent") renameSync(`${home}/receipt.ready`, `${home}/data/automatic-monitoring-pause/receipt.json`);
+  writeFileSync(`${home}/release-encoder`, "");
+  await waitFor(() => existsSync(`${home}/encoding-finished`));
+  await new Promise(resolve => setTimeout(resolve, 200));
+  if (kind === "active" || kind === "malformed") {
+    assert.equal(failures.length, 0, `stopped failure requested repair: ${failures}`);
+    assert.equal(existsSync(`${home}/state/.monitoring-stop-reports`), false);
+    const idle = {event:{type:"session.idle",properties:{sessionID:"test"}}};
+    await guard.event(idle);
+    await guard.event(idle);
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /AUTOMATIC_MONITORING_STOP/);
+    assert.equal(failures.length, 0);
+  } else {
+    assert.ok(failures.length > 0, "ordinary exhausted failure was hidden");
+    assert.ok(failures.every(message => message.includes("watcher: FAILED")));
+  }
+  assert.equal(readFileSync(`${home}/state/.wake-queue`, "utf8"), queue);
+  assert.equal(readFileSync(`${home}/state/.lock`, "utf8").trim(), String(process.pid));
+} finally {
+  writeFileSync(`${home}/release-encoder`, "");
+  unlinkSync(`${home}/state/.lock`);
+}
+JS
+); status=$?
+    expect_code 0 "$status" "OpenCode $kind failure encoding ignored the final stop verdict: $out"
+  done
+  pass "OpenCode suppresses failure-only prompts stopped during asynchronous encoding"
+}
+
+test_bootstrap_rechecks_stop_after_secondmate_probes() {
+  local test_home kind probe out status fakebin
+  for probe in remote-readiness remote-state local-dead local-missing; do
+    for kind in active malformed absent resumed; do
+      test_home="$TMP_ROOT/probe-$probe-$kind"
+      make_guard_home "$test_home"
+      write_active_receipt "$test_home"
+      if [ "$kind" = malformed ]; then
+        printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+      elif [ "$kind" = resumed ]; then
+        jq '. + {resumed_at:"2026-09-28T10:00:00Z",resume_instruction:"Resume monitoring"}' \
+          "$test_home/data/automatic-monitoring-pause/receipt.json" > "$test_home/receipt.next"
+        mv "$test_home/receipt.next" "$test_home/data/automatic-monitoring-pause/receipt.json"
+      fi
+      mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+      printf 'kind=secondmate\nharness=codex\nwindow=firstmate:fm-mini\n' > "$test_home/state/mini.meta"
+      case "$probe" in remote-*) printf 'remote_host=fixture-host\n' >> "$test_home/state/mini.meta" ;; esac
+      cp "$test_home/state/mini.meta" "$test_home/meta.before"
+      printf '1\t1\tsignal\tmini\tsignal: queued secondmate outcome\n' > "$test_home/state/.wake-queue"
+      cp "$test_home/state/.wake-queue" "$test_home/queue.before"
+      cat > "$test_home/publish-stop.sh" <<'SH'
+#!/usr/bin/env bash
+touch "$FM_HOME/probed"
+if [ "$STOP_KIND" != absent ] && [ -f "$FM_HOME/receipt.ready" ]; then
+  mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+fi
+SH
+      cat > "$test_home/bin/fm-on.sh" <<'SH'
+#!/usr/bin/env bash
+case "$2 ${3:-}" in
+  'fm-remote-doctor.sh ')
+    [ "$STOP_PROBE" != remote-readiness ] || bash "$FM_HOME/publish-stop.sh"
+    ;;
+  'fm-remote-secondmate-control.sh state')
+    [ "$STOP_PROBE" != remote-state ] || bash "$FM_HOME/publish-stop.sh"
+    printf 'dead\n'
+    ;;
+esac
+exit 0
+SH
+      cat > "$test_home/bin/fm-spawn.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_HOME/respawns"
+SH
+      fakebin="$test_home/fakebin"
+      mkdir -p "$fakebin"
+      fm_fake_exit0 "$fakebin" gh
+      cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  list-windows*)
+    if [ "$STOP_PROBE" = local-missing ]; then
+      bash "$FM_HOME/publish-stop.sh"
+    else
+      printf 'fm-mini\n'
+    fi
+    ;;
+  *display-message*'#{pane_current_command}'*)
+    [ "$STOP_PROBE" != local-dead ] || bash "$FM_HOME/publish-stop.sh"
+    printf 'zsh\n'
+    ;;
+  kill-window*) printf 'kill\n' >> "$FM_HOME/endpoint-kills" ;;
+esac
+exit 0
+SH
+      chmod +x "$fakebin/tmux" "$test_home/bin/fm-spawn.sh" "$test_home/bin/fm-on.sh"
+      out=$(PATH="$fakebin:$PATH" FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" FM_BACKEND=tmux \
+        STOP_KIND="$kind" STOP_PROBE="$probe" FM_BOOTSTRAP_NETWORK=only "$test_home/bin/fm-bootstrap.sh" 2>&1); status=$?
+      expect_code 0 "$status" "$probe $kind bootstrap failed: $out"
+      [ -f "$test_home/probed" ] || fail "$probe never reached the late-stop probe boundary: $out"
+      case "$kind" in
+        active|malformed)
+          assert_absent "$test_home/respawns" "$probe relaunched infrastructure after a stop"
+          assert_absent "$test_home/endpoint-kills" "$probe tore down infrastructure after a stop"
+          ;;
+        *)
+          [ "$(cat "$test_home/respawns")" = 'mini --secondmate' ] || fail "$probe lost ordinary $kind recovery: $out"
+          [ "$probe" != local-dead ] || [ "$(cat "$test_home/endpoint-kills")" = kill ] || fail "local recovery did not retire dead endpoint"
+          ;;
+      esac
+      cmp "$test_home/meta.before" "$test_home/state/mini.meta" || fail "$probe changed persistent route metadata"
+      cmp "$test_home/queue.before" "$test_home/state/.wake-queue" || fail "$probe consumed queued outcomes"
+      assert_absent "$test_home/state/.monitoring-stop-reports" "background probe claimed a visible notice"
+    done
+  done
+  pass "startup recovery rechecks stops after remote readiness, remote state, and local state probes"
+}
+
 test_status_distinguishes_absent_active_resumed_and_malformed
 test_report_is_once_per_stop_identity
 test_supervision_predicate_honors_stop_and_excludes_secondmate
@@ -1352,3 +1581,6 @@ test_opencode_stopped_successor_preserves_outcome_without_failure
 test_pi_and_omp_stop_during_handling_confirmation
 test_running_and_attached_arm_stop_on_termination
 test_superseded_cursor_park_cannot_claim_stop_notice
+test_checkpoint_rechecks_stop_at_completion
+test_opencode_suppresses_failure_stopped_during_encoding
+test_bootstrap_rechecks_stop_after_secondmate_probes
