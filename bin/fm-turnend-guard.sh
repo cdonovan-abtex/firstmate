@@ -181,11 +181,16 @@ budget_reset() {
   fm_lock_release "$BUDGET_LOCK"
 }
 
+allow_monitoring_stop() {
+  [ "$CURSOR_MODE" -eq 0 ] || exit 3
+  fm_monitoring_stop_report_once "$STATE"
+  exit 0
+}
+
 fm_supervision_status "$STATE" "$GRACE"
 case "$FM_SUP_MONITORING_STOP_STATUS" in
   active|malformed)
-    fm_monitoring_stop_report_once "$STATE"
-    exit 0
+    allow_monitoring_stop
     ;;
 esac
 if [ "$FM_SUP_NEEDED" = false ]; then
@@ -231,8 +236,7 @@ block_stop() {
   reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
     || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
   if fm_monitoring_stop_blocks "$STATE"; then
-    fm_monitoring_stop_report_once "$STATE"
-    exit 0
+    allow_monitoring_stop
   fi
   rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   {

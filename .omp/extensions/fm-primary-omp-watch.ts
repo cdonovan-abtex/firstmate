@@ -490,6 +490,10 @@ export default function (pi: ExtensionAPI) {
     pending?: PendingActionableClose,
   ): Promise<boolean> {
     if (!generationIsLive(owner)) return false;
+    if (monitoringStopped(monitoringPaths)) {
+      if (!pending) return true;
+      message = pending.message;
+    }
     const content = encodeFirstmateOperationalInput(
       "watcher",
       `FIRSTMATE WATCHER WAKE: ${message}\n\nRun bin/fm-wake-drain.sh first and handle the queued wake. Watcher continuity is extension-owned.`,
@@ -526,9 +530,10 @@ export default function (pi: ExtensionAPI) {
   }
 
   function confirmHandlingDelivery(recovery: { generation: string; watcherPid: string }): {
-    ok: boolean;
+    kind: WatchReadiness;
     detail: string;
   } {
+    if (monitoringStopped(monitoringPaths)) return { kind: "stopped", detail: "" };
     try {
       const result = spawnSync(
         "bash",
@@ -539,16 +544,20 @@ export default function (pi: ExtensionAPI) {
           env: { ...process.env, FM_HOME: fmHome, FM_STATE_OVERRIDE: state, FM_ROOT_OVERRIDE: fmRoot },
         },
       );
-      if (result.status === 0) return { ok: true, detail: "" };
+      if (result.status === 0) return { kind: "ready", detail: "" };
+      const kind = watcherCloseResult(monitoringPaths, result.status);
+      if (kind === "stopped") return { kind, detail: "" };
       const stderr = (result.stderr || "").trim();
       return {
-        ok: false,
+        kind,
         detail: `watcher: FAILED - handling delivery confirmation was rejected (status=${result.status ?? "none"} generation=${recovery.generation} watcherPid=${recovery.watcherPid})${stderr ? `\n${stderr}` : ""}`,
       };
     } catch (error) {
+      const kind = watcherCloseResult(monitoringPaths, null);
+      if (kind === "stopped") return { kind, detail: "" };
       const message = error instanceof Error ? error.message : String(error);
       return {
-        ok: false,
+        kind,
         detail: `watcher: FAILED - handling delivery confirmation could not be executed (generation=${recovery.generation} watcherPid=${recovery.watcherPid})\n${message}`,
       };
     }
@@ -557,13 +566,13 @@ export default function (pi: ExtensionAPI) {
   function confirmHandlingDeliveryWithRetry(
     owner: SessionGeneration,
     recovery: { generation: string; watcherPid: string },
-  ): { ok: boolean; detail: string } {
+  ): { kind: WatchReadiness; detail: string } {
     const snapshot = (): { generation: string; watcherPid: string } => {
       const current = owner.child ? armRecovery.get(owner.child) : undefined;
       return current ?? recovery;
     };
     const first = confirmHandlingDelivery(snapshot());
-    if (first.ok) return first;
+    if (first.kind !== "failed") return first;
     return confirmHandlingDelivery(snapshot());
   }
 
@@ -577,7 +586,8 @@ export default function (pi: ExtensionAPI) {
     if (monitoringStopped(monitoringPaths)) return await sendWake(owner, pending.message, pending);
     if (recovery) {
       const confirmed = confirmHandlingDeliveryWithRetry(owner, recovery);
-      if (!confirmed.ok) {
+      if (confirmed.kind === "stopped") return await sendWake(owner, pending.message, pending);
+      if (confirmed.kind === "failed") {
         const watcherPid = recovery.watcherPid;
         if (!pidAlive(watcherPid)) {
           await retireArm(owner.child);

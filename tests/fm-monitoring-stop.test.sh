@@ -759,24 +759,29 @@ test_background_refresh_cannot_consume_visible_notice() {
   pass "background refresh leaves once-only notices to primary turn-end, preserving normal supervision"
 }
 
+make_watch_extension_fixture() {
+  local test_home=$1
+  mkdir -p "$test_home/.pi/extensions" "$test_home/.omp/extensions" \
+    "$test_home/node_modules/@earendil-works/pi-tui" "$test_home/node_modules/typebox" \
+    "$test_home/node_modules/@earendil-works/pi-coding-agent"
+  cp -R "$ROOT/.pi/extensions/lib" "$test_home/.pi/extensions/"
+  cp "$ROOT/.pi/extensions/fm-primary-pi-watch.ts" "$test_home/.pi/extensions/"
+  cp "$ROOT/.omp/extensions/fm-primary-omp-watch.ts" "$test_home/.omp/extensions/"
+  printf '{"type":"module","exports":"./index.js"}\n' > "$test_home/node_modules/@earendil-works/pi-tui/package.json"
+  printf 'export class Box { addChild(){} clear(){} setBgFn(){} }; export class Container {}; export class Text {};\n' > "$test_home/node_modules/@earendil-works/pi-tui/index.js"
+  printf '{"type":"module","exports":"./index.js"}\n' > "$test_home/node_modules/typebox/package.json"
+  printf 'export const Type = {Object: (properties) => ({type:"object",properties})};\n' > "$test_home/node_modules/typebox/index.js"
+  printf '{"type":"module","exports":"./index.js"}\n' > "$test_home/node_modules/@earendil-works/pi-coding-agent/package.json"
+  printf 'export function getMarkdownTheme(){return {}}; export class UserMessageComponent {render(){return []} invalidate(){}};\n' > "$test_home/node_modules/@earendil-works/pi-coding-agent/index.js"
+}
+
 test_pi_and_omp_late_suppression_is_not_failure() {
   local test_home adapter kind out status
   for adapter in pi omp; do
     for kind in active malformed timeout absent resumed failure; do
       test_home="$TMP_ROOT/late-$adapter-$kind"
       make_guard_home "$test_home"
-      mkdir -p "$test_home/.pi/extensions" "$test_home/.omp/extensions" \
-        "$test_home/node_modules/@earendil-works/pi-tui" "$test_home/node_modules/typebox" \
-        "$test_home/node_modules/@earendil-works/pi-coding-agent"
-      cp -R "$ROOT/.pi/extensions/lib" "$test_home/.pi/extensions/"
-      cp "$ROOT/.pi/extensions/fm-primary-pi-watch.ts" "$test_home/.pi/extensions/"
-      cp "$ROOT/.omp/extensions/fm-primary-omp-watch.ts" "$test_home/.omp/extensions/"
-      printf '{"type":"module","exports":"./index.js"}\n' > "$test_home/node_modules/@earendil-works/pi-tui/package.json"
-      printf 'export class Box { addChild(){} clear(){} setBgFn(){} }; export class Container {}; export class Text {};\n' > "$test_home/node_modules/@earendil-works/pi-tui/index.js"
-      printf '{"type":"module","exports":"./index.js"}\n' > "$test_home/node_modules/typebox/package.json"
-      printf 'export const Type = {Object: (properties) => ({type:"object",properties})};\n' > "$test_home/node_modules/typebox/index.js"
-      printf '{"type":"module","exports":"./index.js"}\n' > "$test_home/node_modules/@earendil-works/pi-coding-agent/package.json"
-      printf 'export function getMarkdownTheme(){return {}}; export class UserMessageComponent {render(){return []} invalidate(){}};\n' > "$test_home/node_modules/@earendil-works/pi-coding-agent/index.js"
+      make_watch_extension_fixture "$test_home"
       write_active_receipt "$test_home"
       [ "$kind" != malformed ] || printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
       if [ "$kind" = resumed ]; then
@@ -1095,6 +1100,231 @@ JS
   pass "OpenCode suppresses stopped-successor confirmation failures while preserving queued outcomes"
 }
 
+test_pi_and_omp_stop_during_handling_confirmation() {
+  local test_home adapter kind out status
+  for adapter in pi omp; do
+    for kind in active malformed absent resumed success; do
+      test_home="$TMP_ROOT/confirmation-$adapter-$kind"
+      make_guard_home "$test_home"
+      make_watch_extension_fixture "$test_home"
+      write_active_receipt "$test_home"
+      if [ "$kind" = malformed ]; then
+        printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+      elif [ "$kind" = resumed ]; then
+        jq '. + {resumed_at:"2026-09-28T10:00:00Z",resume_instruction:"Resume monitoring"}' \
+          "$test_home/data/automatic-monitoring-pause/receipt.json" > "$test_home/receipt.next"
+        mv "$test_home/receipt.next" "$test_home/data/automatic-monitoring-pause/receipt.json"
+      fi
+      mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+      cat > "$test_home/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --handling-delivered ]; then
+  printf 'confirmation\n' >> "$FM_HOME/confirmations"
+  if [ -f "$FM_HOME/receipt.ready" ]; then
+    case "$STOP_KIND" in
+      active|malformed|resumed) mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json" ;;
+    esac
+  fi
+  case "$STOP_KIND" in
+    active|malformed) kill -TERM "$4" ;;
+    success) exit 0 ;;
+  esac
+  exit 1
+fi
+printf 'attempt\n' >> "$FM_HOME/attempts"
+count=$(wc -l < "$FM_HOME/attempts" | tr -d '[:space:]')
+if [ "$count" -eq 1 ]; then
+  printf 'watcher: started pid=%s (beacon fresh)\nsignal: confirmation outcome\n' "$$"
+  exit 0
+fi
+trap 'exit 1' TERM INT
+printf 'watcher: started pid=%s (beacon fresh) recovery-generation=confirmation-test\n' "$$"
+for ((i=0; i<400; i++)); do sleep 0.05; done
+SH
+      chmod +x "$test_home/bin/fm-watch-arm.sh"
+      out=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" ADAPTER="$adapter" STOP_KIND="$kind" \
+        NODE_NO_WARNINGS=1 node --input-type=module 2>&1 <<'JS'
+import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const home = process.env.FM_HOME, adapter = process.env.ADAPTER, kind = process.env.STOP_KIND;
+writeFileSync(`${home}/state/.lock`, `${process.pid}\n`);
+const queue = "1\t1\tsignal\ttask\tsignal: confirmation outcome\n";
+writeFileSync(`${home}/state/.wake-queue`, queue);
+const handlers = new Map(), messages = [];
+let tool;
+const api = {
+  on: (name, handler) => handlers.set(name, handler),
+  registerTool: value => { tool = value; },
+  registerCommand() {},
+  sendUserMessage: async message => { messages.push(message); },
+};
+const mod = await import(pathToFileURL(`${home}/.${adapter}/extensions/fm-primary-${adapter}-watch.ts`));
+mod.default(api);
+try {
+  await tool.execute("start", {}, undefined, undefined, {});
+  const deadline = Date.now() + 12000;
+  while (!messages.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(messages.length, 1, `missing or duplicated outcome: ${messages}`);
+  assert.match(messages[0], /signal: confirmation outcome/);
+  assert.equal(readFileSync(`${home}/state/.wake-queue`, "utf8"), queue);
+  assert.equal(readFileSync(`${home}/attempts`, "utf8"), "attempt\nattempt\n");
+  const stopped = kind === "active" || kind === "malformed";
+  const confirmations = readFileSync(`${home}/confirmations`, "utf8").trim().split("\n").length;
+  assert.equal(confirmations, stopped || kind === "success" ? 1 : 2);
+  if (stopped || kind === "success") assert.doesNotMatch(messages[0], /watcher: FAILED|repair|re-arm/);
+  else assert.match(messages[0], /watcher: FAILED - handling delivery confirmation was rejected/);
+  assert.equal(existsSync(`${home}/state/.monitoring-stop-reports`), false);
+  assert.equal(readFileSync(`${home}/state/.lock`, "utf8").trim(), String(process.pid));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(messages.length, 1);
+} finally {
+  await handlers.get("session_shutdown")({reason:"quit"});
+}
+JS
+); status=$?
+      expect_code 0 "$status" "$adapter $kind handling confirmation broke stop semantics: $out"
+    done
+  done
+  pass "Pi and omp preserve queued outcomes when stopped during handling confirmation"
+}
+
+test_running_and_attached_arm_stop_on_termination() {
+  local test_home mode kind out status
+  for mode in started attached; do
+    for kind in active malformed absent resumed; do
+      test_home="$TMP_ROOT/termination-$mode-$kind"
+      make_guard_home "$test_home"
+      write_active_receipt "$test_home"
+      if [ "$kind" = malformed ]; then
+        printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+      elif [ "$kind" = resumed ]; then
+        jq '. + {resumed_at:"2026-09-28T10:00:00Z",resume_instruction:"Resume monitoring"}' \
+          "$test_home/data/automatic-monitoring-pause/receipt.json" > "$test_home/receipt.next"
+        mv "$test_home/receipt.next" "$test_home/data/automatic-monitoring-pause/receipt.json"
+      fi
+      mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+      mkdir -p "$test_home/fakebin"
+      printf '#!/usr/bin/env bash\n[ "${1:-}" = list-windows ]\n' > "$test_home/fakebin/tmux"
+      chmod +x "$test_home/fakebin/tmux"
+      touch "$test_home/state/home-summary.json"
+      out=$(PATH="$test_home/fakebin:$PATH" FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" ARM_MODE="$mode" STOP_KIND="$kind" \
+        FM_POLL=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=1 FM_ARM_ATTACH_POLL=0.1 \
+        python3 - 2>&1 <<'PYTEST'
+import os, signal, subprocess, time
+from pathlib import Path
+home = Path(os.environ['FM_HOME'])
+mode, kind = os.environ['ARM_MODE'], os.environ['STOP_KIND']
+state = home / 'state'
+(state / '.lock').write_text(str(os.getpid()) + '\n')
+seed = arm = None
+watcher_pid = None
+def wait_for(predicate):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(.05)
+    raise AssertionError('timed out waiting for watcher readiness')
+try:
+    with (home / 'watch.out').open('w') as watcher_out, (home / 'arm.out').open('w') as arm_out:
+        if mode == 'attached':
+            seed = subprocess.Popen([str(home / 'bin/fm-watch.sh')], stdout=watcher_out, stderr=watcher_out)
+            wait_for(lambda: (state / '.last-watcher-beat').exists())
+        arm = subprocess.Popen([str(home / 'bin/fm-watch-arm.sh')], stdout=arm_out, stderr=arm_out)
+        wait_for(lambda: f'watcher: {mode} pid=' in (home / 'arm.out').read_text())
+        watcher_pid = int((state / '.watch.lock/pid').read_text())
+        if kind != 'absent':
+            (home / 'receipt.ready').rename(home / 'data/automatic-monitoring-pause/receipt.json')
+        os.kill(watcher_pid, signal.SIGTERM)
+        code = arm.wait(timeout=12)
+        if seed:
+            seed.wait(timeout=5)
+    output = (home / 'arm.out').read_text()
+    if kind in ('active', 'malformed'):
+        assert code == 3, (code, output)
+        assert 'watcher: FAILED' not in output, output
+        assert not (state / '.monitoring-stop-reports').exists()
+    else:
+        assert code not in (0, 3), (code, output)
+        assert 'watcher: FAILED' in output, output
+    assert (state / '.lock').read_text().strip() == str(os.getpid())
+finally:
+    for process in (arm, seed):
+        if process and process.poll() is None:
+            process.terminate()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+    if watcher_pid:
+        try: os.kill(watcher_pid, signal.SIGTERM)
+        except ProcessLookupError: pass
+PYTEST
+); status=$?
+      expect_code 0 "$status" "$mode arm $kind termination misreported its outcome: $out"
+    done
+  done
+  pass "started and attached arms classify operator termination as stopped without hiding ordinary failures"
+}
+
+test_superseded_cursor_park_cannot_claim_stop_notice() {
+  local test_home kind out status
+  for kind in active malformed; do
+    test_home="$TMP_ROOT/cursor-superseded-$kind"
+    make_guard_home "$test_home"
+    write_active_receipt "$test_home"
+    [ "$kind" != malformed ] || printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+    mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+    printf 'kind=ship\n' > "$test_home/state/work.meta"
+    printf '#!/usr/bin/env bash\nprintf "attempt\\n" >> "$FM_HOME/attempts"\nexit 1\n' > "$test_home/bin/fm-watch-arm.sh"
+    mv "$test_home/bin/fm-turnend-guard.sh" "$test_home/bin/fm-turnend-guard-real.sh"
+    cat > "$test_home/bin/fm-turnend-guard.sh" <<'SH'
+#!/usr/bin/env bash
+mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+"$FM_HOME/bin/fm-turnend-guard-real.sh" "$@" > "$FM_HOME/guard-output"
+status=$?
+touch "$FM_HOME/guard-finished"
+for ((i=0; i<400; i++)); do
+  [ -f "$FM_HOME/release-guard" ] && break
+  sleep 0.05
+done
+cat "$FM_HOME/guard-output"
+exit "$status"
+SH
+    chmod +x "$test_home/bin/fm-watch-arm.sh" "$test_home/bin/fm-turnend-guard.sh"
+    cat > "$test_home/turns.sh" <<'SH'
+#!/usr/bin/env bash
+payload='{"session_id":"superseded","loop_count":0,"cursor_version":"test"}'
+cp "$FM_HOME/state/.lock" "$FM_HOME/owner.before"
+printf '%s' "$payload" | "$FM_HOME/bin/fm-turnend-guard-cursor.sh" > "$FM_HOME/first" &
+first=$!
+trap 'touch "$FM_HOME/release-guard"; wait "$first"' EXIT
+for ((i=0; i<400; i++)); do
+  [ -f "$FM_HOME/guard-finished" ] && break
+  sleep 0.05
+done
+[ -f "$FM_HOME/guard-finished" ] || exit 1
+[ ! -e "$FM_HOME/state/.monitoring-stop-reports" ] || exit 2
+printf '%s' "$payload" | "$FM_HOME/bin/fm-turnend-guard-cursor.sh" > "$FM_HOME/second" || exit 3
+touch "$FM_HOME/release-guard"
+wait "$first" || exit 4
+printf '%s' "$payload" | "$FM_HOME/bin/fm-turnend-guard-cursor.sh" > "$FM_HOME/third" || exit 5
+cmp "$FM_HOME/owner.before" "$FM_HOME/state/.lock"
+SH
+    out=$(env -u PI_CODING_AGENT FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" \
+      FM_CURSOR_PARK_ATTEMPTS=1 FM_CURSOR_PARK_POLL=1 "$TMP_ROOT/harnesses/cursor-agent" "$test_home/turns.sh" 2>&1); status=$?
+    expect_code 0 "$status" "Cursor $kind superseded park consumed notice before ownership check: $out"
+    [ ! -s "$test_home/first" ] || fail "superseded Cursor park emitted output"
+    out=$(jq -er .followup_message "$test_home/second") || fail "replacement Cursor park lost visible diagnostic"
+    assert_contains "$out" AUTOMATIC_MONITORING_STOP "replacement Cursor park lost stop notice"
+    assert_not_contains "$out" 'TURN WOULD END BLIND' "replacement Cursor park requested repair"
+    [ ! -s "$test_home/third" ] || fail "Cursor repeated its once-only notice"
+    [ "$(cat "$test_home/attempts")" = attempt ] || fail "Cursor relaunched monitoring under a stop"
+  done
+  pass "Cursor claims stop notices only while the delivering park owns its output"
+}
+
 test_status_distinguishes_absent_active_resumed_and_malformed
 test_report_is_once_per_stop_identity
 test_supervision_predicate_honors_stop_and_excludes_secondmate
@@ -1119,3 +1349,6 @@ test_startup_liveness_respects_monitoring_policy
 test_claude_late_stop_is_terminal_without_repair
 test_cursor_fallback_delivers_late_stop_as_json
 test_opencode_stopped_successor_preserves_outcome_without_failure
+test_pi_and_omp_stop_during_handling_confirmation
+test_running_and_attached_arm_stop_on_termination
+test_superseded_cursor_park_cannot_claim_stop_notice

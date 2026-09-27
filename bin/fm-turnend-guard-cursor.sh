@@ -396,13 +396,11 @@ fi
 # harness, and --cursor tells it this is Cursor's own registration rather than
 # the Claude-settings duplicate.
 GUARD_ERR=$(mktemp "${TMPDIR:-/tmp}/fm-turnend-cursor.XXXXXX") || exit 0
-GUARD_OUT=$(printf '%s' "$PAYLOAD" | "$SCRIPT_DIR/fm-turnend-guard.sh" --cursor 2>"$GUARD_ERR")
+printf '%s' "$PAYLOAD" | "$SCRIPT_DIR/fm-turnend-guard.sh" --cursor 2>"$GUARD_ERR"
 GUARD_RC=$?
 REASON=$(cat "$GUARD_ERR" 2>/dev/null || true)
 rm -f "$GUARD_ERR" 2>/dev/null || true
-if [ "$GUARD_RC" -eq 0 ] && [ -n "$GUARD_OUT" ]; then
-  emit_followup turn-end-guard "$GUARD_OUT"
-fi
+exit_if_monitoring_stopped
 [ "$GUARD_RC" -eq 2 ] || exit 0
 
 # Bounded so a persistent failure nags a few times and then stops, instead of

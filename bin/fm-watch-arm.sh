@@ -265,6 +265,7 @@ wait_for_healthy_successor() {
   # second cannot collapse to a few milliseconds when called near a boundary.
   deadline=$(( $(date +%s) + CONFIRM_TIMEOUT + 1 ))
   while :; do
+    exit_if_monitoring_stopped
     healthy_watcher && return 0
     [ "$(date +%s)" -ge "$deadline" ] && return 1
     sleep 0.2
@@ -272,6 +273,7 @@ wait_for_healthy_successor() {
 }
 
 fail_unexplained_cycle() {
+  exit_if_monitoring_stopped
   echo "watcher: FAILED - cycle ended without an actionable reason"
   return 1
 }
@@ -344,6 +346,7 @@ attach_and_wait() {
 handle_attached_signal() {
   local signal=$1 rc=$2
   trap - HUP TERM INT
+  exit_if_monitoring_stopped "$rc"
   cycle_log_append "$rc" "$signal" arm-interrupted none
   exit "$rc"
 }
@@ -372,6 +375,17 @@ watch_output_reason_type() {
 print_watch_output() {
   local out=$1
   [ -s "$out" ] && cat "$out"
+}
+
+exit_if_monitoring_stopped() {
+  local rc=${1:-unknown}
+  [ "$rc" = 3 ] || fm_monitoring_stop_blocks "$STATE" || return 0
+  cycle_log_append "$rc" "$(cycle_signal_name "$rc")" monitoring-stopped none
+  if [ -n "${child_out:-}" ]; then
+    grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$child_out" 2>/dev/null || true
+    cleanup_child
+  fi
+  exit 3
 }
 
 handling_successor_generation() {
@@ -478,6 +492,7 @@ handle_arm_signal() {
     kill -TERM "$child" 2>/dev/null || true
     wait "$child" 2>/dev/null || true
   fi
+  exit_if_monitoring_stopped "$rc"
   cycle_log_append "$rc" "$signal" arm-interrupted none
   cleanup_child
   exit "$rc"
@@ -502,14 +517,7 @@ child_done=0
 
 owned_child_finished() {
   local rc=$1 signal reason_type status
-  if [ "$rc" -eq 3 ]; then
-    cycle_log_append "$rc" none monitoring-stopped none
-    print_watch_output "$child_out"
-    rm -f "$child_out" 2>/dev/null || true
-    child=
-    child_out=
-    return 3
-  fi
+  exit_if_monitoring_stopped "$rc"
   signal=$(cycle_signal_name "$rc")
   if [ "$rc" -eq 0 ] && watch_output_has_wake "$child_out"; then
     reason_type=$(watch_output_reason_type "$child_out")
@@ -548,6 +556,7 @@ owned_child_finished() {
 
   reason_type="nonzero-exit"
   [ "$signal" = none ] || reason_type="signal-exit"
+  exit_if_monitoring_stopped "$rc"
   cycle_log_append "$rc" "$signal" "$reason_type" none
   print_watch_output "$child_out"
   if ! grep -q '^watcher: FAILED' "$child_out" 2>/dev/null; then
@@ -574,6 +583,7 @@ while :; do
       if ! handling_generation=$(handling_successor_generation); then
         cleanup_child
         wait "$child" 2>/dev/null || true
+        exit_if_monitoring_stopped 1
         cycle_log_append 1 none handling-handoff-failed none
         echo "watcher: FAILED - established successor could not inspect handling state"
         exit 1
@@ -607,10 +617,12 @@ while :; do
 done
 
 trap - HUP TERM INT
+exit_if_monitoring_stopped
 print_watch_output "$child_out"
 cleanup_child
 wait "$child" 2>/dev/null
 rc=$?
+exit_if_monitoring_stopped "$rc"
 cycle_log_append "$rc" "$(cycle_signal_name "$rc")" confirmation-timeout none
 echo "watcher: FAILED - no live watcher with a fresh beacon"
 exit 1
