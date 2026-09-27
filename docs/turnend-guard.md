@@ -13,7 +13,7 @@ Do not infer this guard's scope, loop safety, or compatibility tradeoffs for tho
 
 `bin/fm-guard.sh` is a pull-based warning that runs only when another supervision command invokes it.
 The turn-end guard closes the remaining gap at the primary's own turn boundary.
-When work, a process-event source, a registered custom check, or Relay polling needs supervision at that boundary and no identity-matched watcher has a fresh beacon, the harness integration must either block the turn end or force one bounded follow-up that uses the recovery instruction from the emitted session-start protocol.
+When the shared predicate below requires supervision at that boundary and no identity-matched watcher has a fresh beacon, the harness integration must either block the turn end or force one bounded follow-up that uses the recovery instruction from the emitted session-start protocol.
 The mid-turn pull warning uses the model-aware supervision verdict described below, while the turn-end guard keeps the PID-strict watcher predicate.
 Away and quiet mode are the one place the turn-end guard accepts a different supervisor: while `state/.afk` exists, in either mode (`bin/fm-wake-lib.sh`'s `fm_afk_mode`), the daemon owns supervision, so a live identity-matched daemon with a fresh beacon satisfies that boundary in place of a watcher process holding the lock.
 The guard remains a backstop; [`watcher-continuity.md`](watcher-continuity.md) owns normal continuity.
@@ -27,8 +27,12 @@ An unmarked checkout or invalid marker falls through to the git-dir check.
 That check keeps crewmate and scout linked worktrees inert because their git dir differs from their git common dir.
 It also requires `AGENTS.md`, `bin/`, and the effective state directory.
 
-For an in-scope primary, the guard counts in-flight work from `state/*.meta`.
-Registered `state/procevent/*.source` records also require supervision even though they have no task metadata.
+For an in-scope primary, the guard counts in-flight work from `state/*.meta`, excluding records whose exact `kind` is `secondmate` because those describe persistent infrastructure rather than a work task.
+Registered `state/procevent/*.source` records, unresolved secondmate reply expectations, and a non-empty durable wake queue also require supervision even though they are not in-flight task metadata.
+Before applying any watcher-health requirement, the shared predicate reads the home-scoped automatic-monitoring stop verdict owned by [`configuration.md`](configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson).
+Pi and omp display successful guard output as a message without starting another turn; OpenCode adds it to the session with `noReply: true`.
+These adapters recheck the shared stop verdict after encoding a repair continuation and replace it with the informational reporting path when stopped.
+Cursor's ownership-checked informational follow-up is described under [harness integrations](#harness-integrations).
 The default cross-harness mode exits silently with no supervision need.
 Every mode treats `state/x-watch.check.sh` as supervision need, so Relay polling remains guarded without an in-flight task.
 A custom check registered with `bin/fm-check-register.sh` counts the same way, so an operator's home-level poll keeps running after the last task is torn down.
@@ -157,8 +161,9 @@ A captain message typed while the hook is parked is accepted and runs its turn i
 The older park remains the recorded owner until that captain turn ends and the next `stop` hook claims the baton, so an actionable watcher close in that window can still be delivered by the older park as one follow-up.
 That delivery is bounded and safe: only one park exists before the next `stop` claim, so it is a real wake and never a stale duplicate of another park's wake, while the durable wake queue makes handling idempotent.
 Each invocation publishes its sequence in `state/.cursor-park-owner` under the short publication and commit lock `state/.cursor-park-owner.lock`.
-The same bounded critical section covers the final owner and away-mode checks, follow-up output, and repair-budget commit, so the next `stop` claim makes an older park that is still running stand down without emitting or changing shared state.
-The lock is never held while the arm is sleeping, while the hook is polling, or while output is prepared.
+The same bounded critical section covers the final owner, away-mode, and monitoring-stop checks, follow-up output, and repair-budget commit, so the next `stop` claim makes an older park that is still running stand down without emitting or changing shared state.
+The lock is never held while the arm is sleeping or while the hook is polling, and ordinary wake and repair output is prepared before acquiring it.
+A stop notice is claimed and encoded inside that ownership-checked section, including after a repair's encoding or lock wait, so a superseded park cannot consume a notice it will discard.
 The park revalidates session ownership while polling and again inside the final commit section, but it deliberately does not hold the fleet session lock across output because an awaited hook must not block home-wide session acquisition; the remaining microsecond takeover window can produce at most one harmless wake that drains the durable queue.
 Without those records an older park still running after the next `stop` could leak one process and one stale duplicate wake.
 Cursor's `beforeSubmitPrompt` step fires once on a real captain message and does not fire for hook-driven follow-ups, so invalidating the park baton there would close the pre-claim window exactly.
@@ -170,7 +175,7 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 ## Compatibility limits
 
 - Child crewmate and scout worktrees are outside scope.
-- A valid secondmate home is in scope; an idle secondmate endpoint with no Relay poll remains healthy because it has no supervision need.
+- A valid secondmate home is in scope; its own supervision need follows the [shared predicates](#guard-predicates), independently of the persistent infrastructure record in its parent's home.
 - The blocking and bounded-follow-up mechanisms are limited to the primary integrations listed above.
 - OpenCode headless mode and untrusted Grok project hooks remain fail-open at the host boundary.
 - Cursor's `stop` step does not fire in headless `cursor-agent -p`, the same class of limit as OpenCode headless; firstmate primaries run interactive.

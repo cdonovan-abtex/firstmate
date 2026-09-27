@@ -12,6 +12,10 @@
 # live watcher process means per supervision model. The status fields here retain
 # the beacon-age details used in their messages.
 
+FM_SUP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$FM_SUP_LIB_DIR/fm-monitoring-stop-lib.sh"
+
 # Portable mtime; Linux stat lacks -f, macOS stat lacks -c.
 fm_sup_stat_mtime() {
   if [ "$(uname)" = Darwin ]; then
@@ -23,7 +27,10 @@ fm_sup_stat_mtime() {
 
 # fm_supervision_status <state-dir> [grace-seconds]
 # Populates, for the state dir at $1:
-#   FM_SUP_IN_FLIGHT      count of state/*.meta (in-flight tasks)
+#   FM_SUP_IN_FLIGHT      count of state/*.meta for ordinary ship/scout work;
+#                         persistent kind=secondmate records are infrastructure
+#                         and do not count as in-flight work
+#   FM_SUP_PENDING_REPLIES count of unresolved secondmate reply expectations
 #   FM_SUP_SOURCES        count of registered process-to-event sources
 #   FM_SUP_CHECKS         count of registered custom checks: a state/<id>.check.sh
 #                         with the state/<id>.check-trust binding that
@@ -38,23 +45,39 @@ fm_sup_stat_mtime() {
 #   FM_SUP_NEEDED         true/false - in-flight work, an X-mode relay poll, a
 #                         registered event source (a source is a wait on an
 #                         external process, not a task, so it has no metadata),
-#                         or a registered custom check
+#                         an unresolved secondmate reply, a queued wake, or a
+#                         registered custom check; forced false while a
+#                         valid active or malformed monitoring-stop receipt
+#                         suppresses automatic supervision
+#   FM_SUP_MONITORING_STOP_STATUS
+#                         none, active, resumed, or malformed from
+#                         bin/fm-monitoring-stop-lib.sh
 #   FM_SUP_WATCHER_FRESH  true/false - a watcher beacon within the grace window
 #   FM_SUP_BEACON_DESC    human-readable beacon age, for banners ("never" if absent)
 #   FM_SUP_QUEUE_PENDING  true/false - state/.wake-queue has unread records
 # grace-seconds defaults to $FM_GUARD_GRACE, then 300, matching fm-guard.sh.
 # Always returns 0; callers read the vars, or use fm_supervision_unhealthy below.
 fm_supervision_status() {
-  local state=$1 grace=${2:-${FM_GUARD_GRACE:-300}} meta source check id beat m age
+  local state=$1 grace=${2:-${FM_GUARD_GRACE:-300}} meta source check id kind reply phase beat m age
   FM_SUP_IN_FLIGHT=0
   FM_SUP_NEEDED=false
   FM_SUP_WATCHER_FRESH=false
   FM_SUP_BEACON_DESC=never
   FM_SUP_QUEUE_PENDING=false
+  [ -s "$state/.wake-queue" ] && FM_SUP_QUEUE_PENDING=true
 
   for meta in "$state"/*.meta; do
     [ -e "$meta" ] || continue
+    kind=$(awk -F= '$1 == "kind" { print substr($0, index($0, "=") + 1); exit }' "$meta" 2>/dev/null || true)
+    [ "$kind" = secondmate ] && continue
     FM_SUP_IN_FLIGHT=$((FM_SUP_IN_FLIGHT + 1))
+  done
+  FM_SUP_PENDING_REPLIES=0
+  for reply in "${FM_PENDING_REPLY_DIR_OVERRIDE:-$state/pending-replies}"/*; do
+    [ -f "$reply" ] || continue
+    phase=$(awk -F= '$1 == "phase" { value=substr($0, index($0, "=") + 1) } END { print value }' "$reply" 2>/dev/null || true)
+    [ "$phase" = resolved ] && continue
+    FM_SUP_PENDING_REPLIES=$((FM_SUP_PENDING_REPLIES + 1))
   done
   FM_SUP_SOURCES=0
   for source in "$state"/procevent/*.source; do
@@ -74,10 +97,18 @@ fm_supervision_status() {
   done
   if [ "$FM_SUP_IN_FLIGHT" -gt 0 ] \
     || [ -f "$state/x-watch.check.sh" ] \
+    || [ "$FM_SUP_QUEUE_PENDING" = true ] \
+    || [ "$FM_SUP_PENDING_REPLIES" -gt 0 ] \
     || [ "$FM_SUP_SOURCES" -gt 0 ] \
     || [ "$FM_SUP_CHECKS" -gt 0 ]; then
     FM_SUP_NEEDED=true
   fi
+
+  fm_monitoring_stop_status "$state"
+  FM_SUP_MONITORING_STOP_STATUS=$FM_MONITORING_STOP_STATUS
+  case "$FM_SUP_MONITORING_STOP_STATUS" in
+    active|malformed) FM_SUP_NEEDED=false ;;
+  esac
 
   beat="$state/.last-watcher-beat"
   if [ -e "$beat" ]; then
@@ -92,8 +123,6 @@ fm_supervision_status() {
     fi
   fi
 
-  # shellcheck disable=SC2034 # Read by callers (fm-guard.sh) after sourcing.
-  [ -s "$state/.wake-queue" ] && FM_SUP_QUEUE_PENDING=true
   return 0
 }
 

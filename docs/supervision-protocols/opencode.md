@@ -1,5 +1,7 @@
 Mode: OpenCode TUI plugin background wake.
 
+The [home monitoring-stop policy](../configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson) takes precedence over the cycle and repair instructions below.
+
 When this session owns supervision and away mode is not active:
 1. Drain first with `bin/fm-wake-drain.sh`.
    After handling all emitted wakes and reconciling open decisions and unread status lines, run the exact `--ack-through` command printed as `WAKE_ACK_REQUIRED`; until then the work remains durable for idempotent re-handling after interruption.

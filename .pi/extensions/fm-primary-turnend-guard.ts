@@ -1,3 +1,4 @@
+import { monitoringStopped } from "./lib/fm-monitoring-stop.ts";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -17,6 +18,7 @@ const extensionDir = dirname(extensionFile);
 const root = resolve(extensionDir, "../..");
 const fmHome = process.env.FM_HOME || process.env.FM_ROOT_OVERRIDE || root;
 const state = process.env.FM_STATE_OVERRIDE || `${fmHome}/state`;
+const monitoringPaths = { root, home: fmHome, state, config: process.env.FM_CONFIG_OVERRIDE || `${fmHome}/config` };
 const marker = `${state}/.pi-turnend-extension-loaded`;
 const extensionVersion = `sha256:${createHash("sha256").update(readFileSync(extensionFile)).digest("hex")}`;
 
@@ -423,24 +425,28 @@ async function claimSessionstartMessage(
   return sessionstartMessage(generation, result);
 }
 
-function runGuard(): Promise<{ code: number; stderr: string }> {
+function runGuard(): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolveResult) => {
     const invocation = firstmateShellInvocation(`${root}/bin/fm-turnend-guard.sh`, []);
     let child: ChildProcess;
     try {
       child = spawn(invocation.command, invocation.args, {
-        stdio: ["pipe", "ignore", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
       });
     } catch {
-      resolveResult({ code: 0, stderr: "" });
+      resolveResult({ code: 0, stdout: "", stderr: "" });
       return;
     }
+    let stdout = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
     let stderr = "";
     child.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
     });
-    child.on("error", () => resolveResult({ code: 0, stderr: "" }));
-    child.on("close", (code) => resolveResult({ code: code ?? 0, stderr }));
+    child.on("error", () => resolveResult({ code: 0, stdout: "", stderr: "" }));
+    child.on("close", (code) => resolveResult({ code: code ?? 0, stdout, stderr }));
     child.stdin?.on("error", () => {});
     child.stdin?.end('{"stop_hook_active":false}');
   });
@@ -486,6 +492,16 @@ function runCdCheck(command: string): Promise<{ code: number; stderr: string }> 
 }
 
 export default function (pi: ExtensionAPI) {
+  function reportMonitoringStop(result: { code: number; stdout: string }): void {
+    if (result.code === 0 && result.stdout.trim()) {
+      pi.sendMessage({
+        customType: "firstmate-monitoring-stop",
+        content: result.stdout.trim(),
+        display: true,
+      });
+    }
+  }
+
   let sessionstartGeneration: SessionstartGeneration | null = null;
   let sessionstartExitListenerRegistered = false;
   const cleanupSessionstartOnProcessExit = (): void => {
@@ -584,9 +600,9 @@ export default function (pi: ExtensionAPI) {
     }
 
     const result = await runGuard();
+    reportMonitoringStop(result);
     if (result.code !== 2) return;
 
-    guardFollowupActive = true;
     try {
       const content = encodeFirstmateOperationalInput(
         "turn-end-guard",
@@ -594,6 +610,11 @@ export default function (pi: ExtensionAPI) {
           "The watcher cycle is missing, failed, or unhealthy. Follow the harness recovery instruction below before ending the turn.\n\n" +
           result.stderr,
       );
+      if (monitoringStopped(monitoringPaths)) {
+        reportMonitoringStop(await runGuard());
+        return;
+      }
+      guardFollowupActive = true;
       await pi.sendUserMessage(content, { deliverAs: "followUp" });
     } catch {
       guardFollowupActive = false;

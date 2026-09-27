@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { encodeFirstmateOperationalInput } from "./lib/fm-operational-input.js";
+import { monitoringStopped } from "../../.pi/extensions/lib/fm-monitoring-stop.ts";
 
 const COORDINATOR_KEY = "__firstmateOpenCodeWatchArm";
 
@@ -56,6 +57,20 @@ async function letWatchArmRun(sessionID, client) {
 
 export const FmPrimaryTurnendGuard = async ({ client, directory, worktree }) => {
   const root = worktree ? resolvePath(worktree) : await resolveRoot(directory);
+  const home = process.env.FM_HOME || process.env.FM_ROOT_OVERRIDE || root;
+  const paths = { root, home, state: process.env.FM_STATE_OVERRIDE || `${home}/state`, config: process.env.FM_CONFIG_OVERRIDE || `${home}/config` };
+
+  async function reportMonitoringStop(result, sessionID) {
+    if (result.code === 0 && result.stdout?.trim()) {
+      await client.session.prompt({
+        path: { id: sessionID },
+        body: {
+          noReply: true,
+          parts: [{ type: "text", text: result.stdout.trim() }],
+        },
+      });
+    }
+  }
 
   return {
     event: async ({ event }) => {
@@ -72,6 +87,7 @@ export const FmPrimaryTurnendGuard = async ({ client, directory, worktree }) => 
       if (await letWatchArmRun(sessionID, client)) return;
 
       const result = await runGuard(root);
+      await reportMonitoringStop(result, sessionID);
       if (result.code !== 2) return;
 
       try {
@@ -82,6 +98,10 @@ export const FmPrimaryTurnendGuard = async ({ client, directory, worktree }) => 
             "The watcher cycle is missing, failed, or unhealthy. Follow the harness recovery instruction below before ending the turn.\n\n" +
             result.stderr,
         );
+        if (monitoringStopped(paths)) {
+          await reportMonitoringStop(await runGuard(root), sessionID);
+          return;
+        }
         await client.session.promptAsync({
           path: { id: sessionID },
           body: {

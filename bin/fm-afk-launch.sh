@@ -59,6 +59,10 @@
 #   fm-afk-launch.sh start-native
 #                              Prepare lifecycle state for a harness-native
 #                              background job and record that no terminal exists.
+#                              Both start modes return 3 for deliberate
+#                              monitoring suppression and report the stop once;
+#                              do not retry it as a daemon startup failure.
+#                              Receipt policy: docs/configuration.md.
 #   fm-afk-launch.sh stop      Correct-ordered exit: SIGTERM the daemon so its
 #                              cleanup flushes WHILE state/.afk is still present,
 #                              wait for it, close the recorded terminal by exact
@@ -124,6 +128,8 @@ set +e
 # shellcheck source=bin/fm-afk-contract.sh
 . "$FM_AFK_LAUNCH_DIR/fm-afk-contract.sh"
 FM_AFK_CONTRACT_CMD="$FM_AFK_LAUNCH_DIR/fm-afk-contract.sh"
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$FM_AFK_LAUNCH_DIR/fm-monitoring-stop-lib.sh"
 
 fm_afk_launch_log() { printf 'fm-afk-launch: %s\n' "$*" >&2; }
 
@@ -383,18 +389,23 @@ fm_afk_launch_wait_ready() {  # <backend> <target>
 }
 
 fm_afk_launch_commit_terminal() {  # <backend> <target> <extra> [already-recorded]
-  local backend=$1 target=$2 extra=$3 already_recorded=${4:-0}
+  local backend=$1 target=$2 extra=$3 already_recorded=${4:-0} result=1
   if [ "$already_recorded" -ne 1 ] && ! fm_afk_launch_record_write "$backend" "$target" "$extra"; then
     fm_afk_launch_log "failed to persist daemon terminal record; closing $backend:$target"
     fm_afk_launch_close_terminal "$backend" "$target"
     return 1
   fi
   if ! fm_afk_launch_wait_ready "$backend" "$target"; then
-    fm_afk_launch_log "daemon did not become ready; closing $backend:$target"
+    if fm_monitoring_stop_blocks "$FM_AFK_LAUNCH_STATE"; then
+      fm_monitoring_stop_report_once "$FM_AFK_LAUNCH_STATE"
+      result=3
+    else
+      fm_afk_launch_log "daemon did not become ready; closing $backend:$target"
+    fi
     FM_AFK_REC_BACKEND=$backend
     FM_AFK_REC_TARGET=$target
-    fm_afk_launch_close_recorded
-    return 1
+    fm_afk_launch_close_recorded || return 1
+    return "$result"
   fi
 }
 
@@ -518,7 +529,7 @@ fm_afk_launch_create_herdr() {  # <captain-target> <captain-backend>
     fm_afk_launch_close_recorded || true
     return 1
   fi
-  fm_afk_launch_commit_terminal herdr "$session:$pane" "$wsid" 1 || return 1
+  fm_afk_launch_commit_terminal herdr "$session:$pane" "$wsid" 1 || return $?
   fm_afk_launch_log "daemon launched in non-visible herdr workspace $wsid (pane $session:$pane), supervising $captain_target"
 }
 
@@ -544,7 +555,7 @@ fm_afk_launch_create_tmux() {  # <captain-target> <captain-backend>
     fi
     return 1
   fi
-  fm_afk_launch_commit_terminal tmux "$session" "" 1 || return 1
+  fm_afk_launch_commit_terminal tmux "$session" "" 1 || return $?
   fm_afk_launch_log "daemon launched in detached tmux session '$session', supervising $captain_target"
 }
 
@@ -725,6 +736,14 @@ fm_afk_launch_stop() {
 
 fm_afk_launch_main() {
   local result harness
+  case "${1:-start}" in
+    start|start-native)
+      if fm_monitoring_stop_blocks "$FM_AFK_LAUNCH_STATE"; then
+        fm_monitoring_stop_report_once "$FM_AFK_LAUNCH_STATE"
+        return 3
+      fi
+      ;;
+  esac
   case "${1:-start}" in
     propose|confirm|start|start-native)
       if [ "${FM_AFK_MODE:-}" = quiet ]; then

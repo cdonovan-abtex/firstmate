@@ -12,6 +12,7 @@ Usage: fm-watch-checkpoint.sh [--seconds <n>]
 
 Run bin/fm-watch.sh in the foreground for a bounded checkpoint.
 On an actionable watcher wake, pass through the watcher output and exit 0.
+On a recorded monitoring stop, pass through its diagnostic and exit 3 without retrying.
 On a quiet checkpoint, print "checkpoint: no actionable wake within <n>s" and exit 124.
 EOF
 }
@@ -92,6 +93,15 @@ else
   RC=$?
 fi
 set -e
+
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
+if [ "$RC" -eq 3 ] || fm_monitoring_stop_blocks "${FM_STATE_OVERRIDE:-$FM_HOME/state}"; then
+  fm_monitoring_stop_report_once "${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+  grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" || true
+  exit 3
+fi
 
 if grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >/dev/null 2>&1; then
   cat "$OUT"

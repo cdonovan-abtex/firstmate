@@ -181,7 +181,18 @@ budget_reset() {
   fm_lock_release "$BUDGET_LOCK"
 }
 
+allow_monitoring_stop() {
+  [ "$CURSOR_MODE" -eq 0 ] || exit 3
+  fm_monitoring_stop_report_once "$STATE"
+  exit 0
+}
+
 fm_supervision_status "$STATE" "$GRACE"
+case "$FM_SUP_MONITORING_STOP_STATUS" in
+  active|malformed)
+    allow_monitoring_stop
+    ;;
+esac
 if [ "$FM_SUP_NEEDED" = false ]; then
   [ -e "$FAILURE_NOTICE" ] || budget_reset
   exit 0
@@ -224,12 +235,19 @@ block_stop() {
   [ -f "$CONFIG/x-mode.env" ] && x_mode=1
   reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
     || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
+  if fm_monitoring_stop_blocks "$STATE"; then
+    allow_monitoring_stop
+  fi
   rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   {
     printf '●%s\n' "$rule"
     printf '●  TURN WOULD END BLIND - SUPERVISION IS OFF\n'
     if [ "$FM_SUP_IN_FLIGHT" -gt 0 ]; then
       printf '●  %s task(s) in flight, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_IN_FLIGHT" "$FM_SUP_BEACON_DESC"
+    elif [ "$FM_SUP_PENDING_REPLIES" -gt 0 ]; then
+      printf '●  %s secondmate reply request(s) outstanding, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_PENDING_REPLIES" "$FM_SUP_BEACON_DESC"
+    elif [ "$FM_SUP_QUEUE_PENDING" = true ]; then
+      printf '●  Queued wakes await handling, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_BEACON_DESC"
     elif [ "$FM_SUP_SOURCES" -gt 0 ]; then
       printf '●  %s process-event source(s) registered, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_SOURCES" "$FM_SUP_BEACON_DESC"
     elif [ "$FM_SUP_CHECKS" -gt 0 ]; then
@@ -492,6 +510,10 @@ terminal_status=$?
 if [ "$terminal_status" -eq 0 ]; then
   if [ "$FM_SUP_IN_FLIGHT" -gt 0 ]; then
     NEED_DESC="$FM_SUP_IN_FLIGHT task(s) in flight"
+  elif [ "$FM_SUP_PENDING_REPLIES" -gt 0 ]; then
+    NEED_DESC="$FM_SUP_PENDING_REPLIES secondmate reply request(s) outstanding"
+  elif [ "$FM_SUP_QUEUE_PENDING" = true ]; then
+    NEED_DESC="queued wakes await handling"
   elif [ "$FM_SUP_SOURCES" -gt 0 ]; then
     NEED_DESC="$FM_SUP_SOURCES process-event source(s) registered"
   elif [ "$FM_SUP_CHECKS" -gt 0 ]; then

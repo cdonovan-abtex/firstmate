@@ -211,6 +211,8 @@ Do not hand off `local-only` items.
 
 ## Recovery
 
+Apply the [home monitoring-stop policy](../../../docs/configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson) before automatic startup recovery.
+
 For local `kind=secondmate` meta with no window, treat the secondmate as a dead persistent direct report and respawn it with:
 
 ```sh

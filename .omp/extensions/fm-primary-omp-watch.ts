@@ -62,11 +62,7 @@ type ExtensionAPI = {
   registerCommand?: (name: string, command: { description: string; handler: (args: string, ctx: any) => Promise<void> | void }) => void;
   registerTool?: (tool: Record<string, unknown>) => void;
 };
-
-type ArmResult = {
-  ok: boolean;
-  message: string;
-};
+import { monitoringStopVerdict, monitoringStopped, watcherCloseResult, type WatchReadiness, type WatchArmResult as ArmResult } from "../../.pi/extensions/lib/fm-monitoring-stop.ts";
 
 type LockOwnership = "owned" | "missing" | "other";
 
@@ -124,6 +120,7 @@ const fmRoot = process.env.FM_ROOT_OVERRIDE || root;
 const state = process.env.FM_STATE_OVERRIDE || `${fmHome}/state`;
 const config = process.env.FM_CONFIG_OVERRIDE || `${fmHome}/config`;
 const armScript = `${fmRoot}/bin/fm-watch-arm.sh`;
+const monitoringPaths = { root: fmRoot, home: fmHome, state, config };
 const marker = `${state}/.omp-watch-extension-loaded`;
 const handoffDir = `${state}/extensions/omp-primary-watch`;
 const actionableHandoff = `${handoffDir}/session-replacement-actionable.json`;
@@ -175,7 +172,7 @@ function replacementCoordinatorFor(handoff: string): ReplacementCoordinator {
   return created;
 }
 const replacementCoordinator = replacementCoordinatorFor(actionableHandoff);
-const armReadiness = new WeakMap<ChildProcess, Promise<boolean>>();
+const armReadiness = new WeakMap<ChildProcess, Promise<WatchReadiness>>();
 const armClose = new WeakMap<ChildProcess, Promise<void>>();
 // Children the extension itself asked to exit; their close is not a failure
 // of the successor and never earns a deferred retry.
@@ -493,10 +490,15 @@ export default function (pi: ExtensionAPI) {
     pending?: PendingActionableClose,
   ): Promise<boolean> {
     if (!generationIsLive(owner)) return false;
-    const content = encodeFirstmateOperationalInput(
+    const encodeWake = (outcome: string): string => encodeFirstmateOperationalInput(
       "watcher",
-      `FIRSTMATE WATCHER WAKE: ${message}\n\nRun bin/fm-wake-drain.sh first and handle the queued wake. Watcher continuity is extension-owned.`,
+      `FIRSTMATE WATCHER WAKE: ${outcome}\n\nRun bin/fm-wake-drain.sh first and handle the queued wake. Watcher continuity is extension-owned.`,
     );
+    let content = encodeWake(message);
+    if (monitoringStopped(monitoringPaths)) {
+      if (!pending) return true;
+      content = encodeWake(pending.message);
+    }
     if (pending) owner.unconsumedWakes.set(pending.token, { content, pending });
     try {
       await pi.sendUserMessage(content, { deliverAs: "followUp" });
@@ -529,9 +531,10 @@ export default function (pi: ExtensionAPI) {
   }
 
   function confirmHandlingDelivery(recovery: { generation: string; watcherPid: string }): {
-    ok: boolean;
+    kind: WatchReadiness;
     detail: string;
   } {
+    if (monitoringStopped(monitoringPaths)) return { kind: "stopped", detail: "" };
     try {
       const result = spawnSync(
         "bash",
@@ -542,16 +545,20 @@ export default function (pi: ExtensionAPI) {
           env: { ...process.env, FM_HOME: fmHome, FM_STATE_OVERRIDE: state, FM_ROOT_OVERRIDE: fmRoot },
         },
       );
-      if (result.status === 0) return { ok: true, detail: "" };
+      if (result.status === 0) return { kind: "ready", detail: "" };
+      const kind = watcherCloseResult(monitoringPaths, result.status);
+      if (kind === "stopped") return { kind, detail: "" };
       const stderr = (result.stderr || "").trim();
       return {
-        ok: false,
+        kind,
         detail: `watcher: FAILED - handling delivery confirmation was rejected (status=${result.status ?? "none"} generation=${recovery.generation} watcherPid=${recovery.watcherPid})${stderr ? `\n${stderr}` : ""}`,
       };
     } catch (error) {
+      const kind = watcherCloseResult(monitoringPaths, null);
+      if (kind === "stopped") return { kind, detail: "" };
       const message = error instanceof Error ? error.message : String(error);
       return {
-        ok: false,
+        kind,
         detail: `watcher: FAILED - handling delivery confirmation could not be executed (generation=${recovery.generation} watcherPid=${recovery.watcherPid})\n${message}`,
       };
     }
@@ -560,13 +567,13 @@ export default function (pi: ExtensionAPI) {
   function confirmHandlingDeliveryWithRetry(
     owner: SessionGeneration,
     recovery: { generation: string; watcherPid: string },
-  ): { ok: boolean; detail: string } {
+  ): { kind: WatchReadiness; detail: string } {
     const snapshot = (): { generation: string; watcherPid: string } => {
       const current = owner.child ? armRecovery.get(owner.child) : undefined;
       return current ?? recovery;
     };
     const first = confirmHandlingDelivery(snapshot());
-    if (first.ok) return first;
+    if (first.kind !== "failed") return first;
     return confirmHandlingDelivery(snapshot());
   }
 
@@ -577,9 +584,11 @@ export default function (pi: ExtensionAPI) {
     recovery?: { generation: string; watcherPid: string },
   ): Promise<boolean> {
     if (!generationIsLive(owner)) return false;
+    if (monitoringStopped(monitoringPaths)) return await sendWake(owner, pending.message, pending);
     if (recovery) {
       const confirmed = confirmHandlingDeliveryWithRetry(owner, recovery);
-      if (!confirmed.ok) {
+      if (confirmed.kind === "stopped") return await sendWake(owner, pending.message, pending);
+      if (confirmed.kind === "failed") {
         const watcherPid = recovery.watcherPid;
         if (!pidAlive(watcherPid)) {
           await retireArm(owner.child);
@@ -592,6 +601,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function surfaceFailure(owner: SessionGeneration, message: string): void {
+    if (monitoringStopped(monitoringPaths)) return;
     void sendWake(owner, message).catch(() => {
       // omp owns delivery errors; continuity restoration never waits on prompting.
     });
@@ -776,11 +786,11 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
-  function waitForReadiness(armChild: ChildProcess): Promise<boolean> {
+  function waitForReadiness(armChild: ChildProcess): Promise<WatchReadiness> {
     const readiness = armReadiness.get(armChild);
-    if (!readiness) return Promise.resolve(false);
+    if (!readiness) return Promise.resolve(watcherCloseResult(monitoringPaths, null));
     return new Promise((resolveReady) => {
-      const timer = setTimeout(() => resolveReady(false), armReadyTimeoutMs);
+      const timer = setTimeout(() => resolveReady(watcherCloseResult(monitoringPaths, null)), armReadyTimeoutMs);
       timer.unref();
       void readiness.then((ready) => {
         clearTimeout(timer);
@@ -814,8 +824,14 @@ export default function (pi: ExtensionAPI) {
       if (!generationIsLive(owner)) return { failure: "" };
       const replacement = startArm(owner, predecessorArmPid);
       const successorChild = owner.child;
-      if (replacement.ok && successorChild && await waitForReadiness(successorChild)) {
-        return { failure: "", recovery: armRecovery.get(successorChild) };
+      if (replacement.kind === "stopped") return { failure: "" };
+      if (replacement.ok && successorChild) {
+        const readiness = await waitForReadiness(successorChild);
+        if (readiness === "stopped") {
+          await retireArm(successorChild);
+          return { failure: "" };
+        }
+        if (readiness === "ready") return { failure: "", recovery: armRecovery.get(successorChild) };
       }
       if (replacement.ok) {
         failure = "watcher: FAILED - omp extension could not verify a ready successor watcher";
@@ -838,6 +854,7 @@ export default function (pi: ExtensionAPI) {
 
   function scheduleRetry(owner: SessionGeneration, message: string, predecessorArmPid: string): void {
     if (!generationIsLive(owner) || owner.child || owner.retryTimer) return;
+    if (monitoringStopped(monitoringPaths)) return;
     const ownership = lockOwnership();
     if (ownership !== "owned") {
       surfaceFailure(owner, `watcher: FAILED - omp extension cannot restore continuity because this session no longer owns the lock\n${message}`);
@@ -861,11 +878,27 @@ export default function (pi: ExtensionAPI) {
   }
 
   function startArm(owner: SessionGeneration, predecessorArmPid = ""): ArmResult {
-    if (!generationIsLive(owner)) return { ok: false, message: shuttingDownMessage };
+    if (!generationIsLive(owner)) return { kind: "failed", ok: false, message: shuttingDownMessage };
+    const stop = monitoringStopVerdict(monitoringPaths);
+    if (stop.status === "active") {
+      return {
+        ok: true,
+        kind: "stopped",
+        message: "watcher: not armed - automatic monitoring is stopped by a recorded operator instruction",
+      };
+    }
+    if (stop.status === "malformed") {
+      return {
+        ok: true,
+        kind: "stopped",
+        message: `watcher: not armed - automatic monitoring stop evidence is malformed: ${stop.detail}`,
+      };
+    }
     const ownership = lockOwnership();
-    if (ownership === "other") return { ok: false, message: "watcher: read-only - session lock is held by another firstmate session" };
+    if (ownership === "other") return { kind: "failed", ok: false, message: "watcher: read-only - session lock is held by another firstmate session" };
     if (ownership === "missing") {
       return {
+        kind: "failed",
         ok: false,
         message: "watcher: not armed - no live session holds the lock; run bin/fm-session-start.sh to reclaim it, then call fm_watch_arm_omp to re-arm",
       };
@@ -873,12 +906,14 @@ export default function (pi: ExtensionAPI) {
     markLoaded();
     if (owner.child) {
       return {
+        kind: "starting",
         ok: true,
         message: `watcher: unchanged - omp extension already owns an arm child; no manual re-arm needed; ${repairOnlyHint}`,
       };
     }
     if (owner.retryTimer) {
       return {
+        kind: "starting",
         ok: true,
         message: `watcher: unchanged - omp extension already owns a scheduled continuity retry; no manual re-arm needed; ${repairOnlyHint}`,
       };
@@ -903,9 +938,9 @@ export default function (pi: ExtensionAPI) {
     let settled = false;
     let readinessSettled = false;
     let verified = false;
-    let resolveReadiness: (ready: boolean) => void = () => {};
+    let resolveReadiness: (ready: WatchReadiness) => void = () => {};
     let resolveClosed: () => void = () => {};
-    const readiness = new Promise<boolean>((resolveReady) => {
+    const readiness = new Promise<WatchReadiness>((resolveReady) => {
       resolveReadiness = resolveReady;
     });
     armReadiness.set(armChild, readiness);
@@ -913,10 +948,10 @@ export default function (pi: ExtensionAPI) {
       resolveClosed = resolveClosedChild;
     });
     armClose.set(armChild, closed);
-    const settleReadiness = (ready: boolean): void => {
+    const settleReadiness = (ready: WatchReadiness): void => {
       if (readinessSettled) return;
       readinessSettled = true;
-      verified = ready;
+      verified = ready === "ready";
       resolveReadiness(ready);
     };
     const observeEstablishedArm = (): void => {
@@ -924,7 +959,7 @@ export default function (pi: ExtensionAPI) {
       const recovery = combined.match(/^watcher: started pid=([0-9]+).* recovery-generation=([A-Za-z0-9._-]+)$/m);
       if (recovery) armRecovery.set(armChild, { watcherPid: recovery[1], generation: recovery[2] });
       if (/^watcher: (?:started|attached)\b/m.test(combined)) {
-        settleReadiness(true);
+        settleReadiness("ready");
       }
       const reason = completedActionableLine(stdout) || completedActionableLine(stderr);
       if (reason && !armPendingActionable.has(armChild)) {
@@ -948,9 +983,11 @@ export default function (pi: ExtensionAPI) {
       if (settled) return;
       settled = true;
       resolveClosed();
-      settleReadiness(false);
+      const result = watcherCloseResult(monitoringPaths, code);
+      settleReadiness(result);
       releaseChild();
       const classification = classifyClose(stdout, stderr, code, signal);
+      if (result === "stopped" && classification.kind !== "actionable") return;
       const predecessor = String(armChild.pid ?? "");
       if (classification.kind === "actionable") {
         const pending = armPendingActionable.get(armChild) ?? createPendingActionable(classification.message, predecessor);
@@ -977,20 +1014,23 @@ export default function (pi: ExtensionAPI) {
       if (settled) return;
       settled = true;
       resolveClosed();
-      settleReadiness(false);
+      const result = watcherCloseResult(monitoringPaths, null);
+      settleReadiness(result);
       releaseChild();
+      if (result === "stopped") return;
       if (!generationIsLive(owner)) return;
       if (owner.restoring) return;
       scheduleRetry(owner, `watcher: FAILED - omp extension arm child ${id} failed: ${error.message}`, String(armChild.pid ?? ""));
     });
     return {
+      kind: "starting",
       ok: true,
       message: `watcher: started omp extension arm child ${id}; future ordinary re-arms are automatic; ${repairOnlyHint}`,
     };
   }
 
   function activateOwnedWatch(owner: SessionGeneration): ArmResult {
-    if (!generationIsLive(owner)) return { ok: false, message: shuttingDownMessage };
+    if (!generationIsLive(owner)) return { kind: "failed", ok: false, message: shuttingDownMessage };
     if (lockOwnership() !== "owned") return startArm(owner);
     replacementCoordinator.receiver = receiveReplacementActionable;
     let pending: PendingActionableClose[] = [];

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Firstmate watcher.
+# A blocking monitoring-stop verdict exits 3 before watcher startup without
+# claiming a visible notice; bin/fm-monitoring-stop-lib.sh owns that verdict.
 # Classifies supervision wakes in bash. In normal mode it absorbs benign wakes
 # and keeps blocking; it queues and exits only for actionable wakes.
 # The no-verb signal and stale path is absorb-only-on-positive-evidence: a wake
@@ -1730,6 +1732,12 @@ event_wait_or_sleep() {
 # before acquiring the singleton lock or entering the blocking loop.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
+fi
+
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
+if fm_monitoring_stop_blocks "$STATE"; then
+  exit 3
 fi
 
 # FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS is validated here, at arm time, and an

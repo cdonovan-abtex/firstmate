@@ -1693,8 +1693,12 @@ SH
 test_live_presentation_holder_is_deadlined_without_weakening_ack() {
   local dir state status queue_out queue_err first_out first_err second_out second_err replay_out replay_err
   local queue_holder presentation_holder ack_holder i start elapsed rc advisory_count
+  local FM_SUPERVISION_MODEL=autoarm
+  export FM_SUPERVISION_MODEL
   dir=$(make_case presentation-lock-deadline)
   state="$dir/state"
+  # Keep supervision healthy while this case exercises presentation contention.
+  touch "$state/.last-watcher-beat"
   status="$state/task.status"
   queue_out="$dir/queue.out"
   queue_err="$dir/queue.err"
@@ -1776,9 +1780,11 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
     "$first_out" || true)
   [ "$advisory_count" -eq 1 ] \
     || { kill "$presentation_holder" 2>/dev/null || true; fail "presentation deadline did not emit exactly one holder advisory"; }
-  if grep -v '^WAKE_ACK_REQUIRED:' "$first_err" | grep . >/dev/null; then
+  if grep -v '^WAKE_ACK_REQUIRED:' "$first_err" \
+    | grep -Fxv 'WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.' \
+    | grep . >/dev/null; then
     kill "$presentation_holder" 2>/dev/null || true
-    fail "presentation deadline leaked helper-process diagnostics"
+    fail "presentation deadline leaked helper-process diagnostics: $(cat "$first_err")"
   fi
   grep "$(printf '\tsignal\t')" "$first_out" >/dev/null \
     || { kill "$presentation_holder" 2>/dev/null || true; fail "bounded presentation dropped the durable wake row"; }

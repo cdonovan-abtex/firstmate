@@ -29,6 +29,7 @@ install_autoarm_scripts() {
   cp "$ROOT/bin/fm-claude-stop-autoarm.sh" "$dir/bin/fm-claude-stop-autoarm.sh"
   cp "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/fm-primary-scope-lib.sh"
   cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
+  cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$dir/bin/fm-monitoring-stop-lib.sh"
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
@@ -375,6 +376,35 @@ test_resolves_outermost_claude_pid_in_nested_bgspare_chain() {
   [ -e "$dir/state/arm-ran" ] || fail "hook did not resolve past the inner claude-named process to the outer lock owner"
   [ "$(epoch_outcome "$dir")" = rewake ] || fail "nested-chain arm must record outcome=rewake"
   pass "auto-arm: resolves the outermost pid of a nested contiguous claude ancestry (bg-spare chain)"
+}
+
+test_inert_under_active_and_malformed_monitoring_stop() {
+  local kind dir receipt out status
+  for kind in active malformed; do
+    dir=$(make_primary_dir "$TMP_ROOT/monitoring-stop-$kind")
+    printf 'kind=ship\n' > "$dir/state/task.meta"
+    write_arm_fixture "$dir" actionable
+    receipt="$dir/data/automatic-monitoring-pause/receipt.json"
+    mkdir -p "${receipt%/*}"
+    if [ "$kind" = active ]; then
+      jq -n --arg home "$dir" '{
+        instruction:"Stop the automatic monitoring",
+        time:"2026-09-21T18:42:20.023025+00:00",
+        home:$home,
+        scope:"Automatic monitoring only; existing workers and validation preserved",
+        resume:"Explicit approval required; no automatic ownership recovery",
+        action:"Stop watcher processes without relinquishing session ownership",
+        completed:true
+      }' > "$receipt"
+    else
+      printf '{bad json\n' > "$receipt"
+    fi
+    out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+    expect_code 0 "$status" "hook must exit silently under $kind monitoring-stop evidence"
+    [ -z "$out" ] || fail "hook emitted a recovery prompt under $kind monitoring-stop evidence: $out"
+    assert_absent "$dir/state/arm-ran" "hook armed under $kind monitoring-stop evidence"
+  done
+  pass "auto-arm: active and malformed monitoring-stop evidence suppresses watcher launch and rewake"
 }
 
 test_inert_when_fleet_idle() {
@@ -1241,6 +1271,7 @@ test_inert_when_afk
 test_stale_lock_recovery_preserves_afk_and_need_gates
 test_resolves_outermost_claude_pid_in_nested_bgspare_chain
 test_inert_when_fleet_idle
+test_inert_under_active_and_malformed_monitoring_stop
 test_actionable_close_rewakes_with_reason
 test_actionable_close_with_live_successor_rewakes_once
 test_failed_close_rewakes_with_failure_banner

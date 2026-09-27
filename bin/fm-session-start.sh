@@ -39,8 +39,9 @@
 #   3. wake-drain     - presents durable wakes and advances recovery handling
 #                       state, so it only runs when locked. The local bounded
 #                       inactive-outcome startup scan runs in the deferred worker.
-#   4. supervision-instructions - the one emitted operating block for the
-#                       detected primary harness.
+#   4. supervision-instructions - the stop status or one operating block for the
+#                       detected primary harness, under the monitoring-stop
+#                       policy in docs/configuration.md.
 #   5. read-once contract - the do-not-re-read contract covering every source
 #                       represented by the two digests below.
 #   6. fleet digest   - a compact data/backlog.md identity/metadata listing,
@@ -100,9 +101,9 @@
 # The LOCK/BOOTSTRAP/WAKE-QUEUE safety preamble keeps its order: it establishes
 # mutation authority and this turn's work queue before anything else is read.
 #
-# On a Pi primary, the supervision-block step also checks whether Pi's two
-# tracked primary extensions are loaded and prints a PI_WATCH_EXTENSION
-# reminder line when one is missing.
+# When monitoring is enabled on a Pi primary, the supervision-block step also
+# checks whether Pi's two tracked primary extensions are loaded and prints a
+# PI_WATCH_EXTENSION reminder line when one is missing.
 #
 # Why lock first: the old documented order (bootstrap, THEN lock) let a
 # SECOND concurrent session run bootstrap's mutating sweeps - converging
@@ -337,6 +338,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
 # shellcheck source=bin/fm-public-followup-lib.sh
 . "$SCRIPT_DIR/fm-public-followup-lib.sh"
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -747,13 +750,16 @@ fi
 
 # --- 4. supervision operating instructions ----------------------------------
 stage supervision-instructions
+MONITORING_STOP_BLOCKED=0
+fm_monitoring_stop_blocks "$STATE" && MONITORING_STOP_BLOCKED=1
 AFK_PRESENT=0
 [ -e "$STATE/.afk" ] && AFK_PRESENT=1
 AFK_MODE=$(fm_afk_mode "$STATE")
 X_MODE_PRESENT=0
 [ -f "$CONFIG/x-mode.env" ] && X_MODE_PRESENT=1
 
-if [ "$PRIMARY_HARNESS" = pi ] || [ "$PRIMARY_HARNESS" = pi-signed ]; then
+if [ "$MONITORING_STOP_BLOCKED" -eq 0 ] \
+  && { [ "$PRIMARY_HARNESS" = pi ] || [ "$PRIMARY_HARNESS" = pi-signed ]; }; then
   PI_EXT="$FM_ROOT/.pi/extensions/fm-primary-pi-watch.ts"
   PI_TURNEND_EXT="$FM_ROOT/.pi/extensions/fm-primary-turnend-guard.ts"
   PI_WATCH_MARKER="$STATE/.pi-watch-extension-loaded"
@@ -773,7 +779,7 @@ fi
 # are a session started outside this home, an extension disabled in the omp
 # config, or a build older than the tracked file. The markers carry the loaded
 # build plus the loading pid, exactly as the Pi ones do (bin/fm-wake-lib.sh).
-if [ "$PRIMARY_HARNESS" = omp ]; then
+if [ "$MONITORING_STOP_BLOCKED" -eq 0 ] && [ "$PRIMARY_HARNESS" = omp ]; then
   OMP_EXT="$FM_ROOT/.omp/extensions/fm-primary-omp-watch.ts"
   OMP_TURNEND_EXT="$FM_ROOT/.omp/extensions/fm-primary-turnend-guard.ts"
   OMP_WATCH_MARKER="$STATE/.omp-watch-extension-loaded"
@@ -786,12 +792,21 @@ if [ "$PRIMARY_HARNESS" = omp ]; then
     printf 'OMP_WATCH_EXTENSION: not loaded - restart omp with this home as its working directory so %s and %s auto-load from .omp/extensions/ for turn-end guard and background wake coverage; pass -e %s -e %s only when omp must start from another directory, never together with auto-discovery (omp loads a file named both ways twice)\n' "$OMP_TURNEND_EXT" "$OMP_EXT" "$OMP_TURNEND_EXT" "$OMP_EXT"
   fi
 fi
-"$SCRIPT_DIR/fm-supervision-instructions.sh" \
-  --harness "$PRIMARY_HARNESS" \
-  --read-only "$READ_ONLY" \
-  --afk "$AFK_PRESENT" \
-  --afk-mode "$AFK_MODE" \
-  --x-mode "$X_MODE_PRESENT"
+if fm_monitoring_stop_blocks "$STATE"; then
+  MONITORING_STOP_BLOCKED=1
+  if [ "$READ_ONLY" -eq 0 ]; then
+    fm_monitoring_stop_report_once "$STATE"
+  fi
+  printf 'Automatic watcher startup is suppressed by the home monitoring-stop record.\n'
+else
+  MONITORING_STOP_BLOCKED=0
+  "$SCRIPT_DIR/fm-supervision-instructions.sh" \
+    --harness "$PRIMARY_HARNESS" \
+    --read-only "$READ_ONLY" \
+    --afk "$AFK_PRESENT" \
+    --afk-mode "$AFK_MODE" \
+    --x-mode "$X_MODE_PRESENT"
+fi
 
 # --- 5. read-once contract -------------------------------------------------
 # Ahead of the two digests it governs, not after them: a truncated tail is
@@ -957,6 +972,13 @@ if [ "$READ_ONLY" -eq 1 ]; then
 This session did not acquire the fleet lock. Stay read-only: do not arm,
 drain, spawn, steer, merge, or repair fleet state from here. Only a session
 with verified fleet-lock ownership may perform mutable follow-up.
+
+EOF
+elif [ "$MONITORING_STOP_BLOCKED" -eq 1 ]; then
+  cat <<'EOF'
+This session retains the fleet lock and may dispatch, steer, or merge when
+otherwise authorized. Automatic watcher startup remains suppressed by the
+home monitoring-stop record; do not start a watcher from this session.
 
 EOF
 elif [ "$AFK_PRESENT" -eq 1 ] && [ "$AFK_MODE" = quiet ]; then

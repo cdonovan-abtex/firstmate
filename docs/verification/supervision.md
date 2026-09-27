@@ -515,6 +515,35 @@ tests/fm-claude-stop-autoarm.test.sh
 tests/fm-turnend-guard.test.sh
 ```
 
+### Automatic-monitoring stop, 2026-09-27
+
+The reproduced trigger combined a valid active stop receipt, a Pi session that still owned the home lock, no watcher process, and one parked `kind=secondmate` direct report.
+The masking condition was that the persistent secondmate record looked like in-flight work, and the visible symptom was automatic arm and repair pressure despite the stop.
+The counterfactual removed the receipt and added an ordinary ship record, which still required supervision, while the disconfirming case added explicit paired resumption evidence and restored the normal verdict.
+Malformed JSON and partial resumption evidence were separately exercised as safe refusals with useful diagnostics.
+
+Portable executable-interface coverage exercised the shared receipt parser, arm boundary, turn-end and pull guards, session start, startup-owned secondmate liveness, Claude and Cursor shell paths, and the Pi, omp, and OpenCode extension paths.
+The shared `tests/fm-monitoring-stop.test.sh` suite also covers background notice preservation, late stops during arm readiness and handling confirmation, running and attached arm termination, checkpoint exit and timeout, secondmate probes, post-encoding failure delivery, and Cursor output-lock supersession.
+These cases retain queued actionable outcomes and distinguish ordinary no-stop failures from deliberate suppression.
+Receipt classification is derived entirely from home-owned files through the shared executable helper; portable fixtures cover the adapters' delivery paths, while the live-harness evidence above predates this monitoring-stop change.
+A live verification must nevertheless reload or restart the primary process after the tracked change lands, because an already-running Pi process retains the extension source it loaded earlier.
+The safe live route is to have the private-record owner retain or correct the valid receipt, reload or restart Pi without touching the parked secondmate home, queue, endpoint, launch jobs, or Herdr server, run session start, and verify that the session lock remains owned while no watcher lock or repair prompt appears.
+A two-machine proof must use the same owner-controlled receipt placement on each home and must not infer resumption from an absent or repaired malformed record.
+No live restart or remote action was performed by this task.
+
+Deterministic entry points:
+
+```sh
+tests/fm-monitoring-stop.test.sh
+tests/fm-turnend-guard.test.sh
+tests/fm-session-start.test.sh
+tests/fm-secondmate-liveness.test.sh
+tests/fm-claude-stop-autoarm.test.sh
+tests/fm-cursor-primary.test.sh
+tests/fm-pi-watch-extension.test.sh
+tests/fm-omp-harness.test.sh
+```
+
 ## Wedge-alarm channels
 
 The two real notification channels were bounded manually on 2026-07-10 on macOS 26.5.2 with Herdr 0.7.3.

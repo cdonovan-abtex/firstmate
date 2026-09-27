@@ -20,7 +20,15 @@
 # docs/arm-pretool-check.md for the blessed tree and deny reason codes. It is a
 # pre-execution seatbelt, not a substitute for the verification here.
 #
-# This script forks the watcher as a tracked child, then VERIFIES the outcome
+# A stop verdict from bin/fm-monitoring-stop-lib.sh returns 3 without launching
+# or retrying a watcher and without a FAILED line. Completion rechecks that
+# verdict even after a running or attached cycle exits for another reason;
+# any actionable child output is preserved, and the durable queue is untouched.
+# This background-capable wrapper never claims the visible stop notice.
+# --handling-delivered remains available to acknowledge a wake already delivered.
+# The receipt policy is owned by docs/configuration.md.
+#
+# When monitoring is enabled, this script forks a tracked child and VERIFIES the outcome
 # before it settles in. It confirms a watcher process is genuinely alive AND the
 # liveness beacon (state/.last-watcher-beat) is fresh within FM_GUARD_GRACE (the
 # single source of truth, shared with fm-watch.sh and fm-guard.sh), and prints
@@ -63,6 +71,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
 
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 WATCH_LOCK="$STATE/.watch.lock"
@@ -263,6 +273,7 @@ wait_for_healthy_successor() {
   # second cannot collapse to a few milliseconds when called near a boundary.
   deadline=$(( $(date +%s) + CONFIRM_TIMEOUT + 1 ))
   while :; do
+    exit_if_monitoring_stopped
     healthy_watcher && return 0
     [ "$(date +%s)" -ge "$deadline" ] && return 1
     sleep 0.2
@@ -270,6 +281,7 @@ wait_for_healthy_successor() {
 }
 
 fail_unexplained_cycle() {
+  exit_if_monitoring_stopped
   echo "watcher: FAILED - cycle ended without an actionable reason"
   return 1
 }
@@ -342,6 +354,7 @@ attach_and_wait() {
 handle_attached_signal() {
   local signal=$1 rc=$2
   trap - HUP TERM INT
+  exit_if_monitoring_stopped "$rc"
   cycle_log_append "$rc" "$signal" arm-interrupted none
   exit "$rc"
 }
@@ -370,6 +383,17 @@ watch_output_reason_type() {
 print_watch_output() {
   local out=$1
   [ -s "$out" ] && cat "$out"
+}
+
+exit_if_monitoring_stopped() {
+  local rc=${1:-unknown}
+  [ "$rc" = 3 ] || fm_monitoring_stop_blocks "$STATE" || return 0
+  cycle_log_append "$rc" "$(cycle_signal_name "$rc")" monitoring-stopped none
+  if [ -n "${child_out:-}" ]; then
+    grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$child_out" 2>/dev/null || true
+    cleanup_child
+  fi
+  exit 3
 }
 
 handling_successor_generation() {
@@ -406,6 +430,17 @@ if [ "$mode" = handling-delivered ]; then
     && fm_recovery_marker_begin_handling "$STATE/.watcher-down" "$handling_generation"
   exit $?
 fi
+
+# A recorded operator stop outranks every arm mode. Malformed evidence is the
+# same safe refusal: automatic supervision cannot infer permission from a
+# receipt it cannot validate. Handling-delivered stays above this boundary so a
+# wake already delivered before the stop can still complete its durable handoff.
+fm_monitoring_stop_status "$STATE"
+case "$FM_MONITORING_STOP_STATUS" in
+  active|malformed)
+    exit 3
+    ;;
+esac
 
 if [ "$mode" = restart ]; then
   # Home-scoped stop: only the watcher pid recorded in THIS home's lock.
@@ -465,6 +500,7 @@ handle_arm_signal() {
     kill -TERM "$child" 2>/dev/null || true
     wait "$child" 2>/dev/null || true
   fi
+  exit_if_monitoring_stopped "$rc"
   cycle_log_append "$rc" "$signal" arm-interrupted none
   cleanup_child
   exit "$rc"
@@ -489,6 +525,7 @@ child_done=0
 
 owned_child_finished() {
   local rc=$1 signal reason_type status
+  exit_if_monitoring_stopped "$rc"
   signal=$(cycle_signal_name "$rc")
   if [ "$rc" -eq 0 ] && watch_output_has_wake "$child_out"; then
     reason_type=$(watch_output_reason_type "$child_out")
@@ -527,6 +564,7 @@ owned_child_finished() {
 
   reason_type="nonzero-exit"
   [ "$signal" = none ] || reason_type="signal-exit"
+  exit_if_monitoring_stopped "$rc"
   cycle_log_append "$rc" "$signal" "$reason_type" none
   print_watch_output "$child_out"
   if ! grep -q '^watcher: FAILED' "$child_out" 2>/dev/null; then
@@ -553,6 +591,7 @@ while :; do
       if ! handling_generation=$(handling_successor_generation); then
         cleanup_child
         wait "$child" 2>/dev/null || true
+        exit_if_monitoring_stopped 1
         cycle_log_append 1 none handling-handoff-failed none
         echo "watcher: FAILED - established successor could not inspect handling state"
         exit 1
@@ -586,10 +625,12 @@ while :; do
 done
 
 trap - HUP TERM INT
+exit_if_monitoring_stopped
 print_watch_output "$child_out"
 cleanup_child
 wait "$child" 2>/dev/null
 rc=$?
+exit_if_monitoring_stopped "$rc"
 cycle_log_append "$rc" "$(cycle_signal_name "$rc")" confirmation-timeout none
 echo "watcher: FAILED - no live watcher with a fresh beacon"
 exit 1

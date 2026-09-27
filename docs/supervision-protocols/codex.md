@@ -1,5 +1,7 @@
 Mode: Codex foreground checkpoint.
 
+The [home monitoring-stop policy](../configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson) takes precedence over the cycle and repair instructions below.
+
 When this session owns supervision and away mode is not active:
 1. Drain first with `bin/fm-wake-drain.sh`.
    After handling all emitted wakes and reconciling open decisions and unread status lines, run the exact `--ack-through` command printed as `WAKE_ACK_REQUIRED`; until then the work remains durable for idempotent re-handling after interruption.
@@ -11,6 +13,8 @@ When this session owns supervision and away mode is not active:
 7. Do not run `bin/fm-watch-arm.sh` as Codex's normal supervision command.
    If it is ever shelled anyway, a backgrounded, piped, or bundled anti-pattern is denied automatically by the PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`) registered in `.codex/hooks.json`.
 8. Failure or missing cycle only: drain queued wakes, inspect the failure, then start a fresh foreground checkpoint.
+
+Exit 3 is a deliberate-stop result: handle any emitted wake without starting another checkpoint.
 
 Codex cannot reason while a foreground tool call is running.
 The bounded checkpoint returns control regularly so user messages and queued wakes can be handled without relying on background-task wake semantics.

@@ -190,6 +190,8 @@ install_guard_scripts() {
   cp "$ROOT/bin/fm-harness.sh" "$dir/bin/fm-harness.sh"
   cp "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/fm-primary-scope-lib.sh"
   cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
+  cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$dir/bin/fm-monitoring-stop-lib.sh"
+  cp "$ROOT/bin/fm-monitoring-stop.sh" "$dir/bin/fm-monitoring-stop.sh"
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
   mkdir -p "$dir/docs"
@@ -293,6 +295,41 @@ record_watcher_lock() {
   printf '%s\n' "$root" > "$dir/state/.watch.lock/fm-home"
   printf '%s\n' "$bin_dir/fm-watch.sh" > "$dir/state/.watch.lock/watcher-path"
   printf '%s\n' "$identity" > "$dir/state/.watch.lock/pid-identity"
+}
+
+test_hook_honors_active_and_malformed_monitoring_stop() {
+  local dir home receipt out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-monitoring-stop")
+  home=$(cd "$dir" && pwd)
+  receipt="$home/data/automatic-monitoring-pause/receipt.json"
+  mkdir -p "${receipt%/*}"
+  : > "$dir/state/task1.meta"
+  jq -n --arg home "$home" '{
+    instruction:"Stop the automatic monitoring",
+    time:"2026-09-21T18:42:20.023025+00:00",
+    home:$home,
+    scope:"Automatic monitoring only; existing workers and validation preserved",
+    resume:"Explicit approval required; no automatic ownership recovery",
+    action:"Stop watcher processes without relinquishing session ownership",
+    completed:true
+  }' > "$receipt"
+
+  out=$(run_hook "$dir" false); status=$?
+  expect_code 0 "$status" "an active operator stop must allow the primary turn to end without a watcher"
+  assert_contains "$out" "monitoring stopped by Captain order at 2026-09-21T18:42:20.023025+00:00" \
+    "the first stopped turn did not report the order and time"
+  assert_not_contains "$out" "$REQUIRED_REASON" "active stop still prompted watcher re-arm"
+  out=$(run_hook "$dir" false); status=$?
+  expect_code 0 "$status" "a repeated stopped turn must remain allowed"
+  [ -z "$out" ] || fail "the unchanged stop was reported more than once: $out"
+
+  rm -rf "$dir/state/.monitoring-stop-reports"
+  printf '{bad json\n' > "$receipt"
+  out=$(run_hook "$dir" false); status=$?
+  expect_code 0 "$status" "malformed stop evidence must refuse automatic recovery without blocking the turn"
+  assert_contains "$out" "AUTOMATIC_MONITORING_STOP_INVALID" "malformed stop evidence did not report its repair problem"
+  assert_not_contains "$out" "$REQUIRED_REASON" "malformed stop evidence still prompted watcher re-arm"
+  pass "fm-turnend-guard: active and malformed stop evidence suppress every turn-end re-arm prompt"
 }
 
 test_hook_silent_when_no_work_in_flight() {
@@ -1013,6 +1050,7 @@ printf 'guard-fired\n' >&2
 exit 2
 EOF
   chmod +x "$worktree_dir/bin/fm-turnend-guard.sh"
+  cp "$ROOT/bin/fm-monitoring-stop.sh" "$ROOT/bin/fm-monitoring-stop-lib.sh" "$worktree_dir/bin/"
   # Runtime module-format warnings are host noise; this assertion owns plugin output only.
   out=$(NODE_NO_WARNINGS=1 PLUGIN="$plugin" DIRECTORY="$wrong_dir" WORKTREE="$worktree_dir" node 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
@@ -1061,8 +1099,10 @@ test_pi_turnend_loaded_marker_stays_with_canonical_session_owner() {
   repo="$TMP_ROOT/pi-turnend-marker-owner-root"
   home="$TMP_ROOT/pi-turnend-marker-owner-home"
   ext="$repo/.pi/extensions/fm-primary-turnend-guard.ts"
-  mkdir -p "$repo/.pi/extensions/lib" "$home/state"
+  mkdir -p "$repo/.pi/extensions/lib" "$repo/bin" "$home/state"
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
+  cp "$ROOT/.pi/extensions/lib/fm-monitoring-stop.ts" "$repo/.pi/extensions/lib/"
+  cp "$ROOT/bin/fm-monitoring-stop.sh" "$ROOT/bin/fm-monitoring-stop-lib.sh" "$repo/bin/"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
   out=$(PLUGIN="$ext" FM_HOME="$home" node --input-type=module 2>&1 <<'EOF'
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -1122,6 +1162,8 @@ test_pi_turnend_marker_is_published_during_lock_acquisition() {
   ext="$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   mkdir -p "$repo/.pi/extensions/lib" "$repo/bin"
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
+  cp "$ROOT/.pi/extensions/lib/fm-monitoring-stop.ts" "$repo/.pi/extensions/lib/"
+  cp "$ROOT/bin/fm-monitoring-stop.sh" "$ROOT/bin/fm-monitoring-stop-lib.sh" "$repo/bin/"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
     "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$repo/.pi/extensions/lib/"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/"
@@ -1287,6 +1329,8 @@ test_pi_extension_injects_once_per_logical_agent_run() {
   log="$TMP_ROOT/pi-logical-run-guard.log"
   mkdir -p "$repo/.pi/extensions/lib" "$repo/bin" "$home/state"
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
+  cp "$ROOT/.pi/extensions/lib/fm-monitoring-stop.ts" "$repo/.pi/extensions/lib/"
+  cp "$ROOT/bin/fm-monitoring-stop.sh" "$ROOT/bin/fm-monitoring-stop-lib.sh" "$repo/bin/"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/fm-operational-input.sh"
   cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
@@ -1353,6 +1397,8 @@ test_pi_extension_retries_after_followup_delivery_failure() {
   ext="$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   mkdir -p "$repo/.pi/extensions/lib" "$repo/bin" "$home/state"
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
+  cp "$ROOT/.pi/extensions/lib/fm-monitoring-stop.ts" "$repo/.pi/extensions/lib/"
+  cp "$ROOT/bin/fm-monitoring-stop.sh" "$ROOT/bin/fm-monitoring-stop-lib.sh" "$repo/bin/"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/fm-operational-input.sh"
   cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
@@ -1431,6 +1477,7 @@ install_integrated_autoarm() {
   cp "$ROOT/bin/fm-claude-stop-autoarm.sh" "$dir/bin/fm-claude-stop-autoarm.sh"
   cp "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/fm-primary-scope-lib.sh"
   cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
+  cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$dir/bin/fm-monitoring-stop-lib.sh"
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
   cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
@@ -2434,6 +2481,7 @@ test_predicate_registered_check_survives_rebinding_drift
 test_predicate_unregistered_check_needs_nothing
 test_predicate_task_pr_poll_is_not_a_custom_check
 test_predicate_relay_shim_is_not_a_custom_check
+test_hook_honors_active_and_malformed_monitoring_stop
 test_hook_silent_when_no_work_in_flight
 test_hook_blocks_when_fresh_beacon_has_no_live_lock
 test_hook_blocks_source_only_home
