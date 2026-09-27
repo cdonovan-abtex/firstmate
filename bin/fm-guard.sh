@@ -243,6 +243,8 @@ if [ "$watcher_healthy" = false ]; then
       fi
       if [ "$in_flight" -gt 0 ]; then
         printf '●  %s task(s) in flight, but %s.\n' "$in_flight" "$watcher_cause"
+      elif [ "$FM_SUP_PENDING_REPLIES" -gt 0 ]; then
+        printf '●  %s secondmate reply request(s) outstanding, but %s.\n' "$FM_SUP_PENDING_REPLIES" "$watcher_cause"
       elif [ "$sources" -gt 0 ]; then
         printf '●  %s process-event source(s) registered, but %s.\n' "$sources" "$watcher_cause"
       elif [ "$checks" -gt 0 ]; then

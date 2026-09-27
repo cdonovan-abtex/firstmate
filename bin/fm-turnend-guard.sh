@@ -236,6 +236,8 @@ block_stop() {
     printf '●  TURN WOULD END BLIND - SUPERVISION IS OFF\n'
     if [ "$FM_SUP_IN_FLIGHT" -gt 0 ]; then
       printf '●  %s task(s) in flight, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_IN_FLIGHT" "$FM_SUP_BEACON_DESC"
+    elif [ "$FM_SUP_PENDING_REPLIES" -gt 0 ]; then
+      printf '●  %s secondmate reply request(s) outstanding, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_PENDING_REPLIES" "$FM_SUP_BEACON_DESC"
     elif [ "$FM_SUP_SOURCES" -gt 0 ]; then
       printf '●  %s process-event source(s) registered, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_SOURCES" "$FM_SUP_BEACON_DESC"
     elif [ "$FM_SUP_CHECKS" -gt 0 ]; then
@@ -498,6 +500,8 @@ terminal_status=$?
 if [ "$terminal_status" -eq 0 ]; then
   if [ "$FM_SUP_IN_FLIGHT" -gt 0 ]; then
     NEED_DESC="$FM_SUP_IN_FLIGHT task(s) in flight"
+  elif [ "$FM_SUP_PENDING_REPLIES" -gt 0 ]; then
+    NEED_DESC="$FM_SUP_PENDING_REPLIES secondmate reply request(s) outstanding"
   elif [ "$FM_SUP_SOURCES" -gt 0 ]; then
     NEED_DESC="$FM_SUP_SOURCES process-event source(s) registered"
   elif [ "$FM_SUP_CHECKS" -gt 0 ]; then

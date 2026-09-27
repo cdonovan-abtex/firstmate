@@ -1732,6 +1732,13 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
 fi
 
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
+if fm_monitoring_stop_blocks "$STATE"; then
+  fm_monitoring_stop_report_once "$STATE"
+  exit 3
+fi
+
 # FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS is validated here, at arm time, and an
 # unusable value refuses to arm. This is deliberately NOT symmetry with the
 # tunables above, which this watcher only defaults and never validates. The

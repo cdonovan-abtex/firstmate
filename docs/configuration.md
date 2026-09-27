@@ -41,6 +41,7 @@ Malformed evidence suppresses these paths rather than inferring permission, and 
 An absent receipt or a valid explicitly resumed receipt preserves ordinary supervision behavior.
 A stopped home keeps its session lock and its otherwise authorized ability to dispatch, steer, and merge; this receipt suspends automatic monitoring rather than relinquishing fleet ownership.
 A persistent `kind=secondmate` metadata record is infrastructure rather than in-flight task work, so it does not create supervision need by itself even when no stop is recorded.
+An unresolved secondmate reply expectation still requires supervision until it is resolved.
 
 The first active-stop observation is reported at most once per stop timestamp, even if audit history later changes, and each distinct malformed receipt revision is reported at most once.
 Those atomic report claims live under `state/.monitoring-stop-reports/` and do not authorize editing the private receipt.

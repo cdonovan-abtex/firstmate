@@ -503,6 +503,14 @@ child_done=0
 
 owned_child_finished() {
   local rc=$1 signal reason_type status
+  if [ "$rc" -eq 3 ]; then
+    cycle_log_append "$rc" none monitoring-stopped none
+    print_watch_output "$child_out"
+    rm -f "$child_out" 2>/dev/null || true
+    child=
+    child_out=
+    return 3
+  fi
   signal=$(cycle_signal_name "$rc")
   if [ "$rc" -eq 0 ] && watch_output_has_wake "$child_out"; then
     reason_type=$(watch_output_reason_type "$child_out")

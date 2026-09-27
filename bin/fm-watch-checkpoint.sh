@@ -12,6 +12,7 @@ Usage: fm-watch-checkpoint.sh [--seconds <n>]
 
 Run bin/fm-watch.sh in the foreground for a bounded checkpoint.
 On an actionable watcher wake, pass through the watcher output and exit 0.
+On a recorded monitoring stop, pass through its diagnostic and exit 3 without retrying.
 On a quiet checkpoint, print "checkpoint: no actionable wake within <n>s" and exit 124.
 EOF
 }
@@ -92,6 +93,12 @@ else
   RC=$?
 fi
 set -e
+
+if [ "$RC" -eq 3 ]; then
+  [ ! -s "$OUT" ] || cat "$OUT"
+  [ ! -s "$ERR" ] || cat "$ERR" >&2
+  exit 3
+fi
 
 if grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >/dev/null 2>&1; then
   cat "$OUT"

@@ -103,16 +103,6 @@ async function isPrimaryRoot(root, home) {
 
 function monitoringStopVerdict(paths) {
   const script = `${paths.root}/bin/fm-monitoring-stop.sh`;
-  const receipt = `${paths.home}/data/automatic-monitoring-pause/receipt.json`;
-  // A plugin can be loaded from a newer global source while an older home has
-  // not yet gained the helper. Absence is compatible only when there is no
-  // stop evidence to interpret; existing evidence without its parser is an
-  // intentional safe refusal.
-  if (!existsSync(script)) {
-    return existsSync(receipt)
-      ? { status: "malformed", detail: "monitoring-stop status helper is missing" }
-      : { status: "none", detail: "" };
-  }
   const result = spawnSync("bash", [script, "status", "--json"], {
     cwd: paths.root,
     encoding: "utf8",

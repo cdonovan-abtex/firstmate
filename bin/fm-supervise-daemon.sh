@@ -1535,6 +1535,12 @@ trim_log() {
 fm_super_main() {
   local STATE
   STATE="$(_state_root)"
+  # shellcheck source=bin/fm-monitoring-stop-lib.sh
+  . "$FM_DAEMON_DIR/fm-monitoring-stop-lib.sh"
+  if fm_monitoring_stop_blocks "$STATE"; then
+    fm_monitoring_stop_report_once "$STATE"
+    return 3
+  fi
   mkdir -p "$STATE"
 
   # Source the portable lock helpers (works on macOS where flock is absent).
@@ -1729,6 +1735,12 @@ fm_super_main() {
           rm -f "${CUR_TMP}" 2>/dev/null || true
         fi
         CUR_TMP=""
+        if [ "$rc" -eq 3 ]; then
+          WATCHER_PID=""
+          [ -z "$reason" ] || printf '%s\n' "$reason"
+          log "monitoring stopped; watcher restart suppressed"
+          cleanup
+        fi
         if [ "$rc" -ne 0 ] || [ -z "$reason" ]; then
           record_crash
           log "watcher exited rc=$rc reason='$reason'; restarting after ${backoff_secs}s"

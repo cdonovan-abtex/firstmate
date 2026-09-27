@@ -423,24 +423,28 @@ async function claimSessionstartMessage(
   return sessionstartMessage(generation, result);
 }
 
-function runGuard(): Promise<{ code: number; stderr: string }> {
+function runGuard(): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolveResult) => {
     const invocation = firstmateShellInvocation(`${root}/bin/fm-turnend-guard.sh`, []);
     let child: ChildProcess;
     try {
       child = spawn(invocation.command, invocation.args, {
-        stdio: ["pipe", "ignore", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
       });
     } catch {
-      resolveResult({ code: 0, stderr: "" });
+      resolveResult({ code: 0, stdout: "", stderr: "" });
       return;
     }
+    let stdout = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
     let stderr = "";
     child.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
     });
-    child.on("error", () => resolveResult({ code: 0, stderr: "" }));
-    child.on("close", (code) => resolveResult({ code: code ?? 0, stderr }));
+    child.on("error", () => resolveResult({ code: 0, stdout: "", stderr: "" }));
+    child.on("close", (code) => resolveResult({ code: code ?? 0, stdout, stderr }));
     child.stdin?.on("error", () => {});
     child.stdin?.end('{"stop_hook_active":false}');
   });
@@ -584,6 +588,13 @@ export default function (pi: ExtensionAPI) {
     }
 
     const result = await runGuard();
+    if (result.code === 0 && result.stdout.trim()) {
+      pi.sendMessage({
+        customType: "firstmate-monitoring-stop",
+        content: result.stdout.trim(),
+        display: true,
+      });
+    }
     if (result.code !== 2) return;
 
     guardFollowupActive = true;

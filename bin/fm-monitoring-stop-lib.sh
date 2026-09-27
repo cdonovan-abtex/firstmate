@@ -19,7 +19,28 @@
 # FM_MONITORING_STOP_DETAIL, and FM_MONITORING_STOP_RECEIPT.
 
 fm_monitoring_stop_timestamp_valid() {
-  printf '%s' "$1" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$'
+  local pattern year month day hour minute second offset_hour offset_minute days
+  pattern='^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]+)?(Z|[+-]([0-9]{2}):([0-9]{2}))$'
+  [[ $1 =~ $pattern ]] || return 1
+  year=$((10#${BASH_REMATCH[1]}))
+  month=$((10#${BASH_REMATCH[2]}))
+  day=$((10#${BASH_REMATCH[3]}))
+  hour=$((10#${BASH_REMATCH[4]}))
+  minute=$((10#${BASH_REMATCH[5]}))
+  second=$((10#${BASH_REMATCH[6]}))
+  offset_hour=$((10#${BASH_REMATCH[9]:-00}))
+  offset_minute=$((10#${BASH_REMATCH[10]:-00}))
+  ((month >= 1 && month <= 12 && hour < 24 && minute < 60 && second < 60
+    && offset_hour < 24 && offset_minute < 60)) || return 1
+  case "$month" in
+    4|6|9|11) days=30 ;;
+    2)
+      days=28
+      if ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))); then days=29; fi
+      ;;
+    *) days=31 ;;
+  esac
+  ((day >= 1 && day <= days))
 }
 
 fm_monitoring_stop_status() {  # [state-dir]
@@ -32,7 +53,7 @@ fm_monitoring_stop_status() {  # [state-dir]
     home=$(cd "$(dirname "$state")" 2>/dev/null && pwd -P) || home=$(dirname "$state")
   fi
   data=${FM_DATA_OVERRIDE:-$home/data}
-  receipt=${FM_MONITORING_STOP_RECEIPT_OVERRIDE:-$data/automatic-monitoring-pause/receipt.json}
+  receipt=$data/automatic-monitoring-pause/receipt.json
 
   FM_MONITORING_STOP_STATUS=none
   FM_MONITORING_STOP_TIME=
@@ -52,13 +73,8 @@ fm_monitoring_stop_status() {  # [state-dir]
     FM_MONITORING_STOP_DETAIL="jq is required to validate the receipt"
     return 0
   fi
-  if ! jq -e . "$receipt" >/dev/null 2>&1; then
-    FM_MONITORING_STOP_STATUS=malformed
-    FM_MONITORING_STOP_DETAIL="receipt must contain valid JSON"
-    return 0
-  fi
-
-  parsed=$(jq -er --arg home "$home" '
+  parsed=$(jq -ser --arg home "$home" '
+    if length != 1 then error("single-object") else .[0] end |
     def nonempty: type == "string" and length > 0;
     if type != "object" then error("object")
     elif ((.instruction | nonempty) | not) then error("instruction")
@@ -76,7 +92,7 @@ fm_monitoring_stop_status() {  # [state-dir]
     end
   ' "$receipt" 2>/dev/null) || {
     FM_MONITORING_STOP_STATUS=malformed
-    FM_MONITORING_STOP_DETAIL="receipt JSON does not match the required stop/resume schema or names a different home"
+    FM_MONITORING_STOP_DETAIL="receipt must contain valid JSON with exactly one object matching the required stop/resume schema and effective home"
     return 0
   }
 

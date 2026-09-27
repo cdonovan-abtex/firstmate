@@ -72,6 +72,15 @@ export const FmPrimaryTurnendGuard = async ({ client, directory, worktree }) => 
       if (await letWatchArmRun(sessionID, client)) return;
 
       const result = await runGuard(root);
+      if (result.code === 0 && result.stdout?.trim()) {
+        await client.session.prompt({
+          path: { id: sessionID },
+          body: {
+            noReply: true,
+            parts: [{ type: "text", text: result.stdout.trim() }],
+          },
+        });
+      }
       if (result.code !== 2) return;
 
       try {

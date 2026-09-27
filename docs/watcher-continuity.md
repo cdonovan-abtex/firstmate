@@ -10,7 +10,8 @@ Each adapter starts the next arm before delivering the wake prompt, checks curre
 A failed follow-up never cancels continuity restoration.
 
 The home-scoped automatic-monitoring stop is the one deliberate continuity stand-down, with its receipt schema and operator semantics owned by [`configuration.md`](configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson).
-The Pi, omp, and OpenCode adapters read the shared verdict before every launch or retry, while `bin/fm-watch-arm.sh` enforces the same verdict as the final arm boundary for Claude, Cursor, Grok, and manual recovery callers.
+The Pi, omp, and OpenCode adapters read the shared verdict before every launch or retry, while `bin/fm-watch.sh` enforces the same verdict at every actual watcher startup, including checkpoint and away-daemon launches.
+The arm wrapper, checkpoint, and daemon treat exit 3 as intentional suppression rather than a failure to retry.
 An active valid stop and malformed evidence both suppress launch, retry, and repair prompting without releasing the session lock; malformed evidence carries its diagnostic instead of being treated as permission.
 A wake delivered before the stop may still complete its durable handling acknowledgement, but it cannot create a successor cycle under the stop.
 Session start suppresses its normal supervision block and missing-extension restart diagnostics while retaining authorized fleet operations, and its secondmate-liveness sweep preserves parked persistent infrastructure instead of relaunching it.
@@ -119,7 +120,7 @@ Only the watcher process touches `state/.last-watcher-beat`; no helper process c
 
 ## Regression coverage
 
-`tests/fm-monitoring-stop.test.sh` covers receipt classification, explicit resumption, malformed-evidence refusal, once-only reporting, ordinary no-stop supervision, parked-secondmate exclusion, and the final arm-wrapper refusal.
+`tests/fm-monitoring-stop.test.sh` covers receipt classification, explicit resumption, malformed-evidence refusal, once-only reporting, ordinary no-stop supervision, parked-secondmate exclusion, outstanding secondmate replies, direct/checkpoint/daemon suppression, nonblocking adapter diagnostic delivery, and the arm-wrapper refusal.
 `tests/fm-pi-watch-extension.test.sh` checks Pi's first-cycle-or-explicit-repair tool metadata and ownership-based redundant-call no-ops, simulates actionable and empty child closes against the actual Pi and OpenCode close handlers, and proves both adapters suppress active or malformed monitoring-stop evidence without an arm or follow-up prompt.
 It also blocks prompt delivery to prove the successor launches first, verifies single-flight behavior, changes the session lock before close to prove ownership is rechecked, and hangs each successor arm to prove bounded fallback delivery includes the typed restoration failure.
 The same suite covers ordinary same-process session replacement for `/new`, `/resume`, `/fork`, and reload, same-instance shutdown-plus-start, automatic re-arm before any model turn, a fresh extension-module rebind carrying all in-flight actionable closes exactly once, stale prior-generation callbacks, repeated transitions with exactly one live cycle, disappearance of the shutting-down refusal after a valid replacement activates, and terminal quit still refusing late rearm.

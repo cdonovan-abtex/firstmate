@@ -460,17 +460,21 @@ async function claimSessionstartMessage(
 // The shared guard reads stop_hook_active exactly as it does from Claude's
 // payload: a true value allows the stop, which is what bounds omp to one
 // forced continuation per turn.
-function runGuard(stopHookActive: boolean): Promise<{ code: number; stderr: string }> {
+function runGuard(stopHookActive: boolean): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolveResult) => {
     const child = spawn(`${root}/bin/fm-turnend-guard.sh`, {
-      stdio: ["pipe", "ignore", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
     });
     let stderr = "";
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
-    child.on("error", () => resolveResult({ code: 0, stderr: "" }));
-    child.on("close", (code) => resolveResult({ code: code ?? 0, stderr }));
+    child.on("error", () => resolveResult({ code: 0, stdout: "", stderr: "" }));
+    child.on("close", (code) => resolveResult({ code: code ?? 0, stdout, stderr }));
     child.stdin.end(JSON.stringify({ stop_hook_active: stopHookActive }));
   });
 }
@@ -599,6 +603,13 @@ export default function (pi: ExtensionAPI) {
   pi.on?.("session_stop", async (event) => {
     const stopHookActive = Boolean(event && (event as { stop_hook_active?: unknown }).stop_hook_active === true);
     const result = await runGuard(stopHookActive);
+    if (result.code === 0 && result.stdout.trim()) {
+      pi.sendMessage?.({
+        customType: "firstmate-monitoring-stop",
+        content: result.stdout.trim(),
+        display: true,
+      });
+    }
     if (result.code !== 2) return undefined;
     let content: string;
     try {

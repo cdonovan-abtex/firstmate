@@ -28,9 +28,10 @@ That check keeps crewmate and scout linked worktrees inert because their git dir
 It also requires `AGENTS.md`, `bin/`, and the effective state directory.
 
 For an in-scope primary, the guard counts in-flight work from `state/*.meta`, excluding records whose exact `kind` is `secondmate` because those describe persistent infrastructure rather than a work task.
-Registered `state/procevent/*.source` records also require supervision even though they have no task metadata.
+Registered `state/procevent/*.source` records and unresolved secondmate reply expectations also require supervision even though they are not in-flight task metadata.
 Before applying any watcher-health requirement, the shared predicate reads the home-scoped automatic-monitoring stop verdict owned by [`configuration.md`](configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson).
-An active valid stop or malformed stop evidence makes the turn-end guard and pull guard return cleanly without a repair prompt, while the once-only reporter records either the operator stop time or the malformed-evidence problem.
+An active valid stop or malformed stop evidence makes the turn-end guard and pull guard return cleanly without a repair prompt, while the once-only reporter emits either the operator stop time or the malformed-evidence problem.
+Pi and omp display successful guard output as a message without starting another turn; OpenCode adds it to the session with `noReply: true`.
 An absent or explicitly resumed stop record leaves the ordinary predicate unchanged.
 The default cross-harness mode exits silently with no supervision need.
 Every mode treats `state/x-watch.check.sh` as supervision need, so Relay polling remains guarded without an in-flight task.
