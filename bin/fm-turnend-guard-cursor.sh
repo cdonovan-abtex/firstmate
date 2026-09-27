@@ -206,6 +206,11 @@ $reason"
     exit 0
   fi
   budget_read
+  if fm_monitoring_stop_blocks "$STATE"; then
+    report_monitoring_stop
+    fm_lock_release "$OWNER_LOCK"
+    exit 0
+  fi
   if [ "$BUDGET_COUNT" -ne "$prior" ] || ! budget_write "$count"; then
     fm_lock_release "$OWNER_LOCK"
     exit 0
@@ -215,16 +220,20 @@ $reason"
   exit 0
 }
 
-exit_if_monitoring_stopped() {
+report_monitoring_stop() {
   local notice encoded
+  notice=$(fm_monitoring_stop_report_once "$STATE")
+  if [ -n "$notice" ]; then
+    fm_operational_input_encode turn-end-guard "$notice" encoded \
+      && jq -n --arg m "$encoded" '{followup_message:$m}'
+  fi
+}
+
+exit_if_monitoring_stopped() {
   fm_monitoring_stop_blocks "$STATE" || return 0
   lock_acquire_bounded "$OWNER_LOCK" || exit 0
   if park_still_ours && current_session_still_ours; then
-    notice=$(fm_monitoring_stop_report_once "$STATE")
-    if [ -n "$notice" ]; then
-      fm_operational_input_encode turn-end-guard "$notice" encoded \
-        && jq -n --arg m "$encoded" '{followup_message:$m}'
-    fi
+    report_monitoring_stop
   fi
   fm_lock_release "$OWNER_LOCK"
   exit 0

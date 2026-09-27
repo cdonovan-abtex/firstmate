@@ -1,3 +1,4 @@
+import { monitoringStopped } from "./lib/fm-monitoring-stop.ts";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -17,6 +18,7 @@ const extensionDir = dirname(extensionFile);
 const root = resolve(extensionDir, "../..");
 const fmHome = process.env.FM_HOME || process.env.FM_ROOT_OVERRIDE || root;
 const state = process.env.FM_STATE_OVERRIDE || `${fmHome}/state`;
+const monitoringPaths = { root, home: fmHome, state, config: process.env.FM_CONFIG_OVERRIDE || `${fmHome}/config` };
 const marker = `${state}/.pi-turnend-extension-loaded`;
 const extensionVersion = `sha256:${createHash("sha256").update(readFileSync(extensionFile)).digest("hex")}`;
 
@@ -490,6 +492,16 @@ function runCdCheck(command: string): Promise<{ code: number; stderr: string }> 
 }
 
 export default function (pi: ExtensionAPI) {
+  function reportMonitoringStop(result: { code: number; stdout: string }): void {
+    if (result.code === 0 && result.stdout.trim()) {
+      pi.sendMessage({
+        customType: "firstmate-monitoring-stop",
+        content: result.stdout.trim(),
+        display: true,
+      });
+    }
+  }
+
   let sessionstartGeneration: SessionstartGeneration | null = null;
   let sessionstartExitListenerRegistered = false;
   const cleanupSessionstartOnProcessExit = (): void => {
@@ -588,16 +600,9 @@ export default function (pi: ExtensionAPI) {
     }
 
     const result = await runGuard();
-    if (result.code === 0 && result.stdout.trim()) {
-      pi.sendMessage({
-        customType: "firstmate-monitoring-stop",
-        content: result.stdout.trim(),
-        display: true,
-      });
-    }
+    reportMonitoringStop(result);
     if (result.code !== 2) return;
 
-    guardFollowupActive = true;
     try {
       const content = encodeFirstmateOperationalInput(
         "turn-end-guard",
@@ -605,6 +610,11 @@ export default function (pi: ExtensionAPI) {
           "The watcher cycle is missing, failed, or unhealthy. Follow the harness recovery instruction below before ending the turn.\n\n" +
           result.stderr,
       );
+      if (monitoringStopped(monitoringPaths)) {
+        reportMonitoringStop(await runGuard());
+        return;
+      }
+      guardFollowupActive = true;
       await pi.sendUserMessage(content, { deliverAs: "followUp" });
     } catch {
       guardFollowupActive = false;

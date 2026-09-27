@@ -293,7 +293,7 @@ test_turnend_adapters_display_stop_diagnostic_once() {
     make_guard_home "$home"
     mkdir -p "$home/.pi/extensions/lib" "$home/.omp/extensions" "$home/.opencode/plugins/lib"
     cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$home/.pi/extensions/"
-    cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$home/.pi/extensions/lib/"
+    cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$ROOT/.pi/extensions/lib/fm-monitoring-stop.ts" "$home/.pi/extensions/lib/"
     cp "$ROOT/.omp/extensions/fm-primary-turnend-guard.ts" "$home/.omp/extensions/"
     cp "$ROOT/.opencode/plugins/fm-primary-turnend-guard.js" "$home/.opencode/plugins/"
     cp "$ROOT/.opencode/plugins/lib/fm-operational-input.js" "$home/.opencode/plugins/lib/"
@@ -1554,6 +1554,244 @@ SH
   pass "startup recovery rechecks stops after remote readiness, remote state, and local state probes"
 }
 
+stage_delivery_stop() {
+  local test_home=$1 kind=$2
+  write_active_receipt "$test_home"
+  if [ "$kind" = malformed ]; then
+    printf '{bad json\n' > "$test_home/data/automatic-monitoring-pause/receipt.json"
+  elif [ "$kind" = resumed ]; then
+    jq '. + {resumed_at:"2026-09-28T10:00:00Z",resume_instruction:"Resume monitoring"}' \
+      "$test_home/data/automatic-monitoring-pause/receipt.json" > "$test_home/receipt.next"
+    mv "$test_home/receipt.next" "$test_home/data/automatic-monitoring-pause/receipt.json"
+  fi
+  mv "$test_home/data/automatic-monitoring-pause/receipt.json" "$test_home/receipt.ready"
+}
+
+install_stop_during_encoder() {
+  local test_home=$1
+  mv "$test_home/bin/fm-operational-input.sh" "$test_home/bin/fm-operational-input-real.sh"
+  cat > "$test_home/bin/fm-operational-input.sh" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = encode ]; then
+  touch "$FM_HOME/encoded"
+  if [ "$STOP_KIND" != absent ] && [ -f "$FM_HOME/receipt.ready" ]; then
+    mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+  fi
+fi
+exec "$FM_HOME/bin/fm-operational-input-real.sh" "$@"
+SH
+  chmod +x "$test_home/bin/fm-operational-input.sh"
+}
+
+test_pi_omp_watch_delivery_rechecks_after_encoding() {
+  local test_home adapter kind mode out status
+  for adapter in pi omp; do
+    for mode in failure actionable; do
+      for kind in active malformed absent resumed; do
+        test_home="$TMP_ROOT/encoded-watch-$adapter-$mode-$kind"
+        make_guard_home "$test_home"
+        make_watch_extension_fixture "$test_home"
+        stage_delivery_stop "$test_home" "$kind"
+        install_stop_during_encoder "$test_home"
+        cat > "$test_home/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+if [ "$WAKE_MODE" = actionable ] && [ ! -f "$FM_HOME/woke" ]; then
+  touch "$FM_HOME/woke"
+  printf 'watcher: started pid=%s (beacon fresh)\nsignal: encoded actionable outcome\n' "$$"
+  exit 0
+fi
+printf 'watcher: FAILED - fixture failure\n'
+exit 1
+SH
+        chmod +x "$test_home/bin/fm-watch-arm.sh"
+        out=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" ADAPTER="$adapter" STOP_KIND="$kind" WAKE_MODE="$mode" \
+          FM_WATCH_REARM_RETRY_LIMIT=1 FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 \
+          NODE_NO_WARNINGS=1 node --input-type=module 2>&1 <<'JS'
+import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const home=process.env.FM_HOME, adapter=process.env.ADAPTER, mode=process.env.WAKE_MODE, kind=process.env.STOP_KIND;
+writeFileSync(`${home}/state/.lock`, `${process.pid}\n`);
+const queue="1\t1\tsignal\ttask\tsignal: encoded actionable outcome\n";
+writeFileSync(`${home}/state/.wake-queue`, queue);
+const handlers=new Map(), messages=[];
+let tool;
+const mod=await import(pathToFileURL(`${home}/.${adapter}/extensions/fm-primary-${adapter}-watch.ts`));
+mod.default({on:(name,fn)=>handlers.set(name,fn),registerTool:value=>{tool=value},registerCommand(){},sendUserMessage:async text=>messages.push(text)});
+try {
+  await tool.execute("start", {}, undefined, undefined, {});
+  const deadline=Date.now()+10000;
+  while (!existsSync(`${home}/encoded`) && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,20));
+  assert.ok(existsSync(`${home}/encoded`), "delivery encoder was not reached");
+  await new Promise(resolve=>setTimeout(resolve,100));
+  if (kind==="active" || kind==="malformed") {
+    assert.equal(messages.length, mode==="failure" ? 0 : 1, `${messages}`);
+    if (mode==="actionable") {
+      assert.match(messages[0], /signal: encoded actionable outcome/);
+      assert.doesNotMatch(messages[0], /watcher: FAILED|repair|re-arm/);
+    }
+  } else {
+    assert.ok(messages.length>0, "ordinary failure disappeared");
+    assert.match(messages[0], /watcher: FAILED/);
+    if (mode==="actionable") assert.match(messages[0], /signal: encoded actionable outcome/);
+  }
+  assert.equal(readFileSync(`${home}/state/.wake-queue`,"utf8"),queue);
+  assert.equal(existsSync(`${home}/state/.monitoring-stop-reports`),false);
+} finally { await handlers.get("session_shutdown")({reason:"quit"}); }
+JS
+); status=$?
+        expect_code 0 "$status" "$adapter $mode $kind post-encoding delivery failed: $out"
+      done
+    done
+  done
+  pass "Pi and omp recheck stops after encoding without losing actionable outcomes"
+}
+
+test_turnend_delivery_rechecks_after_encoding() {
+  local test_home adapter kind out status
+  for adapter in pi omp opencode; do
+    for kind in active malformed absent resumed; do
+      test_home="$TMP_ROOT/encoded-guard-$adapter-$kind"
+      make_guard_home "$test_home"
+      make_watch_extension_fixture "$test_home"
+      cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$test_home/.pi/extensions/"
+      cp "$ROOT/.omp/extensions/fm-primary-turnend-guard.ts" "$test_home/.omp/extensions/"
+      mkdir -p "$test_home/.opencode/plugins/lib"
+      cp "$ROOT/.opencode/plugins/fm-primary-turnend-guard.js" "$ROOT/.opencode/plugins/fm-primary-watch-arm.js" "$test_home/.opencode/plugins/"
+      cp "$ROOT/.opencode/plugins/lib/fm-operational-input.js" "$test_home/.opencode/plugins/lib/"
+      FM_HOME="$test_home" FM_PROCEVENT_CLAIM_ROOT="$test_home/claims" \
+        "$test_home/bin/fm-procevent.sh" register lavish late-guard -- /usr/bin/true >/dev/null || fail "could not register supervised source"
+      stage_delivery_stop "$test_home" "$kind"
+      install_stop_during_encoder "$test_home"
+      out=$(FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" ADAPTER="$adapter" STOP_KIND="$kind" NODE_NO_WARNINGS=1 \
+        node --input-type=module 2>&1 <<'JS'
+import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const home=process.env.FM_HOME, adapter=process.env.ADAPTER, kind=process.env.STOP_KIND;
+writeFileSync(`${home}/state/.lock`, `${process.pid}\n`);
+const notices=[], repairs=[];
+let endTurn, shutdown=async()=>{};
+if(adapter==="opencode") {
+  const client={session:{prompt:async request=>{assert.equal(request.body.noReply,true);notices.push(request.body.parts[0].text)},promptAsync:async request=>repairs.push(request.body.parts[0].text)}};
+  const {FmPrimaryWatchArm}=await import(pathToFileURL(`${home}/.opencode/plugins/fm-primary-watch-arm.js`));
+  await FmPrimaryWatchArm({worktree:home,client});
+  const {FmPrimaryTurnendGuard}=await import(pathToFileURL(`${home}/.opencode/plugins/fm-primary-turnend-guard.js`));
+  const guard=await FmPrimaryTurnendGuard({worktree:home,client});
+  endTurn=()=>guard.event({event:{type:"session.idle",properties:{sessionID:"test"}}});
+} else {
+  const handlers=new Map();
+  const mod=await import(pathToFileURL(`${home}/.${adapter}/extensions/fm-primary-turnend-guard.ts`));
+  mod.default({on:(name,fn)=>handlers.set(name,fn),sendMessage:message=>{assert.equal(message.display,true);notices.push(message.content)},sendUserMessage:async text=>repairs.push(text)});
+  endTurn=async()=>{const result=await handlers.get(adapter==="pi"?"agent_settled":"session_stop")({});if(result?.continue) repairs.push(result.additionalContext)};
+  shutdown=()=>handlers.get("session_shutdown")();
+}
+try {
+  await endTurn();
+  assert.ok(existsSync(`${home}/encoded`), "initial guard did not reach repair encoding");
+  if(kind==="active" || kind==="malformed") {
+    assert.equal(repairs.length,0,`${adapter} delivered repair after stop: ${repairs}`);
+    assert.equal(notices.length,1,"current turn lost the late-stop diagnostic");
+    assert.match(notices[0],/AUTOMATIC_MONITORING_STOP/);
+    await endTurn();
+    assert.equal(repairs.length,0);
+    assert.equal(notices.length,1,"late stop notice repeated");
+  } else {
+    assert.equal(repairs.length,1,"ordinary guard failure disappeared");
+    assert.match(repairs[0],/TURN WOULD END BLIND/);
+  }
+  assert.equal(readFileSync(`${home}/state/.lock`,"utf8").trim(),String(process.pid));
+} finally {await shutdown();}
+JS
+); status=$?
+      expect_code 0 "$status" "$adapter $kind final turn-end verdict failed: $out"
+    done
+  done
+  pass "Pi, omp, and OpenCode recheck turn-end repairs after encoding and report late stops once"
+}
+
+test_cursor_repair_rechecks_after_encoding_and_lock_wait() {
+  local test_home kind stage out status fakebin real_jq real_cat
+  real_jq=$(command -v jq)
+  real_cat=$(command -v cat)
+  for stage in encoding lock; do
+    for kind in active malformed absent resumed; do
+      test_home="$TMP_ROOT/cursor-delivery-$stage-$kind"
+      make_guard_home "$test_home"
+      stage_delivery_stop "$test_home" "$kind"
+      printf 'kind=ship\n' > "$test_home/state/work.meta"
+      printf '#!/usr/bin/env bash\nexit 1\n' > "$test_home/bin/fm-watch-arm.sh"
+      chmod +x "$test_home/bin/fm-watch-arm.sh"
+      fakebin="$test_home/fakebin"
+      mkdir -p "$fakebin"
+      cat > "$fakebin/jq" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = -n ] && [ "${2:-}" = --arg ] && [ "${3:-}" = m ] && [ ! -f "$FM_HOME/encoding-wait" ]; then
+  touch "$FM_HOME/encoding-wait"
+  for ((i=0;i<400;i++)); do
+    [ -f "$FM_HOME/release-encoder" ] && break
+    sleep 0.025
+  done
+fi
+exec "$REAL_JQ" "$@"
+SH
+      cat > "$fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+if [ "${CURSOR_WAIT_PROBE:-}" = 1 ] && [ "${1:-}" = "$FM_HOME/state/.cursor-park-owner.lock/pid" ] && [ -f "$FM_HOME/release-encoder" ]; then
+  touch "$FM_HOME/lock-wait"
+fi
+exec "$REAL_CAT" "$@"
+SH
+      chmod +x "$fakebin/jq" "$fakebin/cat"
+      cat > "$test_home/turns.sh" <<'SH'
+#!/usr/bin/env bash
+. "$FM_HOME/bin/fm-wake-lib.sh"
+payload='{"session_id":"delivery","loop_count":0,"cursor_version":"test"}'
+lock="$FM_HOME/state/.cursor-park-owner.lock"
+wait_file() {
+  local i
+  for ((i=0;i<400;i++)); do
+    [ -f "$1" ] && return 0
+    sleep 0.025
+  done
+  return 1
+}
+cp "$FM_HOME/state/.lock" "$FM_HOME/owner.before"
+printf '%s' "$payload" | CURSOR_WAIT_PROBE=1 "$FM_HOME/bin/fm-turnend-guard-cursor.sh" > "$FM_HOME/first" &
+hook=$!
+trap 'touch "$FM_HOME/release-encoder"; fm_lock_release "$lock"; wait "$hook"' EXIT
+wait_file "$FM_HOME/encoding-wait" || exit 1
+if [ "$STOP_STAGE" = lock ]; then
+  fm_lock_try_acquire "$lock" || exit 2
+  touch "$FM_HOME/release-encoder"
+  wait_file "$FM_HOME/lock-wait" || exit 3
+fi
+[ "$STOP_KIND" = absent ] || mv "$FM_HOME/receipt.ready" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+touch "$FM_HOME/release-encoder"
+[ "$STOP_STAGE" != lock ] || fm_lock_release "$lock"
+wait "$hook" || exit 4
+printf '%s' "$payload" | "$FM_HOME/bin/fm-turnend-guard-cursor.sh" > "$FM_HOME/second" || exit 5
+cmp "$FM_HOME/owner.before" "$FM_HOME/state/.lock"
+SH
+      out=$(env -u PI_CODING_AGENT PATH="$fakebin:$PATH" REAL_JQ="$real_jq" REAL_CAT="$real_cat" \
+        FM_HOME="$test_home" FM_ROOT_OVERRIDE="$test_home" STOP_KIND="$kind" STOP_STAGE="$stage" \
+        FM_CURSOR_PARK_ATTEMPTS=1 FM_CURSOR_PARK_POLL=1 "$TMP_ROOT/harnesses/cursor-agent" "$test_home/turns.sh" 2>&1); status=$?
+      expect_code 0 "$status" "Cursor $kind $stage delivery race failed: $out"
+      out=$(jq -er .followup_message "$test_home/first") || fail "Cursor dropped its final visible outcome"
+      case "$kind" in
+        active|malformed)
+          assert_contains "$out" AUTOMATIC_MONITORING_STOP "Cursor lost late stop notice"
+          assert_not_contains "$out" 'TURN WOULD END BLIND' "Cursor delivered stale repair"
+          [ ! -s "$test_home/second" ] || fail "Cursor repeated late-stop notice"
+          assert_absent "$test_home/state/.turnend-cursor-blocks" "suppressed repair consumed nag budget"
+          ;;
+        *) assert_contains "$out" 'TURN WOULD END BLIND' "Cursor hid ordinary repair" ;;
+      esac
+    done
+  done
+  pass "Cursor rechecks stops after repair encoding and ownership-lock waits without spending repair budget"
+}
+
 test_status_distinguishes_absent_active_resumed_and_malformed
 test_report_is_once_per_stop_identity
 test_supervision_predicate_honors_stop_and_excludes_secondmate
@@ -1584,3 +1822,6 @@ test_superseded_cursor_park_cannot_claim_stop_notice
 test_checkpoint_rechecks_stop_at_completion
 test_opencode_suppresses_failure_stopped_during_encoding
 test_bootstrap_rechecks_stop_after_secondmate_probes
+test_pi_omp_watch_delivery_rechecks_after_encoding
+test_turnend_delivery_rechecks_after_encoding
+test_cursor_repair_rechecks_after_encoding_and_lock_wait

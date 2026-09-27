@@ -1,3 +1,4 @@
+import { monitoringStopped } from "../../.pi/extensions/lib/fm-monitoring-stop.ts";
 // Firstmate turn-end guard, pre-tool seatbelts, and native session-start
 // delivery for the omp (Oh My Pi) primary.
 //
@@ -53,6 +54,7 @@ const extensionDir = dirname(extensionFile);
 const root = resolve(extensionDir, "../..");
 const fmHome = process.env.FM_HOME || process.env.FM_ROOT_OVERRIDE || root;
 const state = process.env.FM_STATE_OVERRIDE || `${fmHome}/state`;
+const monitoringPaths = { root, home: fmHome, state, config: process.env.FM_CONFIG_OVERRIDE || `${fmHome}/config` };
 const marker = `${state}/.omp-turnend-extension-loaded`;
 const extensionVersion = `sha256:${createHash("sha256").update(readFileSync(extensionFile)).digest("hex")}`;
 
@@ -509,6 +511,16 @@ function runCdCheck(command: string): Promise<{ code: number; stderr: string }> 
 }
 
 export default function (pi: ExtensionAPI) {
+  function reportMonitoringStop(result: { code: number; stdout: string }): void {
+    if (result.code === 0 && result.stdout.trim()) {
+      pi.sendMessage?.({
+        customType: "firstmate-monitoring-stop",
+        content: result.stdout.trim(),
+        display: true,
+      });
+    }
+  }
+
   let sessionstartGeneration: SessionstartGeneration | null = null;
   let sessionstartExitListenerRegistered = false;
   let sessionStarts = 0;
@@ -603,13 +615,7 @@ export default function (pi: ExtensionAPI) {
   pi.on?.("session_stop", async (event) => {
     const stopHookActive = Boolean(event && (event as { stop_hook_active?: unknown }).stop_hook_active === true);
     const result = await runGuard(stopHookActive);
-    if (result.code === 0 && result.stdout.trim()) {
-      pi.sendMessage?.({
-        customType: "firstmate-monitoring-stop",
-        content: result.stdout.trim(),
-        display: true,
-      });
-    }
+    reportMonitoringStop(result);
     if (result.code !== 2) return undefined;
     let content: string;
     try {
@@ -623,6 +629,10 @@ export default function (pi: ExtensionAPI) {
       content = "TURN WOULD END BLIND - supervision is off. " +
         "The watcher cycle is missing, failed, or unhealthy. Follow the harness recovery instruction below before ending the turn.\n\n" +
         result.stderr;
+    }
+    if (monitoringStopped(monitoringPaths)) {
+      reportMonitoringStop(await runGuard(false));
+      return undefined;
     }
     return { continue: true, additionalContext: content };
   });
