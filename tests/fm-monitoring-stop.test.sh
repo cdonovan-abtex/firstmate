@@ -2003,6 +2003,34 @@ test_owner_inspection_does_not_authorize_stop() {
   pass "owner inspection leaves the receipt as the sole stop authorization"
 }
 
+test_external_stop_preserves_shared_operation_lock() {
+  local home status lock
+  home="$TMP_ROOT/external-operation-lock"
+  make_external_stop_home "$home" secondmate operation-lock
+  lock="$home/state/.monitoring-stop-command.lock"
+  FM_HOME="$home" bash -c '
+    . "$1/bin/fm-wake-lib.sh"
+    lock="$FM_HOME/state/.monitoring-stop-command.lock"
+    fm_lock_try_acquire "$lock" || exit 91
+    trap '\''fm_lock_release "$lock"'\'' EXIT
+    "$1/bin/fm-monitoring-stop.sh" stop --home "$FM_HOME" --reason "competing stop"
+    status=$?
+    [ "$(cat "$lock/pid")" = "$$" ] || exit 92
+    exit "$status"
+  ' _ "$ROOT" > "$home/out" 2> "$home/err"; status=$?
+  expect_code 4 "$status" "stop acquired an already-held shared operation lock"
+  assert_contains "$(cat "$home/err")" 'another monitoring-stop call holds the home lock' "contention lost its failure reason"
+  assert_absent "$home/data/automatic-monitoring-pause/receipt.json" "contending stop published a receipt"
+  assert_absent "$lock" "shared owner did not release its operation lock"
+
+  printf 'invalid lock\n' > "$lock"
+  "$STOP" stop --home "$home" --reason 'malformed operation lock' > "$home/out" 2> "$home/err"; status=$?
+  expect_code 4 "$status" "stop accepted a malformed operation lock"
+  assert_contains "$(cat "$home/err")" 'operation lock is malformed or ambiguous' "malformed operation lock lost its failure reason"
+  assert_absent "$home/data/automatic-monitoring-pause/receipt.json" "malformed operation lock allowed a receipt"
+  pass "outside stop retains shared operation-lock contention and malformed-lock refusal"
+}
+
 test_external_stop_records_actual_caller_and_distinct_results() {
   local home receipt out status caller_identity
   home="$TMP_ROOT/external-primary"
@@ -2030,6 +2058,7 @@ test_external_stop_records_actual_caller_and_distinct_results() {
   out=$(FM_HOME="$home" "$STOP" status --json)
   [ "$(printf '%s' "$out" | jq -r .status)" = active ] || fail "external stop did not use the shared active receipt: $out"
   [ "$(printf '%s' "$out" | jq -r .origin)" = external ] || fail "status omitted the external stop origin: $out"
+  assert_absent "$home/state/.monitoring-stop-command.lock" "successful stop retained its operation lock"
 
   FM_HOME="$TMP_ROOT/ambient-must-not-select-target" "$STOP" stop --home "$home" --reason 'repeat backstop tick' \
     > "$home/repeat.out" 2> "$home/repeat.err"; status=$?
@@ -2155,6 +2184,7 @@ test_external_stop_fixture_cleanup_and_timeout
 test_external_stop_notice_separates_stop_and_latest_request
 test_external_stop_reconciles_owner_cleanup_races
 test_owner_inspection_does_not_authorize_stop
+test_external_stop_preserves_shared_operation_lock
 test_external_stop_records_actual_caller_and_distinct_results
 test_external_stop_ends_only_selected_home_and_retries_active_live_stop
 test_external_stop_refuses_malformed_receipt_lock_and_owner_identity

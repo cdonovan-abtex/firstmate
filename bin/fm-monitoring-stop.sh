@@ -136,14 +136,6 @@ if ! fm_lock_try_acquire "$OP_LOCK"; then
   stop_failure "$TARGET_HOME" "monitoring-stop operation lock is malformed or ambiguous"
 fi
 LOCK_OWNED=1
-fm_current_pid STOP_PROCESS_PID \
-  || stop_failure "$TARGET_HOME" "could not establish stop-command process identity"
-STOP_PROCESS_IDENTITY=$(fm_pid_identity "$STOP_PROCESS_PID" 2>/dev/null) \
-  || stop_failure "$TARGET_HOME" "could not establish stop-command process identity"
-printf '%s\n' "$STOP_PROCESS_IDENTITY" > "$OP_LOCK/pid-identity" 2>/dev/null \
-  || stop_failure "$TARGET_HOME" "could not authenticate the monitoring-stop operation lock"
-[ "$(cat "$OP_LOCK/pid-identity" 2>/dev/null || true)" = "$STOP_PROCESS_IDENTITY" ] \
-  || stop_failure "$TARGET_HOME" "monitoring-stop operation-lock identity did not persist"
 
 CALLER_PID=$PPID
 case "$CALLER_PID" in
