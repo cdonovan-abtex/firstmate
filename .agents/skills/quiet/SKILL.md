@@ -2,7 +2,8 @@
 name: quiet
 description: >-
   Enter quiet supervision mode when the captain invokes /quiet or asks for quiet mode, quiet-while-present, or fewer routine wake turns while they stay in the session.
-  It sets the same durable away/quiet-mode flag as /afk, in `quiet` mode, so the sub-supervisor daemon self-handles routine wakes and escalates captain-relevant events exactly as away mode does, but ordinary captain chat does NOT exit it - only an explicit `/quiet off` does.
+  Where Pi's supervision branch or an attended supervision host already keeps routine wakes off the conversation, it enters nothing and says so.
+  Elsewhere it sets the same durable away/quiet-mode flag as /afk, in `quiet` mode, so the sub-supervisor daemon self-handles routine wakes and escalates captain-relevant events exactly as away mode does, but ordinary captain chat does NOT exit it - only an explicit `/quiet off` does.
 user-invocable: true
 metadata:
   internal: true
@@ -14,7 +15,7 @@ Quiet supervision mode (kunchenguid/firstmate#2356): the same token-saving
 daemon tradeoff as `/afk`, made explicit for a captain who is staying,
 watching the session, and does not want to exit the mode just by chatting.
 
-This skill is a thin wrapper.
+Where a daemon runs, this skill is a thin wrapper.
 Every mechanism below - the daemon, its injection, its busy/composer guards,
 its classification policy, its reliability properties - is owned once by the
 `afk` skill and is IDENTICAL in quiet mode; nothing here restates it.
