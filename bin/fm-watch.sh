@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Firstmate watcher.
-# A blocking monitoring-stop verdict exits 3 before watcher startup without
-# claiming a visible notice; bin/fm-monitoring-stop-lib.sh owns that verdict.
+# A blocking monitoring-stop verdict exits 3 at startup or a live poll-cycle
+# boundary without claiming a visible notice; bin/fm-monitoring-stop-lib.sh owns
+# that verdict and docs/configuration.md owns the receipt policy.
 # Classifies supervision wakes in bash. In normal mode it absorbs benign wakes
 # and keeps blocking; it queues and exits only for actionable wakes.
 # The no-verb signal and stale path is absorb-only-on-positive-evidence: a wake
@@ -1935,6 +1936,14 @@ resurface_after_downtime() {
 }
 
 while :; do
+  # A supported outside stop publishes the same home-scoped receipt every arm
+  # boundary already honors. Re-read it in the live cycle so this watcher exits
+  # through its own cleanup path without any process sending a raw watcher-PID
+  # signal. Malformed evidence also stands down, matching startup suppression.
+  if fm_monitoring_stop_blocks "$STATE"; then
+    exit 3
+  fi
+
   # Self-eviction: if the singleton lock no longer names this process, a second
   # watcher has taken over (e.g. a transient duplicate from a racy arm). Stand
   # down so the rightful singleton continues alone. The EXIT trap's release

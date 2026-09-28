@@ -7,7 +7,15 @@ set -u
 
 STOP="$ROOT/bin/fm-monitoring-stop.sh"
 TMP_ROOT=$(fm_test_tmproot fm-monitoring-stop)
-trap fm_test_cleanup EXIT
+EXTERNAL_STOP_WATCHER_PIDS=()
+cleanup_external_stop_watchers() {
+  local pid
+  for pid in "${EXTERNAL_STOP_WATCHER_PIDS[@]:-}"; do
+    [ -z "$pid" ] || stop_fixture_watcher "$pid"
+  done
+  EXTERNAL_STOP_WATCHER_PIDS=()
+}
+trap 'cleanup_external_stop_watchers; fm_test_cleanup' EXIT
 
 write_active_receipt() {  # <home> [time]
   local home=$1 time=${2:-2026-09-21T18:42:20.023025+00:00}
@@ -1795,6 +1803,392 @@ SH
   pass "Cursor rechecks stops after repair encoding and ownership-lock waits without spending repair budget"
 }
 
+make_external_stop_home() {  # <home> <primary|secondmate> [id]
+  local home=$1 kind=$2 id=${3:-fixture}
+  mkdir -p "$home/state" "$home/data"
+  cp "$ROOT/AGENTS.md" "$home/AGENTS.md"
+  cp -R "$ROOT/bin" "$home/bin"
+  case "$kind" in
+    primary) git init -q "$home" ;;
+    secondmate) printf '%s\n' "$id" > "$home/.fm-secondmate-home" ;;
+    *) fail "unknown external-stop fixture kind: $kind" ;;
+  esac
+}
+
+external_stop_pid_alive() {  # <pid>
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$1" 2>/dev/null
+}
+
+start_external_stop_watcher() {  # <home> [real|unresponsive]
+  local home=$1 mode=${2:-real} i
+  if [ "$mode" = unresponsive ]; then
+    cat > "$home/bin/fm-watch.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_HOME=${FM_HOME:?}
+STATE="$FM_HOME/state"
+. "$SCRIPT_DIR/fm-wake-lib.sh"
+lock="$STATE/.watch.lock"
+fm_lock_try_acquire "$lock" || exit 91
+pid=${BASHPID:-$$}
+cleanup() { fm_lock_release "$lock" 2>/dev/null || true; }
+trap cleanup EXIT
+printf '%s\n' "$FM_HOME" > "$lock/fm-home"
+printf '%s\n' "$SCRIPT_DIR/fm-watch.sh" > "$lock/watcher-path"
+fm_pid_identity "$pid" > "$lock/pid-identity"
+touch "$STATE/.last-watcher-beat"
+deadline=$((SECONDS + FM_TEST_STUB_MAX_BLOCK_SECONDS))
+while [ "$SECONDS" -lt "$deadline" ]; do sleep 0.1; touch "$STATE/.last-watcher-beat"; done
+SH
+    chmod +x "$home/bin/fm-watch.sh"
+  fi
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_POLL=1 FM_HEARTBEAT=999999 \
+    FM_CHECK_INTERVAL=999999 "$home/bin/fm-watch.sh" > "$home/watcher.out" 2> "$home/watcher.err" &
+  EXTERNAL_STOP_WATCHER_PID=$!
+  EXTERNAL_STOP_WATCHER_PIDS+=("$EXTERNAL_STOP_WATCHER_PID")
+  for ((i=0;i<200;i++)); do
+    [ -s "$home/state/.watch.lock/pid-identity" ] && [ -e "$home/state/.last-watcher-beat" ] && return 0
+    external_stop_pid_alive "$EXTERNAL_STOP_WATCHER_PID" || break
+    sleep 0.025
+  done
+  fail "fixture watcher did not become ready: $(cat "$home/watcher.err" 2>/dev/null)"
+}
+
+stop_fixture_watcher() {  # <pid>
+  local pid=$1
+  case $'\n'$(jobs -pr; jobs -ps)$'\n' in
+    *$'\n'"$pid"$'\n'*) ;;
+    *) wait "$pid" 2>/dev/null || true; return 0 ;;
+  esac
+  external_stop_pid_alive "$pid" || return 0
+  kill -CONT "$pid" 2>/dev/null || true
+  kill -TERM "$pid" 2>/dev/null || true
+  for _ in $(seq 1 40); do
+    external_stop_pid_alive "$pid" || break
+    sleep 0.025
+  done
+  external_stop_pid_alive "$pid" && kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+test_external_stop_fixture_cleanup_and_timeout() {
+  local home pid status i
+  home="$TMP_ROOT/external-fixture-cleanup"
+  make_external_stop_home "$home" secondmate fixture-cleanup
+  (
+    EXTERNAL_STOP_WATCHER_PIDS=()
+    trap cleanup_external_stop_watchers EXIT
+    start_external_stop_watcher "$home" unresponsive
+    printf '%s\n' "$EXTERNAL_STOP_WATCHER_PID" > "$home/fixture.pid"
+    fail 'intentional assertion failure'
+  ) > "$home/out" 2> "$home/err"; status=$?
+  expect_code 1 "$status" "fixture cleanup regression did not reach its intentional failure"
+  assert_contains "$(cat "$home/err")" 'intentional assertion failure' "fixture failed before its assertion"
+  pid=$(cat "$home/fixture.pid")
+  external_stop_pid_alive "$pid" && fail "assertion failure left a fixture running"
+  assert_absent "$home/state/.watch.lock" "failed fixture did not release its lock"
+
+  FM_TEST_STUB_MAX_BLOCK_SECONDS=1 start_external_stop_watcher "$home" unresponsive
+  pid=$EXTERNAL_STOP_WATCHER_PID
+  for ((i=0;i<200;i++)); do
+    external_stop_pid_alive "$pid" || break
+    sleep 0.025
+  done
+  external_stop_pid_alive "$pid" && fail "unresponsive fixture ignored its timeout bound"
+  wait "$pid" || fail "bounded fixture did not exit cleanly"
+  assert_absent "$home/state/.watch.lock" "bounded fixture did not release its lock"
+  pass "external-stop fixtures clean up after failed assertions and bound their own lifetime"
+}
+
+test_external_stop_notice_separates_stop_and_latest_request() {
+  local home receipt first second
+  home="$TMP_ROOT/external-notice"
+  write_active_receipt "$home" 2026-09-21T10:00:00Z
+  receipt="$home/data/automatic-monitoring-pause/receipt.json"
+  jq '. + {origin:"external",external_stop_request:{
+    schema:"firstmate.monitoring-stop.external.v1",caller_uid:501,
+    caller_user:"requester-b",caller_pid:222,caller_identity:"process-b",
+    at:"2026-09-22T11:00:00Z",reason:"repeat stop"
+  }}' "$receipt" > "$receipt.next"
+  mv "$receipt.next" "$receipt"
+  first=$(FM_HOME="$home" bash -c '. "$1/bin/fm-monitoring-stop-lib.sh"; fm_monitoring_stop_report_once' _ "$ROOT")
+  assert_contains "$first" 'monitoring stopped at 2026-09-21T10:00:00Z.' "notice lost original stop time"
+  assert_contains "$first" 'Latest external request by local process requester-b[uid=501,pid=222] at 2026-09-22T11:00:00Z.' \
+    "notice attributed the latest requester to the original stop"
+  jq '.external_stop_request |= . + {caller_user:"requester-c",caller_pid:333,
+    caller_identity:"process-c",at:"2026-09-23T12:00:00Z"}' "$receipt" > "$receipt.next"
+  mv "$receipt.next" "$receipt"
+  second=$(FM_HOME="$home" bash -c '. "$1/bin/fm-monitoring-stop-lib.sh"; fm_monitoring_stop_report_once' _ "$ROOT")
+  [ -z "$second" ] || fail "a later external request repeated the same stop notice: $second"
+  pass "external stop notices keep the original stop and latest request times distinct"
+}
+
+test_external_stop_reconciles_owner_cleanup_races() {
+  local home stage prior pid status expected real_wc
+  real_wc=$(command -v wc)
+  for stage in before during initial; do
+    for prior in none active; do
+      [ "$stage:$prior" != initial:none ] || continue
+      home="$TMP_ROOT/external-race-$stage-$prior"
+      make_external_stop_home "$home" secondmate "race-$stage-$prior"
+      start_external_stop_watcher "$home" real
+      pid=$EXTERNAL_STOP_WATCHER_PID
+      kill -STOP "$pid"
+      if [ "$prior" = active ]; then
+        write_active_receipt "$home"
+      fi
+      mv "$home/bin/fm-watch-arm.sh" "$home/bin/fm-watch-arm.real.sh"
+      cat > "$home/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = --stop ] && [ "$STOP_RACE_STAGE" = before ]; then
+  kill -CONT "$STOP_RACE_PID"
+  for ((i=0;i<400;i++)); do
+    [ ! -e "$FM_HOME/state/.watch.lock" ] && [ ! -L "$FM_HOME/state/.watch.lock" ] && break
+    sleep 0.025
+  done
+  [ ! -e "$FM_HOME/state/.watch.lock" ] && [ ! -L "$FM_HOME/state/.watch.lock" ] || exit 90
+  touch "$FM_HOME/race-reached"
+elif { [ "$1" = --stop ] && [ "$STOP_RACE_STAGE" = during ]; } ||
+     { [ "$1" = --stop-status ] && [ "$STOP_RACE_STAGE" = initial ]; }; then
+  export STOP_RACE_INSPECTION=1
+fi
+exec "$FM_HOME/bin/fm-watch-arm.real.sh" "$@"
+SH
+      mkdir "$home/fakebin"
+      cat > "$home/fakebin/wc" <<'SH'
+#!/usr/bin/env bash
+if [ "${STOP_RACE_INSPECTION:-}" = 1 ] && [ "$*" = -l ] && [ ! -e "$FM_HOME/race-reached" ]; then
+  kill -CONT "$STOP_RACE_PID"
+  for ((i=0;i<400;i++)); do
+    [ ! -e "$FM_HOME/state/.watch.lock" ] && [ ! -L "$FM_HOME/state/.watch.lock" ] && break
+    sleep 0.025
+  done
+  [ ! -e "$FM_HOME/state/.watch.lock" ] && [ ! -L "$FM_HOME/state/.watch.lock" ] || exit 90
+  touch "$FM_HOME/race-reached"
+fi
+exec "$REAL_WC" "$@"
+SH
+      chmod +x "$home/bin/fm-watch-arm.sh" "$home/fakebin/wc"
+      PATH="$home/fakebin:$PATH" REAL_WC="$real_wc" STOP_RACE_STAGE="$stage" STOP_RACE_PID="$pid" \
+        FM_WATCH_STOP_TIMEOUT=5 "$STOP" stop --home "$home" --reason 'cleanup race' > "$home/out" 2> "$home/err"; status=$?
+      expected=0
+      [ "$stage" != initial ] || expected=3
+      expect_code "$expected" "$status" "$prior stop with $stage cleanup returned the wrong outcome: $(cat "$home/err")"
+      assert_present "$home/race-reached" "owner cleanup race was not exercised"
+      wait "$pid"; status=$?
+      expect_code 3 "$status" "fixture watcher did not exit by honoring its receipt"
+      assert_absent "$home/state/.watch.lock" "owner cleanup left a lock"
+      [ "$(stop_status "$home" | jq -r .status)" = active ] || fail "cleanup race lost stop authority"
+    done
+  done
+  pass "outside stop reconciles cleanup before and during owner inspection without losing live-retry outcomes"
+}
+
+test_owner_inspection_does_not_authorize_stop() {
+  local home pid status
+  home="$TMP_ROOT/external-inspection"
+  make_external_stop_home "$home" secondmate inspection
+  start_external_stop_watcher "$home" real
+  pid=$EXTERNAL_STOP_WATCHER_PID
+  FM_HOME="$home" "$home/bin/fm-watch-arm.sh" --stop-status > "$home/out" 2> "$home/err"; status=$?
+  expect_code 0 "$status" "owner inspection did not report a live watcher"
+  assert_absent "$home/data/automatic-monitoring-pause/receipt.json" "inspection authorized a stop"
+  FM_HOME="$home" "$home/bin/fm-watch-arm.sh" --stop > "$home/out" 2> "$home/err"; status=$?
+  expect_code 1 "$status" "owner shutdown accepted inspection as stop authorization"
+  assert_contains "$(cat "$home/err")" 'no active monitoring-stop receipt' "shutdown lost its receipt requirement"
+  external_stop_pid_alive "$pid" || fail "read-only inspection stopped the watcher"
+  stop_fixture_watcher "$pid"
+  pass "owner inspection leaves the receipt as the sole stop authorization"
+}
+
+test_external_stop_preserves_shared_operation_lock() {
+  local home status lock
+  home="$TMP_ROOT/external-operation-lock"
+  make_external_stop_home "$home" secondmate operation-lock
+  lock="$home/state/.monitoring-stop-command.lock"
+  FM_HOME="$home" bash -c '
+    . "$1/bin/fm-wake-lib.sh"
+    lock="$FM_HOME/state/.monitoring-stop-command.lock"
+    fm_lock_try_acquire "$lock" || exit 91
+    trap '\''fm_lock_release "$lock"'\'' EXIT
+    "$1/bin/fm-monitoring-stop.sh" stop --home "$FM_HOME" --reason "competing stop"
+    status=$?
+    [ "$(cat "$lock/pid")" = "$$" ] || exit 92
+    exit "$status"
+  ' _ "$ROOT" > "$home/out" 2> "$home/err"; status=$?
+  expect_code 4 "$status" "stop acquired an already-held shared operation lock"
+  assert_contains "$(cat "$home/err")" 'another monitoring-stop call holds the home lock' "contention lost its failure reason"
+  assert_absent "$home/data/automatic-monitoring-pause/receipt.json" "contending stop published a receipt"
+  assert_absent "$lock" "shared owner did not release its operation lock"
+
+  printf 'invalid lock\n' > "$lock"
+  "$STOP" stop --home "$home" --reason 'malformed operation lock' > "$home/out" 2> "$home/err"; status=$?
+  expect_code 4 "$status" "stop accepted a malformed operation lock"
+  assert_contains "$(cat "$home/err")" 'operation lock is malformed or ambiguous' "malformed operation lock lost its failure reason"
+  assert_absent "$home/data/automatic-monitoring-pause/receipt.json" "malformed operation lock allowed a receipt"
+  pass "outside stop retains shared operation-lock contention and malformed-lock refusal"
+}
+
+test_external_stop_records_actual_caller_and_distinct_results() {
+  local home receipt out status caller_identity
+  home="$TMP_ROOT/external-primary"
+  make_external_stop_home "$home" primary
+  caller_identity=$(bash -c '. "$1"; fm_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$$") \
+    || fail "could not establish test caller identity"
+
+  FM_HOME="$TMP_ROOT/ambient-must-not-select-target" "$STOP" stop --home "$home" --reason 'purser runaway backstop' \
+    > "$home/stop.out" 2> "$home/stop.err"; status=$?
+  out=$(cat "$home/stop.out")
+  expect_code 0 "$status" "new external stop must return the stopped code: $(cat "$home/stop.err")"
+  assert_contains "$out" 'stopped home=' "new external stop did not name its result"
+  receipt="$home/data/automatic-monitoring-pause/receipt.json"
+  [ "$(wc -l < "$receipt" | tr -d '[:space:]')" = 1 ] || fail "external stop receipt was not one physical audit line"
+  jq -e --arg home "$home" --argjson pid "$$" --arg identity "$caller_identity" '
+    .home == $home and .completed == true and .origin == "external" and
+    .external_stop_request.schema == "firstmate.monitoring-stop.external.v1" and
+    .external_stop_request.caller_pid == $pid and
+    .external_stop_request.caller_identity == $identity and
+    (.external_stop_request.caller_uid | type == "number") and
+    (.external_stop_request.caller_user | type == "string" and length > 0) and
+    .external_stop_request.reason == "purser runaway backstop" and
+    (.external_stop_request.at | type == "string" and length > 0)
+  ' "$receipt" >/dev/null || fail "external stop did not persist its authenticated caller, time, and reason: $(cat "$receipt")"
+  out=$(FM_HOME="$home" "$STOP" status --json)
+  [ "$(printf '%s' "$out" | jq -r .status)" = active ] || fail "external stop did not use the shared active receipt: $out"
+  [ "$(printf '%s' "$out" | jq -r .origin)" = external ] || fail "status omitted the external stop origin: $out"
+  assert_absent "$home/state/.monitoring-stop-command.lock" "successful stop retained its operation lock"
+
+  FM_HOME="$TMP_ROOT/ambient-must-not-select-target" "$STOP" stop --home "$home" --reason 'repeat backstop tick' \
+    > "$home/repeat.out" 2> "$home/repeat.err"; status=$?
+  expect_code 3 "$status" "a true no-live-watcher repetition must return the already-stopped code"
+  assert_contains "$(cat "$home/repeat.out")" 'already-stopped home=' "repeat did not report idempotent success"
+  [ "$(jq -r .external_stop_request.reason "$receipt")" = 'repeat backstop tick' ] \
+    || fail "repeat did not retain its own audit reason"
+
+  "$STOP" stop --home "$home" > /dev/null 2> "$home/usage.err"; status=$?
+  expect_code 2 "$status" "invalid stop syntax must remain distinct from stop outcomes"
+  pass "outside stop records the actual OS caller in one line and distinguishes stopped, already stopped, and usage"
+}
+
+test_external_stop_ends_only_selected_home_and_retries_active_live_stop() {
+  local mini sibling mini_pid sibling_pid status i
+  mini="$TMP_ROOT/mini-fixture"
+  sibling="$TMP_ROOT/sibling-fixture"
+  make_external_stop_home "$mini" secondmate mini
+  make_external_stop_home "$sibling" secondmate sibling
+  start_external_stop_watcher "$mini" real
+  mini_pid=$EXTERNAL_STOP_WATCHER_PID
+  start_external_stop_watcher "$sibling" real
+  sibling_pid=$EXTERNAL_STOP_WATCHER_PID
+
+  kill -STOP "$mini_pid"
+  write_active_receipt "$mini"
+  FM_HOME="$TMP_ROOT/not-mini" FM_WATCH_STOP_TIMEOUT=5 "$STOP" stop --home "$mini" --reason 'retry existing stopped home with live owner' \
+    > "$mini/stop.out" 2> "$mini/stop.err" &
+  external_pid=$!
+  for ((i=0;i<200;i++)); do
+    jq -e '.external_stop_request.reason == "retry existing stopped home with live owner"' \
+      "$mini/data/automatic-monitoring-pause/receipt.json" >/dev/null 2>&1 && break
+    sleep 0.025
+  done
+  kill -CONT "$mini_pid"
+  wait "$external_pid"; status=$?
+  expect_code 0 "$status" "an active receipt with a live watcher must stop it, not return already stopped: $(cat "$mini/stop.err")"
+  assert_contains "$(cat "$mini/stop.out")" 'stopped home=' "active/live retry did not report stopped"
+  for ((i=0;i<200;i++)); do
+    external_stop_pid_alive "$mini_pid" || break
+    sleep 0.025
+  done
+  external_stop_pid_alive "$mini_pid" && fail "selected Mini-shaped fixture watcher remained alive"
+  external_stop_pid_alive "$sibling_pid" || fail "a different home's watcher was stopped"
+  [ "$(FM_HOME="$sibling" "$STOP" status --json | jq -r .status)" = none ] \
+    || fail "selected-home stop wrote into the sibling home"
+  stop_fixture_watcher "$sibling_pid"
+  pass "outside stop retries an active/live home through its owner while leaving another home's watcher untouched"
+}
+
+test_external_stop_refuses_malformed_receipt_lock_and_owner_identity() {
+  local home pid status before owner owner_identity
+  home="$TMP_ROOT/external-malformed-receipt"
+  make_external_stop_home "$home" secondmate malformed-receipt
+  mkdir -p "$home/data/automatic-monitoring-pause"
+  printf '{bad json\n' > "$home/data/automatic-monitoring-pause/receipt.json"
+  cp "$home/data/automatic-monitoring-pause/receipt.json" "$home/receipt.before"
+  "$STOP" stop --home "$home" --reason 'must not replace malformed evidence' > "$home/out" 2> "$home/err"; status=$?
+  expect_code 4 "$status" "malformed receipt must return could-not-stop"
+  assert_contains "$(cat "$home/err")" 'could-not-stop' "malformed receipt failure lacked its typed outcome"
+  assert_contains "$(cat "$home/err")" 'receipt' "malformed receipt failure lacked an actionable reason"
+  cmp "$home/receipt.before" "$home/data/automatic-monitoring-pause/receipt.json" \
+    || fail "malformed receipt was overwritten"
+
+  home="$TMP_ROOT/external-malformed-lock"
+  make_external_stop_home "$home" secondmate malformed-lock
+  mkdir "$home/state/.watch.lock"
+  printf '%s\n' "$$" > "$home/state/.watch.lock/pid"
+  printf '%s\n' "$home" > "$home/state/.watch.lock/fm-home"
+  printf '%s\n' "$home/bin/fm-watch.sh" > "$home/state/.watch.lock/watcher-path"
+  "$STOP" stop --home "$home" --reason 'malformed lock check' > "$home/out" 2> "$home/err"; status=$?
+  expect_code 4 "$status" "watch lock missing its owner identity must return could-not-stop"
+  assert_contains "$(cat "$home/err")" 'owner identity' "malformed lock failure did not name the missing owner identity"
+
+  home="$TMP_ROOT/external-escaped-owner"
+  make_external_stop_home "$home" secondmate escaped-owner
+  owner="$TMP_ROOT/escaped-watch-owner"
+  mkdir "$owner"
+  owner_identity=$(bash -c '. "$1"; fm_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$$") \
+    || fail "could not establish escaped-owner fixture identity"
+  printf '%s\n' "$$" > "$owner/pid"
+  printf '%s\n' "$home" > "$owner/fm-home"
+  printf '%s\n' "$home/bin/fm-watch.sh" > "$owner/watcher-path"
+  printf '%s\n' "$owner_identity" > "$owner/pid-identity"
+  ln -s "$owner" "$home/state/.watch.lock"
+  "$STOP" stop --home "$home" --reason 'escaped owner check' > "$home/out" 2> "$home/err"; status=$?
+  expect_code 4 "$status" "lock owner outside the selected home must return could-not-stop"
+  assert_contains "$(cat "$home/err")" 'direct child' "escaped lock owner failure did not name the home-scope problem"
+
+  home="$TMP_ROOT/external-ambiguous-owner"
+  make_external_stop_home "$home" secondmate ambiguous-owner
+  start_external_stop_watcher "$home" unresponsive
+  pid=$EXTERNAL_STOP_WATCHER_PID
+  before=$(cat "$home/state/.watch.lock/pid-identity")
+  printf '%s\n' 'forged-owner-identity' > "$home/state/.watch.lock/pid-identity"
+  FM_WATCH_STOP_TIMEOUT=1 "$STOP" stop --home "$home" --reason 'ambiguous owner check' > "$home/out" 2> "$home/err"; status=$?
+  expect_code 4 "$status" "identity-mismatched live owner must return could-not-stop"
+  assert_contains "$(cat "$home/err")" 'owner identity' "identity mismatch did not name the owner problem"
+  external_stop_pid_alive "$pid" || fail "ambiguous owner was signalled despite failed identity proof"
+  [ "$before" != 'forged-owner-identity' ] || fail "owner identity fixture was vacuous"
+  stop_fixture_watcher "$pid"
+  pass "outside stop preserves malformed receipts and refuses malformed or ambiguous watcher ownership"
+}
+
+test_external_stop_reports_unresponsive_owner_as_failure() {
+  local home pid status
+  home="$TMP_ROOT/external-unresponsive"
+  make_external_stop_home "$home" secondmate unresponsive
+  start_external_stop_watcher "$home" unresponsive
+  pid=$EXTERNAL_STOP_WATCHER_PID
+  FM_WATCH_STOP_TIMEOUT=1 "$STOP" stop --home "$home" --reason 'owner timeout proof' > "$home/out" 2> "$home/err"; status=$?
+  expect_code 4 "$status" "unresponsive watcher owner must return could-not-stop"
+  assert_contains "$(cat "$home/err")" 'could-not-stop' "unresponsive owner failure lacked its typed outcome"
+  assert_contains "$(cat "$home/err")" 'did not stop' "unresponsive owner failure lacked an actionable reason"
+  external_stop_pid_alive "$pid" || fail "unresponsive fixture unexpectedly exited"
+  [ "$(FM_HOME="$home" "$STOP" status --json | jq -r .status)" = active ] \
+    || fail "failed termination did not leave automatic re-arm suppression active"
+  stop_fixture_watcher "$pid"
+  pass "outside stop never reports success when the selected watcher owner does not stop"
+}
+
+test_external_stop_fixture_cleanup_and_timeout
+test_external_stop_notice_separates_stop_and_latest_request
+test_external_stop_reconciles_owner_cleanup_races
+test_owner_inspection_does_not_authorize_stop
+test_external_stop_preserves_shared_operation_lock
+test_external_stop_records_actual_caller_and_distinct_results
+test_external_stop_ends_only_selected_home_and_retries_active_live_stop
+test_external_stop_refuses_malformed_receipt_lock_and_owner_identity
+test_external_stop_reports_unresponsive_owner_as_failure
 test_status_distinguishes_absent_active_resumed_and_malformed
 test_report_is_once_per_stop_identity
 test_supervision_predicate_honors_stop_and_excludes_secondmate

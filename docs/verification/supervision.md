@@ -531,6 +531,20 @@ The safe live route is to have the private-record owner retain or correct the va
 A two-machine proof must use the same owner-controlled receipt placement on each home and must not infer resumption from an absent or repaired malformed record.
 No live restart or remote action was performed by this task.
 
+The outside-stop regression uses only throwaway primary and `.fm-secondmate-home` fixtures, including one with secondmate id `mini`, and never reads or writes a real primary or Mini home.
+It drives the supported executable with a deliberately unrelated ambient `FM_HOME`, verifies the compact receipt against the actual parent process pid and recomputed process identity, and exercises outcome exits 0, 3, and 4 plus syntax exit 2.
+A stopped real watcher proves that the owner-mediated receipt observation ends the selected cycle; a simultaneously live sibling-home watcher and receipt remain unchanged.
+An active receipt paired with a deliberately suspended fixture watcher proves a repeat waits for and ends that owner instead of returning already stopped, while an identity mismatch and an unresponsive identity-matched owner prove that neither ambiguity nor a timeout is reported as success.
+The suite also covers owner cleanup before and during inspection, inspection without stop authority, operation-lock contention and malformed-lock refusal, and notices that distinguish the original stop time from the latest request time.
+Fixture-cleanup cases exercise an intentional assertion failure and the unresponsive fixture's lifetime bound, with cleanup restricted to the test shell's recorded child jobs.
+The same shared watcher-cycle boundary precedes every harness and runtime-backend adapter, while the existing portable cases in this section retain the Pi, omp, OpenCode, Claude, Cursor, foreground-checkpoint, and daemon close-path coverage.
+The 2026-09-27 focused run completed with this exact summary:
+
+```text
+bin/fm-test-run.sh tests/fm-monitoring-stop.test.sh
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=215575
+```
+
 Deterministic entry points:
 
 ```sh

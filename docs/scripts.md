@@ -44,7 +44,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-ensure-agents-md.sh` | Ensure a project's real `AGENTS.md`, its `CLAUDE.md` `@AGENTS.md` pointer, and self-governance guidance (explicit project mark documented in the helper's header and help) |
 | `fm-agent-context.py` | Emit or compare one project's generated AGENT-CONTEXT envelope; its header and help own the format, validation, migration, redaction, and drift contract |
 | `fm-guard.sh`            | Warn on primary-checkout tangles, main-session pending wakes, and unhealthy supervision |
-| `fm-monitoring-stop.sh`  | Query the effective home's automatic-monitoring stop verdict as JSON        |
+| `fm-monitoring-stop.sh`  | Query the effective home's stop verdict or request a verified outside stop for one named home |
 | `fm-monitoring-stop-lib.sh` | Validate the private stop receipt and own its runtime suppression and report claims |
 | `fm-primary-scope-lib.sh` | Shared marker-or-plain-checkout primary-home predicate for tracked hooks             |
 | `fm-session-lock-lib.sh` | Shared session-lock harness identity (ancestry walk and holder liveness) for fm-lock.sh and the Claude Stop auto-arm |
