@@ -1,0 +1,1 @@
+AUTOMATIC_MONITORING_STOP: monitoring stopped at 2026-09-28T00:32:52Z. Latest external request by local process christiandonovan[uid=501,pid=95303] at 2026-09-28T00:32:52Z. Automatic watcher startup remains disabled; this session retains fleet ownership.

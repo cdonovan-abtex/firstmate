@@ -1,0 +1,46 @@
+FM_TEST_BEGIN 2026-09-28T00:27:12Z tests/fm-monitoring-stop.test.sh family=unclassified expected_gate_skip=none
+ok - external-stop fixtures clean up after failed assertions and bound their own lifetime
+ok - external stop notices keep the original stop and latest request times distinct
+ok - outside stop reconciles cleanup before and during owner inspection without losing live-retry outcomes
+ok - owner inspection leaves the receipt as the sole stop authorization
+ok - outside stop retains shared operation-lock contention and malformed-lock refusal
+ok - outside stop records the actual OS caller in one line and distinguishes stopped, already stopped, and usage
+ok - outside stop retries an active/live home through its owner while leaving another home's watcher untouched
+ok - outside stop preserves malformed receipts and refuses malformed or ambiguous watcher ownership
+ok - outside stop never reports success when the selected watcher owner does not stop
+ok - automatic-monitoring stop status distinguishes absent, active, resumed, and malformed evidence
+ok - automatic-monitoring stop is reported at most once per stop identity
+ok - supervision keeps normal no-stop behavior, suppresses active/malformed stops, and excludes parked secondmates
+ok - watch arm refuses active and malformed stop evidence before watcher launch
+ok - receipt rejects impossible dates, times, offsets, and additional JSON values
+ok - receipt authority is canonical and CLI only accepts JSON status queries
+ok - direct, arm, checkpoint, and daemon startups suppress stops and preserve ownership
+ok - daemon handles ordinary wake then retires stopped successor without crash retries
+ok - secondmate replies require supervision until resolved without inflating task counts
+ok - Pi, omp, and OpenCode display an arm-start race diagnostic once without continuation
+ok - OpenCode requires shared helper even when canonical receipt is absent
+ok - absent and explicitly resumed stops preserve real checkpoint supervision
+ok - Claude and Cursor deliver resolved secondmate outcomes until acknowledged
+ok - Cursor reports malformed evidence once before idle return and after arm suppression
+ok - away launcher reports stops visibly, including hidden daemon startup races
+ok - startup preserves live secondmates and nudge delivery without claiming visible notices
+ok - OpenCode propagates arm suppression to nonblocking reporting in the current idle
+ok - background refresh leaves once-only notices to primary turn-end, preserving normal supervision
+ok - Pi and omp distinguish final-attempt stops, timeouts, failures, and ordinary readiness
+ok - startup liveness suppresses stopped relaunches and preserves absent/resumed recovery
+ok - Claude treats late arm suppression as terminal and leaves notice to primary turn-end
+ok - Cursor encodes late successful guard diagnostics once and preserves ordinary repair output
+ok - OpenCode suppresses stopped-successor confirmation failures while preserving queued outcomes
+ok - Pi and omp preserve queued outcomes when stopped during handling confirmation
+ok - started and attached arms classify operator termination as stopped without hiding ordinary failures
+ok - Cursor claims stop notices only while the delivering park owns its output
+ok - checkpoint completion rechecks late stops while preserving wakes and ordinary failures
+ok - OpenCode suppresses failure-only prompts stopped during asynchronous encoding
+ok - startup recovery rechecks stops after remote readiness, remote state, and local state probes
+ok - Pi and omp recheck stops after encoding without losing actionable outcomes
+ok - Pi, omp, and OpenCode recheck turn-end repairs after encoding and report late stops once
+ok - Cursor rechecks stops after repair encoding and ownership-lock waits without spending repair budget
+FM_TEST_END 2026-09-28T00:31:33Z tests/fm-monitoring-stop.test.sh exit=0 duration_ms=261050 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=261134
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=261050 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-monitoring-stop.test.sh duration_ms=261050

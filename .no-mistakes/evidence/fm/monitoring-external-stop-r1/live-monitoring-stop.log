@@ -1,0 +1,109 @@
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary/bin/fm-watch-arm.sh --stop-status
+exit=0
+stdout: watcher: live owner pid=55197
+stderr: 
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate/bin/fm-watch-arm.sh --stop-status
+exit=0
+stdout: watcher: live owner pid=55844
+stderr: 
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary/bin/fm-watch-arm.sh --stop
+exit=1
+stdout: stderr: watcher: could not stop - no active monitoring-stop receipt authorizes owner shutdown
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary/bin/fm-watch-arm.sh --stop-status
+exit=0
+stdout: watcher: live owner pid=55197
+stderr: 
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary --reason purser runaway backstop
+exit=0
+stdout: stopped home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary
+stderr: 
+arm completion: watcher: started pid=55197 (beacon fresh)
+
+
+cycle ledger: arm_pid=55134	watcher_pid=55197	origin=started	started_at=1790555350	ended_at=1790555354	exit_code=3	signal=none	reason=monitoring-stopped	beacon_age=2	lock_before=pid:55197|identity:Sun Sep 27 20:29:10 2026     bash /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary/bin/fm-watch.sh	lock_after=pid:none|identity:none	successor=none
+
+persisted audit: {"instruction":"Stop automatic monitoring on a verified local-process request","time":"2026-09-28T00:29:12Z","home":"/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary","scope":"Automatic monitoring only; existing workers and validation preserved","resume":"Explicit approval required; no automatic ownership recovery","action":"Stop the home-scoped watcher through bin/fm-watch-arm.sh --stop","completed":true,"origin":"external","external_stop_request":{"schema":"firstmate.monitoring-stop.external.v1","caller_uid":501,"caller_user":"christiandonovan","caller_pid":54975,"caller_identity":"Sun Sep 27 20:29:10 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3JMA89Q0VVBD9WPX6FSWWWV/live-monitoring-stop.py","at":"2026-09-28T00:29:12Z","reason":"purser runaway backstop"}}
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate/bin/fm-watch-arm.sh --stop-status
+exit=0
+stdout: watcher: live owner pid=55844
+stderr: 
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate/bin/fm-monitoring-stop.sh status --json
+exit=0
+stdout: {
+  "status": "none",
+  "time": "",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate/data/automatic-monitoring-pause/receipt.json",
+  "origin": "",
+  "caller": "",
+  "caller_identity": "",
+  "reason": ""
+}
+stderr: 
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary --reason later backstop request
+exit=3
+stdout: already-stopped home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary
+stderr: 
+persisted audit: {"instruction":"Stop automatic monitoring on a verified local-process request","time":"2026-09-28T00:29:12Z","home":"/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary","scope":"Automatic monitoring only; existing workers and validation preserved","resume":"Explicit approval required; no automatic ownership recovery","action":"Stop the home-scoped watcher through bin/fm-watch-arm.sh --stop","completed":true,"origin":"external","external_stop_request":{"schema":"firstmate.monitoring-stop.external.v1","caller_uid":501,"caller_user":"christiandonovan","caller_pid":54975,"caller_identity":"Sun Sep 27 20:29:10 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3JMA89Q0VVBD9WPX6FSWWWV/live-monitoring-stop.py","at":"2026-09-28T00:29:15Z","reason":"later backstop request"}}
+visible notice: AUTOMATIC_MONITORING_STOP: monitoring stopped at 2026-09-28T00:29:12Z. Latest external request by local process christiandonovan[uid=501,pid=54975] at 2026-09-28T00:29:15Z. Automatic watcher startup remains disabled; this session retains fleet ownership.
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary/bin/fm-watch-arm.sh
+exit=3
+stdout: stderr: 
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary/bin/fm-watch-arm.sh --restart
+exit=3
+stdout: stderr: 
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/primary/bin/fm-watch.sh
+exit=3
+stdout: stderr: 
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate --reason unresponsive watcher deadline
+exit=4
+stdout: stderr: could-not-stop home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate: watcher: could not stop - authenticated watcher owner pid=55844 did not stop within 1s
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate/bin/fm-monitoring-stop.sh status --json
+exit=0
+stdout: {
+  "status": "active",
+  "time": "2026-09-28T00:29:16Z",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate/data/automatic-monitoring-pause/receipt.json",
+  "origin": "external",
+  "caller": "christiandonovan[uid=501,pid=54975]",
+  "caller_identity": "Sun Sep 27 20:29:10 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3JMA89Q0VVBD9WPX6FSWWWV/live-monitoring-stop.py",
+  "reason": "unresponsive watcher deadline"
+}
+stderr: 
+persisted audit: {"instruction":"Stop automatic monitoring on a verified local-process request","time":"2026-09-28T00:29:16Z","home":"/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate","scope":"Automatic monitoring only; existing workers and validation preserved","resume":"Explicit approval required; no automatic ownership recovery","action":"Stop the home-scoped watcher through bin/fm-watch-arm.sh --stop","completed":true,"origin":"external","external_stop_request":{"schema":"firstmate.monitoring-stop.external.v1","caller_uid":501,"caller_user":"christiandonovan","caller_pid":54975,"caller_identity":"Sun Sep 27 20:29:10 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3JMA89Q0VVBD9WPX6FSWWWV/live-monitoring-stop.py","at":"2026-09-28T00:29:16Z","reason":"unresponsive watcher deadline"}}
+active/live retry: exit=0
+stdout: stopped home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate
+stderr: 
+arm completion: watcher: started pid=55844 (beacon fresh)
+
+
+cycle ledger: arm_pid=55609	watcher_pid=55844	origin=started	started_at=1790555351	ended_at=1790555357	exit_code=3	signal=none	reason=monitoring-stopped	beacon_age=2	lock_before=pid:55844|identity:Sun Sep 27 20:29:11 2026     bash /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/secondmate/bin/fm-watch.sh	lock_after=pid:none|identity:none	successor=none
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/malformed/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/malformed --reason invalid operation lock
+exit=4
+stdout: stderr: could-not-stop home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/malformed: monitoring-stop operation lock is malformed or ambiguous
+
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/malformed/bin/fm-watch-arm.sh --stop-status
+exit=0
+stdout: watcher: live owner pid=59299
+stderr: 
+$ /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/malformed/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/malformed --reason reject forged owner
+exit=4
+stdout: stderr: could-not-stop home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/malformed: watcher: could not stop - watcher owner identity does not match the live pid
+
+arm completion: watcher: started pid=59299 (beacon fresh)
+
+
+cycle ledger: arm_pid=59276	watcher_pid=59299	origin=started	started_at=1790555358	ended_at=1790555360	exit_code=3	signal=none	reason=monitoring-stopped	beacon_age=2	lock_before=pid:59299|identity:Sun Sep 27 20:29:18 2026     bash /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/live/malformed/bin/fm-watch.sh	lock_after=pid:none|identity:none	successor=none
+
+SCENARIOS: [
+  "Owner inspection and stop without receipt leave a real watcher alive",
+  "Outside stop ends selected primary only and preserves sibling monitoring",
+  "Repeat stop is idempotent; stop and latest-request times stay distinct; rearm is suppressed",
+  "Suspended real watcher yields could-not-stop; active/live retry completes through receipt cleanup",
+  "Malformed operation lock and forged watcher identity fail closed without signalling an owner"
+]

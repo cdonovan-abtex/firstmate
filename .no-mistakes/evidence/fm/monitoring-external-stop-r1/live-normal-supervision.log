@@ -1,0 +1,62 @@
+$ fm-monitoring-stop.sh status --json
+exit=0
+{
+  "status": "none",
+  "time": "",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final/data/automatic-monitoring-pause/receipt.json",
+  "origin": "",
+  "caller": "",
+  "caller_identity": "",
+  "reason": ""
+}
+Worker published: done: normal supervision remains active
+arm exit=0
+watcher: started pid=3871 (beacon fresh)
+signal: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final/state/live-work.status
+$ fm-wake-drain.sh
+exit=0
+1790555619	2	signal	live-work.status	signal: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final/state/live-work.status
+wake annotation: latest wake-EVENT observed at drain, not current state: live-work.status: done: normal supervision remains active
+STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
+live-work done: normal supervision remains active
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 4560.1790555619.wPYJrV
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  After draining queued wakes, repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+$ fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final --reason stop after normal delivery
+exit=0
+stopped home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final
+$ fm-monitoring-stop.sh status --json
+exit=0
+{
+  "status": "resumed",
+  "time": "2026-09-28T00:33:42Z",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final/data/automatic-monitoring-pause/receipt.json",
+  "origin": "external",
+  "caller": "christiandonovan[uid=501,pid=3857]",
+  "caller_identity": "Sun Sep 27 20:33:38 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3JMA89Q0VVBD9WPX6FSWWWV/live-normal-supervision.py",
+  "reason": "stop after normal delivery"
+}
+$ fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final --reason new stop after authorized resumption
+exit=0
+stopped home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final
+new receipt after resumption: {"instruction":"Stop automatic monitoring on a verified local-process request","time":"2026-09-28T00:33:42Z","home":"/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final","scope":"Automatic monitoring only; existing workers and validation preserved","resume":"Explicit approval required; no automatic ownership recovery","action":"Stop the home-scoped watcher through bin/fm-watch-arm.sh --stop","completed":true,"origin":"external","previous_stop":{"time":"2026-09-28T00:33:42Z","resumed_at":"2026-09-28T00:33:42Z"},"external_stop_request":{"schema":"firstmate.monitoring-stop.external.v1","caller_uid":501,"caller_user":"christiandonovan","caller_pid":3857,"caller_identity":"Sun Sep 27 20:33:38 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3JMA89Q0VVBD9WPX6FSWWWV/live-normal-supervision.py","at":"2026-09-28T00:33:42Z","reason":"new stop after authorized resumption"}}
+$ fm-monitoring-stop.sh status --json
+exit=0
+{
+  "status": "active",
+  "time": "2026-09-28T00:33:42Z",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3JMA89Q0VVBD9WPX6FSWWWV/.local-test-monitoring/normal-final/data/automatic-monitoring-pause/receipt.json",
+  "origin": "external",
+  "caller": "christiandonovan[uid=501,pid=3857]",
+  "caller_identity": "Sun Sep 27 20:33:38 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3JMA89Q0VVBD9WPX6FSWWWV/live-normal-supervision.py",
+  "reason": "new stop after authorized resumption"
+}
