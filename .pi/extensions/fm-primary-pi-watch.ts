@@ -241,20 +241,46 @@ function lockOwnership(): LockOwnership {
   return pidAlive(lockPid) ? "other" : "missing";
 }
 
-// Only the canonical session-lock process may attest that this extension is
-// loaded; extension imports in descendants must not replace that identity.
-function markLoaded(): void {
-  const loaded = `${extensionVersion}\n${process.pid}`;
+// A pre-lock marker proves only that this extension generation loaded. It
+// becomes ownership evidence only when its importing pid matches state/.lock;
+// bin/fm-lock.sh republishes the inherited marker after acquisition.
+function publishGenerationOwner(generation: SessionGeneration, phase: "active" | "handoff"): void {
+  const ownership = lockOwnership();
+  if (ownership === "other") return;
+  if (ownership === "owned") {
+    const lockPid = readFileSync(`${state}/.lock`, "utf8").trim();
+    if (lockPid !== String(process.pid)) return;
+  }
+  const loaded = `${extensionVersion}\n${process.pid}\ngeneration=${generation.id} phase=${phase}`;
   process.env.FM_PI_WATCH_EXTENSION_LOADED = loaded;
   process.env.FM_PI_WATCH_EXTENSION_STATE = state;
-  let lockPid = "";
+  mkdirSync(state, { recursive: true });
+  const temporary = `${marker}.tmp-${process.pid}-${generation.id}`;
+  writeFileSync(temporary, `${loaded}\n`, { mode: 0o600 });
+  renameSync(temporary, marker);
+}
+
+function retireGenerationOwner(generation: SessionGeneration, replacement: boolean): void {
+  let lines: string[];
   try {
-    lockPid = readFileSync(`${state}/.lock`, "utf8").trim();
+    lines = readFileSync(marker, "utf8").trimEnd().split(/\r?\n/);
   } catch {
     return;
   }
-  if (lockPid !== String(process.pid)) return;
-  writeFileSync(marker, `${loaded}\n`);
+  if (
+    lines[0] !== extensionVersion ||
+    lines[1] !== String(process.pid) ||
+    lines[2] !== `generation=${generation.id} phase=active`
+  ) return;
+  if (replacement) {
+    publishGenerationOwner(generation, "handoff");
+    return;
+  }
+  try {
+    unlinkSync(marker);
+  } catch (error) {
+    if (nodeErrorCode(error) !== "ENOENT") throw error;
+  }
 }
 
 function actionableLine(output: string): string {

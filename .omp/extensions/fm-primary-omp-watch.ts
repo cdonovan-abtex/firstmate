@@ -1042,7 +1042,7 @@ export default function (pi: ExtensionAPI) {
       const result = watcherCloseResult(monitoringPaths, code);
       settleReadiness(result);
       releaseChild();
-      const classification = classifyClose(stdout, stderr, code, signal);
+      const classification = classifyClose(hostMode, stdout, stderr, code, signal);
       if (result === "stopped" && classification.kind !== "actionable") return;
       const predecessor = String(armChild.pid ?? "");
       if (classification.kind === "actionable") {

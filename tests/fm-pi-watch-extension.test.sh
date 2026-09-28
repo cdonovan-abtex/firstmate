@@ -42,6 +42,8 @@ install_pi_watch_extension_fixture() {
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/fm-operational-input.sh"
   cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$repo/bin/fm-monitoring-stop-lib.sh"
   cp "$ROOT/bin/fm-monitoring-stop.sh" "$repo/bin/fm-monitoring-stop.sh"
+  cp "$ROOT/bin/fm-path-lib.sh" "$repo/bin/fm-path-lib.sh"
+  cp "$ROOT/bin/fm-wake-lib.sh" "$repo/bin/fm-wake-lib.sh"
   chmod +x "$repo/bin/fm-operational-input.sh" "$repo/bin/fm-monitoring-stop.sh"
   cat > "$repo/node_modules/@earendil-works/pi-coding-agent/package.json" <<'JSON'
 {"name":"@earendil-works/pi-coding-agent","type":"module","exports":"./index.js"}
@@ -97,14 +99,45 @@ const makePi = () => ({
 });
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(makePi());
-if (existsSync(marker)) {
-  throw new Error("watch extension published its marker before a session owner existed");
+const preLock = readFileSync(marker, "utf8").trim().split("\n");
+if (
+  !preLock[0]?.startsWith("sha256:") ||
+  preLock[1] !== String(process.pid) ||
+  !/^generation=[1-9][0-9]* phase=active$/.test(preLock[2] ?? "")
+) {
+  throw new Error(`watch extension did not publish its pre-lock active marker: ${JSON.stringify(preLock)}`);
+}
+const descendantBeforeLock = spawnSync(
+  process.execPath,
+  [
+    "--input-type=module",
+    "-e",
+    `import { pathToFileURL } from "node:url";
+     const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+     mod.default({ on() {}, registerCommand() {}, registerTool() {} });`,
+  ],
+  { encoding: "utf8", env: process.env },
+);
+if (descendantBeforeLock.status !== 0) {
+  throw new Error(`pre-lock descendant extension load failed: ${descendantBeforeLock.stderr}`);
 }
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const unbound = spawnSync(
+  "bash",
+  ["-c", '. "$1/bin/fm-wake-lib.sh"; fm_pi_extension_loaded "$2" "$3" "$4" active', "_", process.env.FM_ROOT_OVERRIDE, marker, preLock[0], `${process.env.FM_HOME}/state/.lock`],
+  { encoding: "utf8", env: process.env },
+);
+if (unbound.status === 0) {
+  throw new Error("a descendant pre-lock marker attested the replacement lock owner");
+}
 mod.default(makePi());
 const canonical = readFileSync(marker, "utf8").trim().split("\n");
-if (!canonical[0]?.startsWith("sha256:") || canonical[1] !== String(process.pid)) {
-  throw new Error(`canonical owner did not publish its watch marker: ${JSON.stringify(canonical)}`);
+if (
+  canonical[0] !== preLock[0] ||
+  canonical[1] !== String(process.pid) ||
+  !/^generation=[1-9][0-9]* phase=active$/.test(canonical[2] ?? "")
+) {
+  throw new Error(`canonical owner did not republish its active watch marker: ${JSON.stringify(canonical)}`);
 }
 const descendant = spawnSync(
   process.execPath,
@@ -288,14 +321,23 @@ try {
   }
   const guard = await import(pathToFileURL(`${root}/.pi/extensions/fm-primary-turnend-guard.ts`).href);
   guard.default(pi);
-  assert.deepEqual(snapshot(), prior, "factories published before acquisition");
+  const preAcquire = snapshot();
+  if (both) {
+    const watch = preAcquire[0]?.trim().split("\n") ?? [];
+    assert.equal(watch[1], String(process.pid), "watch extension did not publish its pre-lock marker");
+    assert.match(watch[2] ?? "", /^generation=[1-9][0-9]* phase=active$/,
+      "watch extension pre-lock marker was not active-generation formatted");
+    assert.equal(preAcquire[1], prior[1], "turn-end extension published before acquisition");
+  } else {
+    assert.deepEqual(preAcquire, prior, "factories published before acquisition");
+  }
   await fire("session_start", { reason: "startup" });
   const deadline = Date.now() + 10000;
   while (!existsSync(`${state}/lock-requested`)) {
     assert(Date.now() < deadline, "startup never requested its canonical lock");
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.deepEqual(snapshot(), prior, "session_start published before acquisition");
+  assert.deepEqual(snapshot(), preAcquire, "session_start changed markers before acquisition");
   writeFileSync(`${state}/acquire`, "");
   const results = await fire("before_agent_start", { prompt: "Continue authorized work" });
   const digest = results.find((result) => result?.message)?.message.content ?? "";
@@ -4013,6 +4055,7 @@ test_opencode_primary_watch_plugin_runs_the_supervision_host() {
   stop="$TMP_ROOT/opencode-host.stop"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   git init -q "$repo"
+  cp "$ROOT/bin/fm-monitoring-stop.sh" "$ROOT/bin/fm-monitoring-stop-lib.sh" "$repo/bin/"
   : > "$repo/AGENTS.md"
   : > "$home/state/task.meta"
   : > "$home/state/.afk-contract"

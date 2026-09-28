@@ -666,24 +666,6 @@ case "$FM_MONITORING_STOP_STATUS" in
 esac
 
 if [ "$mode" = restart ]; then
-  # Home-scoped stop: only the watcher pid recorded in THIS home's lock.
-  lock_pid=$(cat "$WATCH_LOCK/pid" 2>/dev/null || true)
-  fm_pid_alive "$lock_pid" || return 0
-  if fm_watcher_lock_matches_pid "$STATE" "$WATCH" "$lock_pid" "$FM_HOME"; then
-    kill -TERM "$lock_pid" 2>/dev/null || true
-    i=0
-    while [ "$i" -lt 50 ] && fm_pid_alive "$lock_pid"; do
-      sleep 0.1
-      i=$((i + 1))
-    done
-    STOPPED_PID=$lock_pid
-  elif ! clear_stale_recorded_watcher_lock; then
-    echo "watcher: FAILED - stale watcher recovery state could not be persisted" >&2
-    return 1
-  fi
-}
-
-if [ "$mode" = restart ]; then
   stop_home_watcher || exit 1
 fi
 

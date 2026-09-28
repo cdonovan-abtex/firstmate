@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
 # Acquire or inspect the per-home firstmate session lock.
-# Writes the harness (agent) process PID found by walking the shell's ancestry,
-# which lives as long as the firstmate session - unlike the transient subshell
-# PID of any one tool call, which is dead moments after it is written.
-# Pi marker publication is also owned here: after verifying acquisition, publish
-# .pi-turnend-extension-loaded and .pi-watch-extension-loaded from the matching
-# FM_PI_{TURNEND,WATCH}_EXTENSION_LOADED and _STATE environment pairs.
-# Each loaded value carries the extension build and importing PID on two lines;
-# publish only when that PID is the canonical harness owner and its state matches.
-# Extension loading can precede asynchronous startup acquisition, so this handoff
-# makes both markers available before the digest checks them, without arming.
-# An existing canonical owner can republish directly on extension load or
-# session_start; descendant imports must never replace its marker identity.
-# Missing or mismatched evidence is left untouched, never inferred from disk.
+# Pi marker publication is also owned here: after verified acquisition, publish
+# markers inherited from matching FM_PI_{TURNEND,WATCH}_EXTENSION_LOADED and
+# _STATE pairs. A Pi watch value adds its active-generation line; its second
+# line remains the importing pid that must match the acquired session owner.
+#
+# Line 1 of state/.lock is the owning session's anchor pid, resolved by
+# fm_session_lock_anchor_pid in bin/fm-session-lock-lib.sh: the harness (agent)
+# process found by walking the shell's ancestry, which lives as long as the
+# firstmate session - unlike the transient subshell PID of any one tool call,
+# which is dead moments after it is written. For a Claude session that proves a
+# trusted session id the anchor is CLAUDE_PID, the model-loop process, so a
+# shared transient daemon or a front-end that outlives the session never keeps
+# a dead session's lock alive. Line 1 keeps its whole-line pid format because
+# every other reader takes the first line as the pid.
+#
+# The trusted id itself is recorded beside the lock in state/.lock-session, a
+# sidecar written only here and only under the claim lock: refreshed on every
+# confirmed-own acquisition, including the early already-mine exit that waits
+# for the claim lock, removed when the acquiring session proves no trusted id,
+# and left byte-identical when it already names that id. A same-session
+# confirmation never rewrites line 1 while the recorded pid is alive, because
+# bin/fm-startup-network.sh compares that pid across its deferred sweeps; a dead
+# recorded pid is reclaimed and rewritten to this session's anchor.
+#
 # Usage: fm-lock.sh           acquire; exit 1 unless ownership is verified
 #        fm-lock.sh status    print holder and liveness; always exits 0.
 #                             A held lock is not proof the holder is consuming
@@ -100,9 +111,9 @@ trap on_lock_exit EXIT
 trap 'exit 1' HUP INT TERM
 
 publish_pi_extension_loaded() {
-  local marker=$1 loaded=$2 loaded_state=$3
-  if [ "$loaded_state" = "$STATE" ] \
-    && [ "${loaded##*$'\n'}" = "$me" ]; then
+  local marker=$1 loaded=$2 loaded_state=$3 loaded_pid
+  loaded_pid=$(printf '%s\n' "$loaded" | sed -n '2p')
+  if [ "$loaded_state" = "$STATE" ] && [ "$loaded_pid" = "$me" ]; then
     printf '%s\n' "$loaded" > "$STATE/$marker"
   fi
 }
@@ -115,11 +126,94 @@ report_acquired() {
   echo "lock acquired: harness pid $me"
 }
 
-if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
-  old=$(cat "$LOCK" 2>/dev/null || true)
-  if [ "$old" = "$me" ]; then
+remember_lock_session() {
+  [ "$LOCK_SESSION_PHASE" -eq 0 ] || return 0
+  if [ -e "$LOCK_SESSION" ] || [ -L "$LOCK_SESSION" ]; then
+    rm -f "$LOCK_SESSION_PREV" 2>/dev/null || true
+    cp -P "$LOCK_SESSION" "$LOCK_SESSION_PREV" 2>/dev/null || return 1
+    LOCK_SESSION_KIND=1
+  else
+    LOCK_SESSION_KIND=2
+  fi
+  LOCK_SESSION_PHASE=1
+}
+
+# Record the trusted session id beside the lock, or remove a sidecar that no
+# trusted id backs. Called only while the claim lock is held. A sidecar already
+# naming this id is left untouched, so a same-session confirmation keeps it
+# byte-identical.
+publish_lock_session() {
+  local trusted recorded tmp
+  if trusted=$(fm_session_lock_trusted_session_id); then
+    if recorded=$(fm_session_lock_recorded_session_id "$STATE") && [ "$recorded" = "$trusted" ]; then
+      return 0
+    fi
+    remember_lock_session || return 1
+    tmp=$(mktemp "$STATE/.lock-session.XXXXXX" 2>/dev/null) || return 1
+    if ! { printf '%s\n' "$trusted" > "$tmp" && mv -f "$tmp" "$LOCK_SESSION"; } 2>/dev/null; then
+      rm -f "$tmp" 2>/dev/null
+      return 1
+    fi
+    return 0
+  fi
+  if [ -e "$LOCK_SESSION" ] || [ -L "$LOCK_SESSION" ]; then
+    remember_lock_session || return 1
+    rm -f "$LOCK_SESSION" 2>/dev/null || return 1
+  fi
+  return 0
+}
+
+publish_lock_session_or_die() {
+  publish_lock_session && return 0
+  echo "error: cannot record the session identity beside the lock; operate read-only until resolved" >&2
+  exit 1
+}
+
+# This session already holds the lock, recorded as pid $1. Line 1 stays exactly
+# as recorded while that pid is alive; only the sidecar is refreshed, under the
+# claim lock, so a /clear re-key inside the same process replaces the old id.
+# A same-session confirmation waits for the claim lock so the sidecar refresh
+# completes. After the wait, the lock is re-read and the sidecar is refreshed
+# only when this session still owns it; otherwise the claim lock is released
+# and the caller continues with the ordinary live-owner or reclaim path. The
+# prior-session-sweep-is-finishing refusal is a takeover rule and does not
+# apply here.
+confirm_own_lock() {  # <recorded-pid>
+  local recorded waited=0
+  if [ "$CLAIM_LOCK_HELD" -ne 1 ]; then
+    fm_lock_acquire_wait "$CLAIM_LOCK"
+    CLAIM_LOCK_HELD=1
+    waited=1
+  fi
+  recorded=$(cat "$LOCK" 2>/dev/null || true)
+  if [ "$recorded" = "$me" ] || fm_session_lock_owned_by_self "$STATE"; then
+    publish_lock_session_or_die
+    commit_lock_session
+    release_claim_lock
     report_acquired
     exit 0
+  fi
+  if [ "$waited" -eq 1 ]; then
+    release_claim_lock
+  fi
+  return 1
+}
+
+refuse_live_owner() {  # <recorded-pid>
+  local recorded
+  if recorded=$(fm_session_lock_recorded_session_id "$STATE"); then
+    echo "error: another live firstmate session holds the lock (pid $1, session $recorded); operate read-only until resolved" >&2
+  else
+    echo "error: another live firstmate session holds the lock (pid $1); operate read-only until resolved" >&2
+  fi
+  exit 1
+}
+
+if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
+  old=$(cat "$LOCK" 2>/dev/null || true)
+  if [ "$old" = "$me" ] || fm_session_lock_owned_by_self "$STATE"; then
+    confirm_own_lock "$old"
+    old=$(cat "$LOCK" 2>/dev/null || true)
   fi
   if fm_harness_pid_alive "$old"; then
     refuse_live_owner "$old"

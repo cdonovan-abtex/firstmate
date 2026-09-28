@@ -457,7 +457,7 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     settled = true;
     resolveClosed();
     releaseChild();
-    const classification = classifyArmClose(stdout, stderr, code, signal);
+    const classification = classifyArmClose(paths, hostMode, stdout, stderr, code, signal);
     const result = watcherCloseResult(paths, code);
     settleReadiness(classification.kind === "actionable" ? "wake" : result);
     if (classification.kind !== "actionable" && result === "stopped") {
