@@ -18,7 +18,8 @@
 # FM_MONITORING_STOP_STATUS, FM_MONITORING_STOP_TIME,
 # FM_MONITORING_STOP_DETAIL, FM_MONITORING_STOP_RECEIPT,
 # FM_MONITORING_STOP_ORIGIN, FM_MONITORING_STOP_CALLER,
-# FM_MONITORING_STOP_CALLER_IDENTITY, and FM_MONITORING_STOP_REASON.
+# FM_MONITORING_STOP_CALLER_IDENTITY, FM_MONITORING_STOP_REQUEST_TIME,
+# and FM_MONITORING_STOP_REASON.
 
 fm_monitoring_stop_timestamp_valid() {
   local pattern year month day hour minute second offset_hour offset_minute days
@@ -47,7 +48,7 @@ fm_monitoring_stop_timestamp_valid() {
 
 fm_monitoring_stop_status() {  # [state-dir]
   local state=${1:-${FM_STATE_OVERRIDE:-${FM_HOME:-.}/state}}
-  local home data receipt parsed stop_time resumed_at external_at
+  local home data receipt parsed stop_time resumed_at
 
   if [ -n "${FM_HOME:-}" ]; then
     home=$FM_HOME
@@ -64,6 +65,7 @@ fm_monitoring_stop_status() {  # [state-dir]
   FM_MONITORING_STOP_ORIGIN=
   FM_MONITORING_STOP_CALLER=
   FM_MONITORING_STOP_CALLER_IDENTITY=
+  FM_MONITORING_STOP_REQUEST_TIME=
   FM_MONITORING_STOP_REASON=
 
   if [ ! -e "$receipt" ] && [ ! -L "$receipt" ]; then
@@ -129,14 +131,14 @@ fm_monitoring_stop_status() {  # [state-dir]
   FM_MONITORING_STOP_CALLER=$(printf '%s\n' "$parsed" | jq -er '.[3]' 2>/dev/null) || FM_MONITORING_STOP_CALLER=
   FM_MONITORING_STOP_CALLER_IDENTITY=$(printf '%s\n' "$parsed" | jq -er '.[4]' 2>/dev/null) || FM_MONITORING_STOP_CALLER_IDENTITY=
   FM_MONITORING_STOP_REASON=$(printf '%s\n' "$parsed" | jq -er '.[5]' 2>/dev/null) || FM_MONITORING_STOP_REASON=
-  external_at=$(printf '%s\n' "$parsed" | jq -er '.[6]' 2>/dev/null) || external_at=
+  FM_MONITORING_STOP_REQUEST_TIME=$(printf '%s\n' "$parsed" | jq -er '.[6]' 2>/dev/null) || FM_MONITORING_STOP_REQUEST_TIME=
   if ! fm_monitoring_stop_timestamp_valid "$stop_time"; then
     FM_MONITORING_STOP_STATUS=malformed
     FM_MONITORING_STOP_DETAIL="receipt time must be an RFC 3339 timestamp"
     return 0
   fi
   FM_MONITORING_STOP_TIME=$stop_time
-  if [ -n "$external_at" ] && ! fm_monitoring_stop_timestamp_valid "$external_at"; then
+  if [ -n "$FM_MONITORING_STOP_REQUEST_TIME" ] && ! fm_monitoring_stop_timestamp_valid "$FM_MONITORING_STOP_REQUEST_TIME"; then
     FM_MONITORING_STOP_STATUS=malformed
     FM_MONITORING_STOP_DETAIL="receipt external_stop_request.at must be an RFC 3339 timestamp"
     return 0
@@ -194,8 +196,8 @@ EOF
 
   if [ "$FM_MONITORING_STOP_STATUS" = active ]; then
     if [ "$FM_MONITORING_STOP_ORIGIN" = external ]; then
-      printf 'AUTOMATIC_MONITORING_STOP: monitoring stopped by local process %s at %s. Automatic watcher startup remains disabled; this session retains fleet ownership.\n' \
-        "$FM_MONITORING_STOP_CALLER" "$FM_MONITORING_STOP_TIME"
+      printf 'AUTOMATIC_MONITORING_STOP: monitoring stopped at %s. Latest external request by local process %s at %s. Automatic watcher startup remains disabled; this session retains fleet ownership.\n' \
+        "$FM_MONITORING_STOP_TIME" "$FM_MONITORING_STOP_CALLER" "$FM_MONITORING_STOP_REQUEST_TIME"
     else
       printf 'AUTOMATIC_MONITORING_STOP: monitoring stopped by Captain order at %s. Automatic watcher startup remains disabled; this session retains fleet ownership.\n' \
         "$FM_MONITORING_STOP_TIME"

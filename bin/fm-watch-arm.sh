@@ -59,6 +59,8 @@
 # state/.watch-triage.log remains exclusively the watcher's absorbed-wake debug
 # log and is never written here.
 #
+# --stop-status: inspect THIS home's watcher owner without authorizing shutdown.
+# Exit 0 means live, 3 means absent, and 1 means ambiguous ownership.
 # --stop: the supported owner path for an already-recorded monitoring stop.
 # It authenticates THIS home's watcher lock and waits for that watcher to observe
 # the receipt and exit through its own cleanup path. It never signals a watcher
@@ -515,6 +517,18 @@ watch_stop_owner_status() {
   WATCH_STOP_OWNER_DETAIL="pid=$pid"
 }
 
+inspect_watcher_stop_owner() {
+  watch_stop_owner_status
+  if [ "$WATCH_STOP_OWNER_STATE" = malformed ] && [ ! -e "$WATCH_LOCK" ] && [ ! -L "$WATCH_LOCK" ]; then
+    WATCH_STOP_OWNER_STATE=none
+  fi
+  case "$WATCH_STOP_OWNER_STATE" in
+    live) echo "watcher: live owner $WATCH_STOP_OWNER_DETAIL"; return 0 ;;
+    none) echo "watcher: no live watcher"; return 3 ;;
+    *) echo "watcher: could not stop - $WATCH_STOP_OWNER_DETAIL" >&2; return 1 ;;
+  esac
+}
+
 stop_watcher_through_owner() {
   local timeout=${FM_WATCH_STOP_TIMEOUT:-30} deadline saw_live=0
   case "$timeout" in
@@ -529,9 +543,9 @@ stop_watcher_through_owner() {
   fi
   deadline=$(( $(date +%s) + timeout ))
   while :; do
-    watch_stop_owner_status
-    case "$WATCH_STOP_OWNER_STATE" in
-      none)
+    inspect_watcher_stop_owner > /dev/null
+    case "$?" in
+      3)
         if [ "$saw_live" -eq 1 ]; then
           echo "watcher: stopped through owner cleanup"
           return 0
@@ -539,23 +553,8 @@ stop_watcher_through_owner() {
         echo "watcher: no live watcher"
         return 3
         ;;
-      malformed)
-        # The authenticated watcher may have removed its link between the
-        # snapshot's existence check and a later field read. Only an actually
-        # absent lock after a previously verified live owner is successful;
-        # every extant or initially malformed shape still refuses.
-        if [ "$saw_live" -eq 1 ] && [ ! -e "$WATCH_LOCK" ] && [ ! -L "$WATCH_LOCK" ]; then
-          echo "watcher: stopped through owner cleanup"
-          return 0
-        fi
-        echo "watcher: could not stop - $WATCH_STOP_OWNER_DETAIL" >&2
-        return 1
-        ;;
-      live) saw_live=1 ;;
-      *)
-        echo "watcher: could not stop - unknown watcher owner state" >&2
-        return 1
-        ;;
+      0) saw_live=1 ;;
+      *) return 1 ;;
     esac
     if [ "$(date +%s)" -ge "$deadline" ]; then
       echo "watcher: could not stop - authenticated watcher owner $WATCH_STOP_OWNER_DETAIL did not stop within ${timeout}s" >&2
@@ -571,9 +570,9 @@ handling_watcher_pid=
 case "${1:-}" in
   ''|arm|--arm) mode=arm ;;
   --restart) mode=restart ;;
-  --stop)
+  --stop|--stop-status)
     [ "$#" -eq 1 ] || { echo "watcher: unexpected stop arguments" >&2; exit 2; }
-    mode=stop
+    mode=${1#--}
     ;;
   --handling-delivered)
     mode=handling-delivered
@@ -584,8 +583,13 @@ case "${1:-}" in
     case "$handling_watcher_pid" in ''|*[!0-9]*) echo "watcher: invalid successor watcher pid" >&2; exit 2 ;; esac
     [ "$#" -eq 4 ] || { echo "watcher: unexpected handling delivery arguments" >&2; exit 2; }
     ;;
-  *) echo "usage: $(basename "$0") [--restart | --stop | --handling-delivered GENERATION --watcher-pid PID]" >&2; exit 2 ;;
+  *) echo "usage: $(basename "$0") [--restart | --stop | --stop-status | --handling-delivered GENERATION --watcher-pid PID]" >&2; exit 2 ;;
 esac
+
+if [ "$mode" = stop-status ]; then
+  inspect_watcher_stop_owner
+  exit $?
+fi
 
 if [ "$mode" = handling-delivered ]; then
   fm_pid_alive "$handling_watcher_pid" \

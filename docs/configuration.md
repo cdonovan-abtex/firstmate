@@ -43,7 +43,7 @@ It accepts no free-text caller label and refuses before writing when the calling
 A later outside request against an active receipt replaces only that latest request audit object, leaving the stop timestamp and all other stop authority intact; a new request after explicit resumption creates a new stop and retains the prior stop and resumption timestamps in `previous_stop`.
 The runtime parser validates the complete outside-request object when present, including its timestamp, before trusting the receipt.
 A manually written receipt records an operator stop but does not itself terminate an already-running process.
-The supported outside call publishes that same receipt atomically and then invokes the selected home's `bin/fm-watch-arm.sh --stop` owner path.
+The supported outside call inspects the selected home's owner through `bin/fm-watch-arm.sh --stop-status`, publishes that same receipt atomically, and then invokes the `--stop` owner path to reconcile shutdown against the initial observation.
 That owner path authenticates the home, watcher path, pid, and process identity from the home-scoped lock, sends no process signal, and waits for the live watcher to observe the receipt and exit through its own cleanup path.
 An absent watcher makes a new stop successful and a repeated active stop already stopped; a malformed or ambiguous lock, an identity mismatch, or a watcher that does not stop within the bounded wait returns `could-not-stop` while leaving the active receipt in force to prevent re-arm.
 
@@ -58,7 +58,7 @@ Session-start and turn-end adapters, the foreground checkpoint, and the away lau
 The operation guard, background bootstrap, watcher, arm, and daemon processes suppress monitoring without claiming notices, even when their output is captured or discarded.
 The [watcher continuity contract](watcher-continuity.md#actionable-wake-ordering) owns how deliberate suppression preserves actionable wakes across readiness and delivery.
 The first active-stop observation is reported at most once per stop timestamp, even if audit history later changes, and each distinct malformed receipt revision is reported at most once.
-An externally created receipt reports the recorded local process identity rather than fabricating a Captain order; an older operator receipt keeps its existing Captain-order wording even when a later outside request reinforces it.
+An externally created receipt reports the original stop time separately from the latest requesting local process and its request time; an older operator receipt keeps its existing Captain-order wording even when a later outside request reinforces it.
 Those atomic report claims live under `state/.monitoring-stop-reports/` and do not authorize editing the private receipt.
 Resumption or correction of the receipt remains an explicit owner operation; removing or repairing malformed evidence must never be used to infer operator approval.
 

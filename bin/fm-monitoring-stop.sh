@@ -272,6 +272,12 @@ else
 fi
 chmod 600 "$RECEIPT_TMP" 2>/dev/null \
   || stop_failure "$TARGET_HOME" "could not protect the external stop receipt"
+OWNER_OUT=$(mktemp "$STATE/.monitoring-stop-owner.out.XXXXXX") \
+  || stop_failure "$TARGET_HOME" "could not allocate watcher-owner output"
+OWNER_ERR=$(mktemp "$STATE/.monitoring-stop-owner.err.XXXXXX") \
+  || stop_failure "$TARGET_HOME" "could not allocate watcher-owner diagnostics"
+FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$TARGET_HOME" "$OWNER_STOP" --stop-status > "$OWNER_OUT" 2> "$OWNER_ERR"
+INITIAL_OWNER_RC=$?
 mv -f "$RECEIPT_TMP" "$RECEIPT" 2>/dev/null \
   || stop_failure "$TARGET_HOME" "could not publish the external stop receipt"
 RECEIPT_TMP=
@@ -284,12 +290,13 @@ fm_monitoring_stop_status "$STATE"
 [ "$FM_MONITORING_STOP_REASON" = "$STOP_REASON" ] \
   || stop_failure "$TARGET_HOME" "published receipt did not retain the stop reason"
 
-OWNER_OUT=$(mktemp "$STATE/.monitoring-stop-owner.out.XXXXXX") \
-  || stop_failure "$TARGET_HOME" "could not allocate watcher-owner output"
-OWNER_ERR=$(mktemp "$STATE/.monitoring-stop-owner.err.XXXXXX") \
-  || stop_failure "$TARGET_HOME" "could not allocate watcher-owner diagnostics"
-FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$TARGET_HOME" "$OWNER_STOP" --stop > "$OWNER_OUT" 2> "$OWNER_ERR"
-OWNER_RC=$?
+OWNER_RC=$INITIAL_OWNER_RC
+case "$INITIAL_OWNER_RC" in
+  0|3)
+    FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$TARGET_HOME" "$OWNER_STOP" --stop > "$OWNER_OUT" 2> "$OWNER_ERR"
+    OWNER_RC=$?
+    ;;
+esac
 case "$OWNER_RC" in
   0)
     monitoring_stop_cleanup
@@ -300,7 +307,7 @@ case "$OWNER_RC" in
   3)
     monitoring_stop_cleanup
     trap - EXIT HUP INT TERM
-    if [ "$PREVIOUS_STATUS" = active ]; then
+    if [ "$PREVIOUS_STATUS" = active ] && [ "$INITIAL_OWNER_RC" -eq 3 ]; then
       printf 'already-stopped home=%s\n' "$TARGET_HOME"
       exit 3
     fi
