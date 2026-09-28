@@ -129,7 +129,9 @@ fm_monitoring_stop_status() {  # [state-dir]
   resumed_at=$(printf '%s\n' "$parsed" | jq -er '.[1]' 2>/dev/null) || resumed_at=
   FM_MONITORING_STOP_ORIGIN=$(printf '%s\n' "$parsed" | jq -er '.[2]' 2>/dev/null) || FM_MONITORING_STOP_ORIGIN=
   FM_MONITORING_STOP_CALLER=$(printf '%s\n' "$parsed" | jq -er '.[3]' 2>/dev/null) || FM_MONITORING_STOP_CALLER=
+  # shellcheck disable=SC2034 # Read by fm-monitoring-stop.sh after this function returns.
   FM_MONITORING_STOP_CALLER_IDENTITY=$(printf '%s\n' "$parsed" | jq -er '.[4]' 2>/dev/null) || FM_MONITORING_STOP_CALLER_IDENTITY=
+  # shellcheck disable=SC2034 # Read by fm-monitoring-stop.sh after this function returns.
   FM_MONITORING_STOP_REASON=$(printf '%s\n' "$parsed" | jq -er '.[5]' 2>/dev/null) || FM_MONITORING_STOP_REASON=
   FM_MONITORING_STOP_REQUEST_TIME=$(printf '%s\n' "$parsed" | jq -er '.[6]' 2>/dev/null) || FM_MONITORING_STOP_REQUEST_TIME=
   if ! fm_monitoring_stop_timestamp_valid "$stop_time"; then
