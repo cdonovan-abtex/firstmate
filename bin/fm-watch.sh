@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Firstmate watcher.
-# A blocking monitoring-stop verdict exits 3 before watcher startup without
-# claiming a visible notice; bin/fm-monitoring-stop-lib.sh owns that verdict.
+# A blocking monitoring-stop verdict exits 3 at startup or a live poll-cycle
+# boundary without claiming a visible notice; bin/fm-monitoring-stop-lib.sh owns
+# that verdict and docs/configuration.md owns the receipt policy.
 # Classifies supervision wakes in bash. In normal mode it absorbs benign wakes
 # and keeps blocking; it queues and exits only for actionable wakes.
 # The no-verb signal and stale path is absorb-only-on-positive-evidence: a wake

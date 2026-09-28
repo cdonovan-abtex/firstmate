@@ -20,8 +20,8 @@
 # docs/arm-pretool-check.md for the blessed tree and deny reason codes. It is a
 # pre-execution seatbelt, not a substitute for the verification here.
 #
-# A stop verdict from bin/fm-monitoring-stop-lib.sh returns 3 without launching
-# or retrying a watcher and without a FAILED line. Completion rechecks that
+# In arm/restart mode, a stop verdict from bin/fm-monitoring-stop-lib.sh returns 3
+# without launching or retrying a watcher and without a FAILED line. Completion rechecks that
 # verdict even after a running or attached cycle exits for another reason;
 # any actionable child output is preserved, and the durable queue is untouched.
 # This background-capable wrapper never claims the visible stop notice.
@@ -61,11 +61,13 @@
 #
 # --stop-status: inspect THIS home's watcher owner without authorizing shutdown.
 # Exit 0 means live, 3 means absent, and 1 means ambiguous ownership.
-# --stop: the supported owner path for an already-recorded monitoring stop.
-# It authenticates THIS home's watcher lock and waits for that watcher to observe
-# the receipt and exit through its own cleanup path. It never signals a watcher
-# pid. Exit 0 means a live owner stopped, 3 means no live watcher existed, and 1
-# means the lock was ambiguous or the authenticated owner did not stop in time.
+# Both stop modes authenticate the home, watcher path, pid, and process identity
+# from THIS home's watcher lock; neither signals a watcher pid.
+# --stop requires a valid active receipt as its sole shutdown authorization and
+# waits for the watcher to observe it and exit through its own cleanup path.
+# FM_WATCH_STOP_TIMEOUT bounds that wait in whole seconds, 1-300 (default 30).
+# Exit 0 means a live owner stopped, 3 means no live watcher existed, and 1 means
+# receipt refusal, ambiguous ownership, invalid timeout, or shutdown timed out.
 #
 # --restart: stop ONLY this FM_HOME's watcher (the pid recorded in THIS home's
 # state/.watch.lock) and own a fresh cycle, or attach if a verified live peer

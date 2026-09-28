@@ -5,10 +5,10 @@
 #   bin/fm-monitoring-stop.sh status --json
 #   bin/fm-monitoring-stop.sh stop --home <absolute-home> --reason <text>
 #
-# stop records the verified local caller in the canonical private receipt, then
-# asks that home's arm owner to wait for its watcher to honor the receipt.
-# Outcome exits are 0=stopped, 3=already stopped (idempotent success), and
-# 4=could not stop. Invalid syntax exits 2. A failure reason is written to stderr.
+# stop requires a canonical --home and a non-empty --reason of at most 4096 characters.
+# Exit 0=stopped: owner shutdown confirmed for a new stop or a live-watcher retry.
+# Exit 3=already-stopped: an active receipt and no live watcher observed; both 0 and 3 are success.
+# Exit 4=could-not-stop (reason on stderr); invalid syntax exits 2. Receipt policy: docs/configuration.md.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -268,6 +268,9 @@ OWNER_OUT=$(mktemp "$STATE/.monitoring-stop-owner.out.XXXXXX") \
   || stop_failure "$TARGET_HOME" "could not allocate watcher-owner output"
 OWNER_ERR=$(mktemp "$STATE/.monitoring-stop-owner.err.XXXXXX") \
   || stop_failure "$TARGET_HOME" "could not allocate watcher-owner diagnostics"
+# Observe through the owner before publication: the receipt can make the watcher
+# disappear before --stop, but an initially live retry must still report stopped.
+# This observation is not shutdown authority; only the active receipt is.
 FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$TARGET_HOME" "$OWNER_STOP" --stop-status > "$OWNER_OUT" 2> "$OWNER_ERR"
 INITIAL_OWNER_RC=$?
 mv -f "$RECEIPT_TMP" "$RECEIPT" 2>/dev/null \

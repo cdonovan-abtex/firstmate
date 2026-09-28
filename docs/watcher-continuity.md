@@ -6,8 +6,6 @@ Must-work continuity now lives above that process boundary instead of depending 
 ## Ownership
 
 The [home monitoring-stop policy](configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson) takes precedence over the continuity and repair requirements below.
-Its supported outside call reaches a named home through `bin/fm-watch-arm.sh --stop`; that owner path authenticates the home-scoped watcher lock and waits for the watcher to observe the receipt and leave through ordinary cleanup without sending a watcher-pid signal.
-The live watcher checks the verdict at every poll-cycle boundary, so every harness and runtime backend shares the same shutdown path before adapter-specific re-arm logic sees the deliberate-stop result.
 
 Pi's `.pi/extensions/fm-primary-pi-watch.ts`, omp's `.omp/extensions/fm-primary-omp-watch.ts`, and OpenCode's `.opencode/plugins/fm-primary-watch-arm.js` own continuous re-arm after an actionable child close.
 Each adapter starts the next arm before delivering the wake prompt, checks current session-lock ownership at launch, preserves one child or scheduled retry at a time, and applies bounded exponential retry after an unexpected or failed close.
