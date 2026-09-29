@@ -6,7 +6,7 @@ Every question it raises is answered, and each decision is stated in the body wh
 
 The mechanics it reasons about have their own owners.
 [`bin/fm-pr-lib.sh`](../bin/fm-pr-lib.sh) owns the provider-tagged identity and the merge-poll artifacts, [`bin/fm-pr-merge.sh`](../bin/fm-pr-merge.sh) owns merging, [`bin/fm-project-mode.sh`](../bin/fm-project-mode.sh) owns the registered delivery posture, and [`bin/fm-dod-lib.sh`](../bin/fm-dod-lib.sh) owns what a delivery mode tells a worker.
-This note asserts the design that the changes following it implement, so it states what the forge field in the registry and the delivery-mode rules that consume it are for, not what they were before.
+This note explains the implemented forge binding and delivery-mode rules; the stack-watch design at the end remains unimplemented.
 
 ## 1. Gerrit is not a forge variant
 
@@ -86,7 +86,7 @@ It happens not to name an artifact, which is the only reason it survives the tra
 
 `local-only` names a place, and it is the closest of the three to honest, because where this mode stops is a place.
 
-So the name that blocks Gerrit is blocking it on a noun, and the name that lets Gerrit through does so by accident.
+Treating the mode names as artifact requirements would block Gerrit on a noun, even though both publishing modes have a meaningful stopping point there.
 That is a symptom.
 Section 3 is the diagnosis.
 
@@ -193,15 +193,14 @@ Read the modes as stopping points rather than as artifacts and they line up clea
 - `no-mistakes` runs the pipeline, then publishes.
 
 On that reading the forge composes with the two modes that publish and is meaningless on the one that does not.
-That inverts both rules the delivery-mode design currently carries, which permit `local-only forge=gerrit` as an annotation that changes nothing and refuse `direct-PR forge=gerrit` outright.
-The composition test says that is backwards on both counts: the refusal lands on the combination that has a meaning, and the permission on the combination that does not.
+The accepted combinations are owned by [`bin/fm-project-mode.sh`](../bin/fm-project-mode.sh), with the worker contract rendered by [`bin/fm-dod-lib.sh`](../bin/fm-dod-lib.sh).
 
-The refusal reads as reasonable only because of the name.
+Refusing `direct-PR forge=gerrit` would be justified only by the mode's name.
 "That mode's definition of done is a pull request this forge does not have" is a true statement about the string `direct-PR` and not about the stopping point it names, and section 2 is why those two came apart.
 
-The permission is not merely useless, which is worth being plain about, because an inert annotation in a brief is not inert at landing.
+Permitting an inert forge annotation would also be unsafe at landing.
 `local-only`'s configured landing is a guarded fast-forward of the project's local default branch.
-On a project whose changes are supposed to reach a review server, that landing advances local `main` with content the server has never seen, and the annotation that was supposed to record "this is a Gerrit project" is the one thing in the posture that does not get consulted.
+On a project whose changes are supposed to reach a review server, accepting that combination would advance local `main` with content the server has never seen.
 
 ## 4. What Gerrit makes structurally impossible
 
@@ -338,18 +337,13 @@ The two are sequential rather than exclusive, which is what makes the timing obj
 A forge tool built now ships against a schedule we hold, and its publication mechanics are the part that could later be contributed upstream once they are known to work, at which point the pipeline-driven path stops calling Firstmate's tool to publish, while `direct-PR` publication, merging, the merge poll and the stack watch stay in it.
 Choosing the upstream route first would have meant waiting; choosing it second costs only that the publication code is written before it is shared.
 
-### Watching a stack
+### Future stack watching
 
 The merge poll watches one change number, and a stack is several changes, so grouping them by topic is the obvious handle.
+Firstmate does not yet implement a stack watch; the following membership rule is the design for that extension.
 Topic membership is mutable on the server, though, so a watch keyed on a topic alone is keyed on something anyone with access can change out from under it.
 
 The resolution is to **pin the membership and detect growth rather than follow it**.
 Record the change numbers the stack had when the watch was armed, keep watching exactly those, and re-read the topic only to notice that it no longer matches.
 A change that appears or disappears is then reported as a change to the thing being watched, instead of being absorbed silently into it.
 That keeps the watch's subject fixed, which is what makes a merged verdict mean anything, while still surfacing the case a bare pin would hide: someone adding a change to the stack after the watch was armed.
-
-## Open questions
-
-None.
-Every question this note raised is answered where its reasoning sits, rather than repeated as a list here.
-What is left is implementation.
