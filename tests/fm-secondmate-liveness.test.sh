@@ -744,6 +744,60 @@ SH
   pass "shared recovery rereads stop receipts after probing, before killing, and before timed or untimed spawning"
 )
 
+test_sweep_skips_mate_whose_liveness_lock_is_held() {
+  local w fb tmuxfb log out holder i=0
+  w=$(new_world sweep-lock-held)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  ( STATE="$w/home/state" bash -c \
+      '. "$1" && fm_lock_acquire_wait "$2" && sleep 30' \
+      _ "$ROOT/bin/fm-wake-lib.sh" "$w/home/state/.secondmate-liveness-sm1.lock" ) &
+  holder=$!
+  while [ ! -d "$w/home/state/.secondmate-liveness-sm1.lock" ] && [ "$i" -lt 100 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -d "$w/home/state/.secondmate-liveness-sm1.lock" ] || fail "the fixture never acquired the liveness lock"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+
+  assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: skipped: another liveness check is already in progress" \
+    "a mate under an active liveness lock should be skipped, not probed"
+  [ ! -s "$log" ] || fail "a locked mate must never be killed or respawned: $(cat "$log")"
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  pass "sweep: a mate mid-episode under the shared liveness lock is skipped entirely"
+}
+
+test_sweep_refuses_relaunch_on_ledger_errors() {
+  local w fb tmuxfb log out mode ledger word
+  if [ "$(id -u)" -eq 0 ]; then
+    pass "sweep: ledger permission errors skipped (root ignores file modes)"
+    return 0
+  fi
+  for mode in 200 444; do
+    case "$mode" in 200) word=unreadable ;; *) word=unwritable ;; esac
+    w=$(new_world "sweep-ledger-$mode")
+    add_sm_home "$w" sm1 firstmate:fm-sm1
+    fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+    log="$w/calls.log"; : > "$log"
+    ledger="$w/home/state/.secondmate-relaunch-sm1"
+    : > "$ledger"
+    chmod "$mode" "$ledger"
+
+    out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+    chmod 644 "$ledger"
+
+    assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: skipped: relaunch ledger $ledger is $word" \
+      "a mode-$mode relaunch ledger should skip the relaunch with its reason"
+    [ ! -s "$log" ] || fail "a mode-$mode relaunch ledger still killed or spawned: $(cat "$log")"
+    [ ! -s "$ledger" ] || fail "a mode-$mode ledger gained rows: $(cat "$ledger")"
+  done
+  pass "sweep: an unreadable or unwritable relaunch ledger refuses to kill or spawn"
+}
+
 test_tmux_agent_state_classifies
 test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
