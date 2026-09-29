@@ -226,6 +226,7 @@ test_real_checkpoint_monitoring_stop() {
         printf '{broken\n' > "$home/data/automatic-monitoring-pause/receipt.json"
       fi
       status=0
+      # shellcheck disable=SC2016 # The fake harness expands this script in its own shell.
       FM_HOME="$home" FM_POLL=1 "$fakebin/codex" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
         "$0" --seconds 4

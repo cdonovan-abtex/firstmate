@@ -733,7 +733,7 @@ SH
           else
             expect_code 3 "$rc" "stopped recovery $endpoint/$phase/$receipt_kind/$timeout"
             [ "$FM_SM_LIVE_STATUS" = skipped ] && [ "$FM_SM_LIVE_RC" = 3 ] || fail 'stop was reported as a relaunch failure'
-            if [ "$phase" = kill ]; then expected=kill; fi
+            if [ "$phase" = kill ]; then expected='kill'; fi
           fi
           [ "$(cat "$FM_HOME/actions" 2>/dev/null || true)" = "$expected" ] \
             || fail "unexpected recovery mutations for $endpoint/$phase/$receipt_kind/$timeout"
