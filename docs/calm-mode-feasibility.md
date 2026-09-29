@@ -186,7 +186,7 @@ Compaction and retry loaders remain stock because Pi exposes no supported replac
 Only `genuine-user-prompt`, `genuine-agent-response`, and `working-status` are policy-visible.
 Every other audited class is a candidate for hiding when Pi exposes a supported presentation boundary; [`calm.md`](calm.md) owns the per-block assistant-text preservation rule.
 Semantic input is never transformed to enforce that preference.
-The home-local persistence schema is owned by [`docs/configuration.md`](configuration.md#pi-calm-preference-configcalm).
+The home-local persistence schema is owned by [`docs/configuration.md`](configuration.md#calm-preference-configcalm).
 
 On Pi, current session-start, watcher, turn-end guard, away supervisor, and launch-brief inputs use their versioned U+2063 static envelopes.
 The established leading `[fm-from-firstmate]` plus U+2063 routing carrier remains current so running secondmate charters remain compatible.

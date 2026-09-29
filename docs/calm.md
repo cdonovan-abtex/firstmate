@@ -33,12 +33,15 @@ Streaming text and the genuine reply that ends a response remain visible.
 While Calm is active and an agent run is under way, Calm hides Pi's built-in `Working...` row and shows a small two-row animated boat in its place.
 No separate Calm status row is added.
 While Calm is off, Pi's stock working row is left exactly as Pi renders it.
+The water is standard ANSI blue, and the asymmetric `◿│◣` sail and five-cell `╲▁▁▁╱` hull are standard ANSI yellow.
+The boat reflows on resize and disappears when the run settles, aborts, or fails.
+Within one Pi session and extension lifetime, each working period resumes its last rendered position and direction; hidden time does not advance the animation.
+A fresh session or extension lifetime resets it.
+
+### What Calm hides on Pi
+
 Calm hides collapsed thinking labels, short mid-turn assistant working notes, the shells for the Pi built-in tool names Calm owns, the `fm_watch_arm_pi` and `fm_branch_outcomes` tool shells, and canonically classified Firstmate operational user rows.
-A mid-turn working note is assistant text in a message the model did not end its response with, identified by that message's own `stopReason` of `toolUse`, or of `length` with tool calls present.
-For a mid-turn working note, Calm evaluates every settled text block independently and hides it only when its raw text contains no newline and its trimmed length is below `CALM_PRESERVE_MIN_CHARS` (240).
-One message can therefore hide a short working note beside preserved substantive content.
-The genuine reply that ends a response stays visible regardless of its length.
-Text that is still streaming is never hidden, because suppressing it would also stop a genuine reply from streaming, so a short working note is briefly visible before its row collapses.
+Assistant working notes follow the [shared preservation rule](#shared-preservation-rule-for-assistant-text).
 The narration is hidden only from the live transcript presentation, and remains in the message, model context, session storage, and `/export` artifacts.
 The operational inputs Calm classifies remain ordinary user-role messages, while Pi's transcript layout renders their complete rows at zero height.
 The session-start nudge remains on its existing non-displayed custom-message path.
@@ -99,9 +102,7 @@ In that case `tests/fm-calm-pi-queue-retention-live-e2e.test.sh` fails naming th
 Calm's built-in tool presentation (`bash`, `read`, `edit`, `write`, `grep`, `find`, `ls`) shares Pi's single, unmerged override slot per name with any other extension that overrides the same tool.
 How Calm handles that shared slot depends on whether Calm was already on when the session started or reloaded.
 
-[`calm-mode-feasibility.md`](calm-mode-feasibility.md) owns the version-scoped renderer taxonomy, built-in override constraints, and empirical evidence.
-[`configuration.md`](configuration.md#pi-calm-preference-configcalm) owns the persisted preference file and resolution rules.
-`.pi/extensions/lib/fm-calm-visibility.ts` owns the visibility policy, `.pi/extensions/lib/fm-calm-preservation.ts` owns the substantive mid-turn text rule, `.pi/extensions/lib/fm-calm-operational-user-layout.ts` owns the zero-height operational-user row adapter, and `.pi/extensions/lib/fm-calm-working-ship.ts` owns the animated working presentation.
+**Session started with Calm off**
 
 - While the persisted Calm preference is off, Calm registers none of those overrides and therefore contests no built-in tool name.
 - The first time Calm turns on in a session that started off, it claims every built-in name no other extension already owns.

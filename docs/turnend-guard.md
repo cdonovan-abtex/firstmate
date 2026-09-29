@@ -34,9 +34,7 @@ The turn-end guard closes the remaining gap at the primary's own turn boundary.
 When the shared predicate below requires supervision at that boundary and no identity-matched watcher has a fresh beacon, the harness integration must either block the turn end or force one bounded follow-up that uses the recovery instruction from the emitted session-start protocol.
 The mid-turn pull warning uses the model-aware supervision verdict described below, while the turn-end guard keeps the PID-strict watcher predicate.
 
-Away and quiet mode are the one place the turn-end guard accepts a different supervisor.
-While `state/.afk` exists, in either mode (`bin/fm-wake-lib.sh`'s `fm_afk_mode`), the daemon owns supervision.
-A live identity-matched daemon with a fresh beacon then satisfies that boundary in place of a watcher process holding the lock.
+The [away and quiet mode daemon ownership](#away-and-quiet-mode-daemon-ownership) exception covers the daemon's watcher handoffs.
 
 The guard remains a backstop.
 [`watcher-continuity.md`](watcher-continuity.md) owns normal continuity.
@@ -59,6 +57,8 @@ An unmarked checkout or invalid marker falls through to the git-dir check.
 That check keeps crewmate and scout linked worktrees inert because their git dir differs from their git common dir.
 It also requires `AGENTS.md`, `bin/`, and the effective state directory.
 
+### Supervision need
+
 For an in-scope primary, the guard counts in-flight work from `state/*.meta`, excluding records whose exact `kind` is `secondmate` because those describe persistent infrastructure rather than a work task.
 Registered `state/procevent/*.source` records, unresolved secondmate reply expectations, and a non-empty durable wake queue also require supervision even though they are not in-flight task metadata.
 Before applying any watcher-health requirement, the shared predicate reads the home-scoped automatic-monitoring stop verdict owned by [`configuration.md`](configuration.md#automatic-monitoring-stop-receipt-dataautomatic-monitoring-pausereceiptjson).
@@ -68,9 +68,22 @@ Cursor's ownership-checked informational follow-up is described under [harness i
 The default cross-harness mode exits silently with no supervision need.
 Every mode treats `state/x-watch.check.sh` as supervision need, so Relay polling remains guarded without an in-flight task.
 A custom check registered with `bin/fm-check-register.sh` counts the same way, so an operator's home-level poll keeps running after the last task is torn down.
-Otherwise it calls `fm_watcher_healthy <state-dir> <watch-path> [grace-seconds] [home]` from `bin/fm-wake-lib.sh`, the same PID-strict identity-matched lock and fresh-beacon check used by `bin/fm-watch-arm.sh`: a stale beacon blocks even when a watcher pid is live, and a fresh leftover beacon blocks when the lock is missing, dead, or identity-mismatched.
+
+### Strict watcher check at the turn boundary
+
+When supervision is needed, the guard calls `fm_watcher_healthy <state-dir> <watch-path> [grace-seconds] [home]` from `bin/fm-wake-lib.sh`, the same PID-strict identity-matched lock and fresh-beacon check used by `bin/fm-watch-arm.sh`: a stale beacon blocks even when a watcher pid is live, and a fresh leftover beacon blocks when the lock is missing, dead, or identity-mismatched.
 The turn-end guard needs that strict check because it fires at the turn boundary, where the auto-arm is bringing a fresh watcher up for the upcoming idle period, and it cooperates with that arm rather than trusting a beacon left by the cycle that just ended.
-`bin/fm-guard.sh`, the pull warning, instead uses the model-aware `fm_watcher_supervision_verdict` from the same library, because it fires mid-turn when the auto-arm model runs no watcher at all.
+
+### Foreign session-lock owner
+
+When a verified live foreign session holds the home lock, the Claude guard emits a read-only ownership diagnostic and allows this turn to end.
+The owning session remains responsible for restoring supervision; blocking a session that cannot repair the home would create an unbounded loop.
+[`bin/fm-session-lock-lib.sh`](../bin/fm-session-lock-lib.sh) owns the ancestry-or-trusted-Claude-session-id ownership verdict, including its trust requirements.
+Malformed, absent, dead, or ancestry-uncertain lock records do not qualify for this exception.
+
+### Pull-warning verdict by supervision model
+
+`bin/fm-guard.sh`, the pull warning, instead uses the model-aware `fm_watcher_supervision_verdict` from `bin/fm-wake-lib.sh`, because it fires mid-turn when the auto-arm model runs no watcher at all.
 Under the Claude Stop auto-arm model a beacon fresh within grace is healthy even with no live watcher process.
 A stale beacon is still healthy while `fm_autoarm_midturn_healthy` in `bin/fm-wake-lib.sh` proves a Claude rewake explains the mid-turn gap: the rewake is bound to the current recovery generation and live session-lock owner, and no later watcher beacon or exhausted-failure marker supersedes it, because that session's turn-end will re-arm.
 Without that proof a stale or absent beacon is a genuine lapse and alarms.
@@ -79,11 +92,19 @@ A lock is genuinely unheld only when the lock directory or its symlinked owner d
 Any lock with a recorded pid remains down when its pid, home, watcher path, or process identity fails the strict watcher health check.
 That ownership proof is `fm_extension_owns_supervision` in `bin/fm-wake-lib.sh`, which accepts either the Pi pair (`fm_pi_extension_owns_supervision`) or the omp pair (`fm_omp_extension_owns_supervision`): both primary extensions of one family must be recorded in their state markers at their current on-disk builds by the process named in `state/.lock`, and that process must still be alive; omp never inherits the Pi tolerance because its proof is keyed on its own two files and markers.
 [`bin/fm-lock.sh`](../bin/fm-lock.sh) owns Pi's marker-publication handoff at verified acquisition, including the exact-owner boundary that excludes descendant imports.
+Pi's watcher marker must additionally name an active generation rather than a retiring handoff.
 Requiring the turn-end guard extension as well as the watch extension is deliberate, because a home without that structural backstop has no benign hand-off to tolerate.
 Without that proof an unheld lock alarms exactly as it did before, so an unloaded, version-drifted, or exited Pi or omp session is loud immediately, and a cycle the extension never restores is loud once the beacon passes grace.
 Under every persistent-watcher harness a live identity-matched watcher with a fresh beacon is still required, so the pull guard keeps the same strict semantics there.
 Its banner names the true failing condition, either a missing live watcher process or a genuinely stale beacon with its real age, and keys the once-per-episode dedup on that condition rather than the beacon mtime.
 
+### Away and quiet mode daemon ownership
+
+Away and quiet mode are the one place the turn-end guard accepts a different supervisor.
+While `state/.afk` exists, in either mode (`bin/fm-wake-lib.sh`'s `fm_afk_mode`), the daemon owns supervision.
+A live identity-matched daemon with a fresh beacon then satisfies that boundary in place of a watcher process holding the lock.
+`fm_afk_daemon_owns_supervision` in `bin/fm-wake-lib.sh` owns the daemon identity check.
+The beacon must still be fresh under the [poll-derived grace](#guard-grace-and-the-poll-cadence), so an identity-matched daemon that stops cycling eventually fails the guard.
 With `state/.afk` absent the daemon lock proves nothing and the strict watcher predicate is unchanged.
 
 ### State directory, grace, and missing input

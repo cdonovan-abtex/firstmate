@@ -102,6 +102,26 @@ Untracked files and directories whose names begin with `scratchpad` are also git
 
 - `bin/fm-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 
+- `bin/fm-contributions.sh` owns durable published-contribution records under each task, observation bounds, equivalent triage-label configuration, and the authenticated contribution check.
+
+- The producing PR and Relay helpers own the fields they append, [`bin/fm-classify-lib.sh`](../bin/fm-classify-lib.sh) owns status-event vocabulary, optional emission-time syntax, and legacy unknown-time handling, and `bin/fm-crew-state.sh` owns current-state reconciliation.
+
+- The [`bin/fm-fleet-snapshot.sh` header](../bin/fm-fleet-snapshot.sh) owns the snapshot's event-time and age fields, including secondmate parent-event projections.
+
+- Wake, watcher, away-mode, and Relay-specific state mechanics remain with their named scripts and reference sections rather than being duplicated into one exhaustive state tree here.
+
+### Session-start references
+
+- `bin/fm-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
+
+- `bin/fm-startup-network.sh`'s header owns the deferred startup stage that keeps every external-network call and the potentially slow inactive-outcome scan off that digest's blocking path, including its state files and the safety argument for running them later.
+
+- `docs/sessionstart-nudge.md` owns the native session-open adapter tiers that run or nudge the digest command, and the source routing between them.
+
+- `AGENTS.md` retains the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
+
+- Ordinary dead-direct-report recovery is owned by `stuck-crewmate-recovery`, while persistent-secondmate recovery is owned by `secondmate-provisioning`.
+
 ## Automatic monitoring stop receipt (data/automatic-monitoring-pause/receipt.json)
 
 A home may retain a local private operator stop at `data/automatic-monitoring-pause/receipt.json`; the record is scoped to that exact effective `FM_HOME`, is not inherited by secondmate homes, and is never stored in tracked configuration.
@@ -136,26 +156,6 @@ The first active-stop observation is reported at most once per stop timestamp, e
 An externally created receipt reports the original stop time separately from the latest requesting local process and its request time; an older operator receipt keeps its existing Captain-order wording even when a later outside request reinforces it.
 Those atomic report claims live under `state/.monitoring-stop-reports/` and do not authorize editing the private receipt.
 Resumption or correction of the receipt remains an explicit owner operation; removing or repairing malformed evidence must never be used to infer operator approval.
-
-## Pi Calm preference (config/calm)
-
-- The producing PR and Relay helpers own the fields they append, [`bin/fm-classify-lib.sh`](../bin/fm-classify-lib.sh) owns status-event vocabulary, optional emission-time syntax, and legacy unknown-time handling, and `bin/fm-crew-state.sh` owns current-state reconciliation.
-
-- The [`bin/fm-fleet-snapshot.sh` header](../bin/fm-fleet-snapshot.sh) owns the snapshot's event-time and age fields, including secondmate parent-event projections.
-
-- Wake, watcher, away-mode, and Relay-specific state mechanics remain with their named scripts and reference sections rather than being duplicated into one exhaustive state tree here.
-
-### Session-start references
-
-- `bin/fm-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
-
-- `bin/fm-startup-network.sh`'s header owns the deferred startup stage that keeps every external-network call and the potentially slow inactive-outcome scan off that digest's blocking path, including its state files and the safety argument for running them later.
-
-- `docs/sessionstart-nudge.md` owns the native session-open adapter tiers that run or nudge the digest command, and the source routing between them.
-
-- `AGENTS.md` retains the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
-
-- Ordinary dead-direct-report recovery is owned by `stuck-crewmate-recovery`, while persistent-secondmate recovery is owned by `secondmate-provisioning`.
 
 ## Orchestrator behavior (AGENTS.md)
 
@@ -221,7 +221,7 @@ These are the bounds set by the captain-approved architecture.
 Every existing captain gate remains unchanged in either posture.
 Homes on other primary harnesses do not load the Pi branch extension; shared per-task lease behavior is owned by `bin/fm-lease-lib.sh`.
 
-`AGENTS.md`'s `state/` inventory routes the branch's runtime files to their format and lifecycle owners.
+[Operational home layout and state](#operational-home-layout-and-state) owns the top-level runtime layout.
 [Pi supervision branch](pi-supervision-branch.md#two-stage-noise-filter) owns captain-facing outcome delivery and bounded automatic processing retries.
 The branch prompt's "Verdict: routine or captain" section owns the distinction between captain-facing, unsolicited routine, and unchanged-review outcomes.
 
