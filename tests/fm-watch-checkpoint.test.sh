@@ -89,11 +89,17 @@ make_host_home() {  # <name>
   home=$(make_home "$1")
   mkdir -p "$home/root/bin"
   cp "$CHECKPOINT" "$home/root/bin/fm-watch-checkpoint.sh"
+  cp "$ROOT/bin/fm-monitoring-stop-lib.sh" "$home/root/bin/"
   cat > "$home/root/bin/fm-supervision-host.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'args=%s\nprimary=%s\npark=%s\nlimit=%s\n' "$*" "${FM_SUPERVISION_HOST_PRIMARY:-}" \
   "${FM_SUPERVISION_HOST_PARK_SECONDS:-}" "${FM_SUPERVISION_HOST_PARK_LIMIT:-}" > "$FM_HOME/host-env"
+if [ -e "$FM_HOME/stop-receipt.json" ]; then
+  mkdir -p "$FM_HOME/data/automatic-monitoring-pause"
+  cp "$FM_HOME/stop-receipt.json" "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+fi
 case "$(cat "$FM_HOME/host-kind")" in
+  stopped) exit 3 ;;
   boundary) printf 'supervision-host: cycle boundary - fixture\n' ;;
   handback)
     printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
@@ -172,6 +178,66 @@ test_real_host_checkpoint_ends_quietly_at_its_bound() {
   pass "checkpoint: the real host ends its park at the checkpoint bound as a quiet checkpoint"
 }
 
+write_checkpoint_stop_receipt() {
+  jq -n --arg home "$1" '{
+    instruction:"Stop monitoring", time:"2026-09-21T18:42:20Z", home:$home,
+    scope:"automatic monitoring", resume:"explicit approval", action:"stop", completed:true
+  }'
+}
+
+test_host_stop_precedes_output_classification() {
+  local home kind receipt_kind
+  for kind in handback boundary stood-down; do
+    for receipt_kind in active malformed; do
+      home=$(make_host_home "stop-$kind-$receipt_kind")
+      if [ "$receipt_kind" = active ]; then
+        write_checkpoint_stop_receipt "$home" > "$home/stop-receipt.json"
+      else
+        printf '{broken\n' > "$home/stop-receipt.json"
+      fi
+      run_host_checkpoint "$home" "$kind" --seconds 5
+      expect_code 3 "$STATUS" "stop must precede host $kind/$receipt_kind classification"
+      assert_contains "$(cat "$home/out.txt")" 'AUTOMATIC_MONITORING_STOP' 'missing stop diagnostic'
+      assert_not_contains "$(cat "$home/out.txt")" 'checkpoint:' 'stop was treated as a quiet checkpoint'
+      if [ "$kind" = handback ]; then
+        assert_contains "$(cat "$home/out.txt")" 'signal: demo.status' 'stop lost the actionable wake'
+      fi
+    done
+  done
+  home=$(make_host_home host-stop-status)
+  run_host_checkpoint "$home" stopped --seconds 5
+  expect_code 3 "$STATUS" 'host exit 3 must remain stopped even without a receipt'
+  pass "checkpoint: stopped host results precede every output classification"
+}
+
+test_real_checkpoint_monitoring_stop() {
+  local home mode receipt_kind fakebin status
+  fakebin="$TMP_ROOT/stop-codex-bin"
+  mkdir -p "$fakebin"
+  ln -s /bin/bash "$fakebin/codex"
+  for mode in plain host; do
+    for receipt_kind in active malformed; do
+      home=$(make_home "real-stop-$mode-$receipt_kind")
+      [ "$mode" != host ] || : > "$home/config/supervision-host"
+      mkdir -p "$home/data/automatic-monitoring-pause"
+      if [ "$receipt_kind" = active ]; then
+        write_checkpoint_stop_receipt "$home" > "$home/data/automatic-monitoring-pause/receipt.json"
+      else
+        printf '{broken\n' > "$home/data/automatic-monitoring-pause/receipt.json"
+      fi
+      status=0
+      FM_HOME="$home" FM_POLL=1 "$fakebin/codex" -c '
+        printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+        "$0" --seconds 4
+      ' "$CHECKPOINT" >"$home/out.txt" 2>"$home/err.txt" || status=$?
+      expect_code 3 "$status" "real $mode checkpoint must preserve $receipt_kind stop: $(cat "$home/out.txt" "$home/err.txt")"
+      assert_contains "$(cat "$home/out.txt")" 'AUTOMATIC_MONITORING_STOP' 'real checkpoint swallowed its stop diagnostic'
+      assert_absent "$home/state/.watch.lock/pid" 'stopped checkpoint started a watcher'
+    done
+  done
+  pass "checkpoint: real plain and host paths preserve active and malformed stops"
+}
+
 test_quiet_checkpoint_exits_124_cleanly
 test_signal_passes_through_and_exits_zero
 test_registered_check_uses_preserved_watcher_environment
@@ -179,3 +245,6 @@ test_existing_singleton_watcher_is_not_success
 test_host_checkpoint_bounds_the_park_by_posture
 test_host_checkpoint_passes_a_handback_and_reports_a_stand_down
 test_real_host_checkpoint_ends_quietly_at_its_bound
+
+test_host_stop_precedes_output_classification
+test_real_checkpoint_monitoring_stop

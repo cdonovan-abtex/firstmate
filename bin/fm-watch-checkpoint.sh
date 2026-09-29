@@ -112,7 +112,9 @@ positive_or() {  # <value> <default>
   case "$1" in ''|0*|*[!0-9]*) printf '%s\n' "$2" ;; *) printf '%s\n' "$1" ;; esac
 }
 
+HOST_MODE=0
 if [ -f "$CONFIG/supervision-host" ]; then
+  HOST_MODE=1
   BOUND=$SECONDS_ARG
   if [ -f "$STATE/.afk-contract" ]; then
     AWAY_BOUND=$(positive_or "${FM_CODEX_WATCH_CHECKPOINT_AWAY:-}" 3600)
@@ -128,6 +130,21 @@ if [ -f "$CONFIG/supervision-host" ]; then
     run_bounded $((LIMIT + 120)) "$SCRIPT_DIR/fm-supervision-host.sh" park >"$OUT" 2>"$ERR"
   RC=$?
   set -e
+else
+  set +e
+  run_bounded "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
+  RC=$?
+  set -e
+fi
+
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
+if [ "$RC" -eq 3 ] || fm_monitoring_stop_blocks "$STATE"; then
+  fm_monitoring_stop_report_once "$STATE"
+  grep -E '^(AUTOMATIC_MONITORING_STOP(_INVALID)?:|signal:|stale:|check:|heartbeat($|:))' "$OUT" || true
+  exit 3
+fi
+if [ "$HOST_MODE" -eq 1 ]; then
   if grep -E '^(signal:|stale:|check:|heartbeat($|:)|supervision-host:)' "$OUT" 2>/dev/null \
     | grep -Ev '^supervision-host: cycle boundary' >/dev/null; then
     grep -Ev '^watcher: (started|attached) ' "$OUT"
@@ -146,20 +163,6 @@ if [ -f "$CONFIG/supervision-host" ]; then
   fi
   [ "$RC" -ne 0 ] || RC=1
   exit "$RC"
-fi
-
-set +e
-run_bounded "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
-RC=$?
-set -e
-
-# shellcheck source=bin/fm-monitoring-stop-lib.sh
-. "$SCRIPT_DIR/fm-monitoring-stop-lib.sh"
-FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
-if [ "$RC" -eq 3 ] || fm_monitoring_stop_blocks "${FM_STATE_OVERRIDE:-$FM_HOME/state}"; then
-  fm_monitoring_stop_report_once "${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-  grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" || true
-  exit 3
 fi
 
 if grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >/dev/null 2>&1; then

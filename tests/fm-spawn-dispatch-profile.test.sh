@@ -87,12 +87,6 @@ make_seeded_secondmate_home() {
   git -C "$home" init -q -b main
 }
 
-ai_trailer_hooks_prefix() {  # <home> <id>
-  local state
-  state=$(CDPATH='' cd -- "$1/state" && pwd -P) || fail "cannot resolve state dir $1/state"
-  printf "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0='%s'; " "$state/$2.git-hooks"
-}
-
 run_spawn() {
   local home=$1 wt=$2 fakebin=$3 launchlog=$4
   shift 4
@@ -474,13 +468,13 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default default
   launch=$(cat "$LAUNCH_LOG")
   # The unverified-adapter escape hatch is still an agent this fleet launched,
-  # so it carries the compact-adviser floor and the AI-trailer strip; nothing
+  # so it carries the compact-adviser floor; nothing
   # else may rewrite the captain's own command.
-  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$HOME_DIR" "$id")custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
+  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
   pass "active crew-dispatch profile allows the raw launch-command escape hatch"
 }
 
-test_chained_raw_launch_strips_ai_trailer_in_every_step() {
+test_chained_raw_launch_preserves_ai_trailer() {
   local rec id out status launch body
   id=chained-raw-z15
   rec=$(make_spawn_case chained-raw claude "$id")
@@ -499,8 +493,8 @@ test_chained_raw_launch_strips_ai_trailer_in_every_step() {
   ) || fail "executing the chained raw launch failed"$'\n'"launch: $launch"
   body=$(git -C "$WT_DIR" log -1 --format=%B)
   assert_contains "$body" "fix: chained raw launch" "the chained launch did not commit"
-  assert_not_contains "$body" "cursoragent@cursor.com" "the AI trailer reached a commit made after the first step of a chained raw launch"
-  pass "a chained raw launch commits through the AI-trailer strip in every step"
+  assert_contains "$body" "Co-authored-by: Cursor <cursoragent@cursor.com>" "the AI trailer was removed from the committed message"
+  pass "a chained raw launch preserves model provenance in the committed message"
 }
 
 test_claude_threads_model_and_effort() {
@@ -1073,7 +1067,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\"}'" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -1154,17 +1148,6 @@ test_non_claude_harness_ignores_config_dir() {
   pass "non-claude harnesses do not receive the claude CLAUDE_CONFIG_DIR prefix"
 }
 
-# The captain's attribution policy lives in the `user` settings scope, which a
-# spawned worker's settings sources are not guaranteed to load. Every claude
-# launch must therefore carry the policy itself, or a spawned worker writes
-# Co-Authored-By and Claude-Session trailers into commits and PR bodies.
-assert_attribution_policy() {  # <launch-command> <what>
-  local launch=$1 what=$2 settings
-  settings=$(claude_settings_json_arg "$launch")
-  printf '%s' "$settings" | jq -e '.feedbackDrafts == "off" and .attribution == {"commit":"","pr":"","sessionUrl":false}' >/dev/null \
-    || fail "$what launch settings JSON does not disable Claude attribution: $settings"
-}
-
 assert_attribution_policy_absent() {  # <launch-command> <what>
   local launch=$1 what=$2 settings
   settings=$(claude_settings_json_arg "$launch")
@@ -1243,46 +1226,25 @@ test_claude_crewmate_launch_carries_the_attribution_policy() {
   status=$?
   expect_code 0 "$status" "claude crewmate spawn should succeed"$'\n'"$out"
   launch=$(cat "$LAUNCH_LOG")
-  assert_attribution_policy "$launch" "claude crewmate"
-  [ -d "$HOME_DIR/state/$id.git-hooks" ] || fail "default config did not install the AI trailer hooks"
-  pass "a claude crewmate launch carries the attribution-off policy in its own settings"
+  assert_attribution_policy_absent "$launch" "claude crewmate"
+  [ ! -e "$HOME_DIR/state/$id.git-hooks" ] || fail "launch installed AI trailer strip hooks"
+  pass "a claude crewmate launch preserves attribution by default"
 }
 
-test_keep_ai_trailers_omits_attribution_settings_and_strip_hooks() {
-  local rec id out status launch
-  id=profile-claude-keep-attribution-z25
-  rec=$(make_spawn_case profile-claude-keep-attribution claude "$id")
-  read_case_record "$rec"
-  : > "$HOME_DIR/config/keep-ai-trailers"
-
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  expect_code 0 "$status" "claude spawn with keep-ai-trailers should succeed"$'\n'"$out"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_attribution_policy_absent "$launch" "opted-in claude"
-  assert_not_contains "$launch" 'GIT_CONFIG_KEY_0=core.hooksPath' \
-    "opted-in launch still overrides the repository hooksPath"
-  [ ! -e "$HOME_DIR/state/$id.git-hooks" ] \
-    || fail "opted-in launch installed AI trailer strip hooks"
-  pass "keep-ai-trailers omits Claude attribution settings and the pane strip hooks"
-}
-
-test_keep_ai_trailers_reaches_secondmate_crew_launches() {
+test_secondmate_crew_launch_preserves_attribution() {
   local rec sm_rec sm_id crew_id sm out status launch
   sm_id=profile-keep-attribution-sm-z26
   crew_id=profile-keep-attribution-crew-z27
   rec=$(make_spawn_case profile-keep-attribution-primary claude "$sm_id")
   sm_rec=$(make_spawn_case profile-keep-attribution-sm claude "$crew_id")
   read_case_record "$rec"
-  : > "$HOME_DIR/config/keep-ai-trailers"
   sm="${sm_rec#*|}"
   sm="${sm%%|*}"
   make_seeded_secondmate_home "$sm" "$sm_id"
 
   out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$sm_id" "$sm" --secondmate)
   status=$?
-  expect_code 0 "$status" "secondmate spawn with keep-ai-trailers should succeed"$'\n'"$out"
-  [ -e "$sm/config/keep-ai-trailers" ] || fail "secondmate home did not inherit config/keep-ai-trailers"
+  expect_code 0 "$status" "secondmate spawn should succeed"$'\n'"$out"
 
   read_case_record "$sm_rec"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$crew_id" "$PROJ_DIR")
@@ -1294,7 +1256,7 @@ test_keep_ai_trailers_reaches_secondmate_crew_launches() {
     "secondmate crew launch still overrides the repository hooksPath"
   [ ! -e "$HOME_DIR/state/$crew_id.git-hooks" ] \
     || fail "secondmate crew launch installed AI trailer strip hooks"
-  pass "keep-ai-trailers is inherited so a secondmate's crew launch keeps AI trailers"
+  pass "a secondmate's crew launch preserves attribution without configuration"
 }
 
 test_claude_secondmate_launch_carries_the_attribution_policy() {
@@ -1310,8 +1272,8 @@ test_claude_secondmate_launch_carries_the_attribution_policy() {
   status=$?
   expect_code 0 "$status" "secondmate claude spawn should succeed"$'\n'"$out"
   launch=$(cat "$LAUNCH_LOG")
-  assert_attribution_policy "$launch" "claude secondmate"
-  pass "a claude secondmate launch carries the attribution-off policy too"
+  assert_attribution_policy_absent "$launch" "claude secondmate"
+  pass "a claude secondmate launch preserves attribution by default"
 }
 
 test_active_dispatch_profile_does_not_block_secondmate_launch() {
@@ -1682,7 +1644,7 @@ claude_expected_launch() {  # <launch> <home> <id> <permission-flag>
   [ "$(printf '%s' "$doorbell" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
     || doorbell="not a launch-brief doorbell"
   quoted="'$(printf '%s' "$doorbell" | sed "s/'/'\\\\''/g")'"
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$2" "$3")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\"}' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -1846,7 +1808,7 @@ test_active_dispatch_profile_requires_explicit_harness_for_scout
 test_active_dispatch_profile_allows_explicit_harness
 test_active_dispatch_profile_allows_positional_harness
 test_active_dispatch_profile_allows_raw_launch_command
-test_chained_raw_launch_strips_ai_trailer_in_every_step
+test_chained_raw_launch_preserves_ai_trailer
 test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
 test_codex_threads_model_and_max_effort
@@ -1889,8 +1851,7 @@ test_claude_task_launch_carries_control_channel_authority
 test_claude_secondmate_launch_omits_task_control_channel_authority
 test_claude_long_launch_is_delivered_intact
 test_claude_crewmate_launch_carries_the_attribution_policy
-test_keep_ai_trailers_omits_attribution_settings_and_strip_hooks
-test_keep_ai_trailers_reaches_secondmate_crew_launches
+test_secondmate_crew_launch_preserves_attribution
 test_claude_secondmate_launch_carries_the_attribution_policy
 test_active_dispatch_profile_does_not_block_secondmate_launch
 

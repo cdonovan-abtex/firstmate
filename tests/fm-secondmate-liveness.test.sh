@@ -676,12 +676,81 @@ test_remote_poll_probe_unreachable_preserves_route() {
   pass "poll probe: unreachable or inconclusive remote reads preserve the route"
 }
 
+test_relaunch_rechecks_monitoring_stop() (
+  . "$ROOT/bin/fm-secondmate-liveness-lib.sh"
+  local phase receipt_kind endpoint timeout rc expected world
+  write_receipt() {
+    mkdir -p "$FM_HOME/data/automatic-monitoring-pause"
+    if [ "$receipt_kind" = malformed ]; then
+      printf '{broken\n' > "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+    else
+      jq -n --arg home "$FM_HOME" --arg kind "$receipt_kind" '{
+        instruction:"Stop monitoring", time:"2026-09-21T18:42:20Z", home:$home,
+        scope:"automatic monitoring", resume:"explicit approval", action:"stop", completed:true
+      } + (if $kind == "resumed" then {resumed_at:"2026-09-22T18:42:20Z", resume_instruction:"Resume"} else {} end)' \
+        > "$FM_HOME/data/automatic-monitoring-pause/receipt.json"
+    fi
+  }
+  fm_backend_agent_state() {
+    if [ "$phase" = probe ]; then write_receipt; fi
+    printf '%s\n' "$endpoint"
+  }
+  fm_backend_target_of_meta() {
+    if [ "$phase" = target ] && [ "$after_probe" = 1 ]; then write_receipt; fi
+    printf 'firstmate:fm-sm1\n'
+  }
+  fm_backend_kill() {
+    printf 'kill\n' >> "$FM_HOME/actions"
+    if [ "$phase" = kill ]; then write_receipt; fi
+  }
+  for timeout in '' 5; do
+    for endpoint in dead missing; do
+      for phase in probe target kill none; do
+        if [ "$endpoint" = missing ] && { [ "$phase" = target ] || [ "$phase" = kill ]; }; then continue; fi
+        for receipt_kind in active malformed resumed; do
+          world="$TMP_ROOT/stop-race-$endpoint-$phase-$receipt_kind-${timeout:-unbounded}"
+          mkdir -p "$world/bin" "$world/state"
+          FM_HOME=$world FM_ROOT=$world STATE=$world/state
+          export FM_HOME
+          cat > "$world/bin/fm-spawn.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'spawn\n' >> "$FM_HOME/actions"
+SH
+          chmod +x "$world/bin/fm-spawn.sh"
+          printf 'kind=secondmate\nharness=claude\nbackend=tmux\nwindow=firstmate:fm-sm1\n' > "$STATE/sm1.meta"
+          after_probe=0
+          fm_secondmate_liveness_probe "$STATE/sm1.meta" sm1 poll
+          [ "$FM_SM_LIVE_STATUS" = relaunchable ] || fail 'fixture did not produce a recovery verdict'
+          after_probe=1
+          rc=0
+          fm_secondmate_liveness_relaunch "$STATE/sm1.meta" sm1 "$timeout" || rc=$?
+          expected=''
+          if [ "$receipt_kind" = resumed ] || [ "$phase" = none ]; then
+            expect_code 0 "$rc" "ordinary recovery $endpoint/$phase/$receipt_kind/$timeout"
+            if [ "$endpoint" = dead ]; then expected=$'kill\n'; fi
+            expected="${expected}spawn"
+            assert_grep 'relaunched' "$STATE/.secondmate-relaunch-sm1" 'successful recovery lost its ledger outcome'
+          else
+            expect_code 3 "$rc" "stopped recovery $endpoint/$phase/$receipt_kind/$timeout"
+            [ "$FM_SM_LIVE_STATUS" = skipped ] && [ "$FM_SM_LIVE_RC" = 3 ] || fail 'stop was reported as a relaunch failure'
+            if [ "$phase" = kill ]; then expected=kill; fi
+          fi
+          [ "$(cat "$FM_HOME/actions" 2>/dev/null || true)" = "$expected" ] \
+            || fail "unexpected recovery mutations for $endpoint/$phase/$receipt_kind/$timeout"
+        done
+      done
+    done
+  done
+  pass "shared recovery rereads stop receipts after probing, before killing, and before timed or untimed spawning"
+)
+
 test_tmux_agent_state_classifies
 test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
 test_agent_state_dispatcher_and_compatibility
 test_sweep_respawns_confirmed_dead_secondmate
 test_sweep_suppresses_relaunch_under_monitoring_stop
+test_relaunch_rechecks_monitoring_stop
 test_sweep_leaves_alive_secondmate_untouched
 test_sweep_respawns_authoritatively_missing_pi_secondmate
 test_sweep_respawns_authoritatively_missing_pi_signed_secondmate

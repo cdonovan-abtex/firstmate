@@ -4,8 +4,7 @@
 # Runs the real fm-spawn launch command in a private tmux server; only worktree
 # allocation and initial endpoint delivery use fixtures. All later steering,
 # interrupt and exit operations use the real Firstmate control plane.
-# The isolated home carries a user Claude Code hook that must never fire, and
-# the worker's own commit must carry no Devin attribution.
+# The isolated home carries a user Claude Code hook that must never fire.
 set -u
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
@@ -100,11 +99,9 @@ wait_idle
 pass "$VERSION: spawn brief, model, autonomy, trust, identity and native Stop"
 git -C "$WT" log -1 --format=%B -- answer.txt > "$LAB/commit.txt" 2>/dev/null
 [ -s "$LAB/commit.txt" ] || fail 'the worker did not commit answer.txt'
-! grep -qiE 'co-authored-by|generated with' "$LAB/commit.txt" \
-  || fail "worker commit carries Devin attribution: $(cat "$LAB/commit.txt")"
 [ ! -e "$LAB/claude-hooks.jsonl" ] \
   || fail "the worker ran imported Claude Code hooks: $(head -c 300 "$LAB/claude-hooks.jsonl")"
-pass "$VERSION: no Claude Code hook ran and the worker commit carries no attribution"
+pass "$VERSION: no Claude Code hook ran"
 # The full styled screen, not an invented glyph-only fixture, must be safe to type into.
 verdict=$(fm_composer_classify_screen $'styled=1\ncursor=1\nidentity=1\nrows=0' "$(capture)" \
   "$(tmux display-message -p -t "$TARGET" '#{cursor_y}')" devin)

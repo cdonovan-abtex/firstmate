@@ -58,6 +58,8 @@ FM_SM_LIVE_LIB_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 . "$FM_SM_LIVE_LIB_DIR/fm-remote-readiness-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$FM_SM_LIVE_LIB_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-monitoring-stop-lib.sh
+. "$FM_SM_LIVE_LIB_DIR/fm-monitoring-stop-lib.sh"
 
 # Per-task probe+kill+relaunch serialization. A busy lock means another
 # supervisor (the other sweep, or a racing tick) is mid-episode on this mate;
@@ -267,6 +269,12 @@ fm_secondmate_liveness_probe() {  # <meta> <id> <full|poll>
 fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
   local meta=$1 id=$2 timeout=${3:-}
   FM_SM_LIVE_OUT='' FM_SM_LIVE_RC=0
+  if fm_monitoring_stop_blocks "$STATE"; then
+    FM_SM_LIVE_STATUS=skipped
+    FM_SM_LIVE_REASON="automatic monitoring is stopped"
+    FM_SM_LIVE_RC=3
+    return 3
+  fi
   if ! fm_secondmate_liveness_recent_attempts "$id" 0 >/dev/null; then
     FM_SM_LIVE_STATUS=skipped
     FM_SM_LIVE_REASON="relaunch ledger $STATE/.secondmate-relaunch-$id is unreadable; endpoint left $FM_SM_LIVE_STATE"
@@ -287,7 +295,19 @@ fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
       window=$(fm_meta_get "$meta" window)
       target=$window
     fi
+    if fm_monitoring_stop_blocks "$STATE"; then
+      FM_SM_LIVE_STATUS=skipped
+      FM_SM_LIVE_REASON="automatic monitoring is stopped"
+      FM_SM_LIVE_RC=3
+      return 3
+    fi
     [ -z "$target" ] || fm_backend_kill "$backend" "$target" 2>/dev/null || true
+  fi
+  if fm_monitoring_stop_blocks "$STATE"; then
+    FM_SM_LIVE_STATUS=skipped
+    FM_SM_LIVE_REASON="automatic monitoring is stopped"
+    FM_SM_LIVE_RC=3
+    return 3
   fi
   local rc=0
   if [ -n "$timeout" ]; then
