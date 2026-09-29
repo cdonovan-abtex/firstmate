@@ -1,0 +1,304 @@
+Standalone CLI checks use tests/lib.sh sandbox authorization; all source and runtime files are disposable copies inside the worktree. No vendor harness, backend, or watcher is stubbed.
+RUNNING real watcher home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected pid=7177 identity=Tue Sep 29 01:08:38 2026     bash /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-watch.sh
+RUNNING real watcher home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/sibling pid=7408 identity=Tue Sep 29 01:08:39 2026     bash /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/sibling/bin/fm-watch.sh
+
+SCENARIO: Stop one running home from outside; preserve sibling monitoring, worker, and session ownership
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/sibling /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/sibling/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected --reason Live test: stop only selected home
+exit=0
+stopped home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected
+
+OBSERVED selected watcher exited 3; sibling watcher and worker remain alive; session owner and worker records unchanged; caller pid/uid match requesting process.
+RESULT: pass
+
+SCENARIO: Repeat an outside stop; report already-stopped and preserve the original stop time
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected --reason Live test: repeat the stop
+exit=3
+already-stopped home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-monitoring-stop.sh status --json
+exit=0
+{
+  "status": "active",
+  "time": "2026-09-29T05:08:39Z",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/data/automatic-monitoring-pause/receipt.json",
+  "origin": "external",
+  "caller": "christiandonovan[uid=501,pid=7124]",
+  "caller_identity": "Tue Sep 29 01:08:37 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3NQ64W15QB1PV2N0HRX29EQ/live-monitoring-check.py",
+  "reason": "Live test: repeat the stop"
+}
+
+RESULT: pass
+
+SCENARIO: Try every monitoring entry point after a stop; each refuses without starting a watcher
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-watch.sh
+exit=3
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-watch-arm.sh
+exit=3
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-watch-arm.sh --restart
+exit=3
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-watch-checkpoint.sh --seconds 2
+exit=3
+AUTOMATIC_MONITORING_STOP: monitoring stopped at 2026-09-29T05:08:39Z. Latest external request by local process christiandonovan[uid=501,pid=7124] at 2026-09-29T05:08:41Z. Automatic watcher startup remains disabled; this session retains fleet ownership.
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-supervise-daemon.sh
+exit=3
+
+OBSERVED no watcher or daemon lock after direct, arm, restart, checkpoint, and daemon attempts.
+RESULT: pass
+
+SCENARIO: Present a corrupt stop receipt; preserve it and refuse all automatic monitoring
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/bin/fm-monitoring-stop.sh status --json
+exit=0
+{
+  "status": "malformed",
+  "time": "",
+  "detail": "receipt must contain valid JSON with exactly one object matching the required stop/resume schema, external-request audit schema when present, and effective home",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/data/automatic-monitoring-pause/receipt.json",
+  "origin": "",
+  "caller": "",
+  "caller_identity": "",
+  "reason": ""
+}
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed --reason Must not overwrite malformed authority
+exit=4
+could-not-stop home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed: existing receipt is malformed: receipt must contain valid JSON with exactly one object matching the required stop/resume schema, external-request audit schema when present, and effective home
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/bin/fm-watch.sh
+exit=3
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/bin/fm-watch-arm.sh
+exit=3
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/bin/fm-watch-checkpoint.sh --seconds 2
+exit=3
+AUTOMATIC_MONITORING_STOP_INVALID: automatic watcher startup remains disabled because /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/data/automatic-monitoring-pause/receipt.json: receipt must contain valid JSON with exactly one object matching the required stop/resume schema, external-request audit schema when present, and effective home
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/bin/fm-supervise-daemon.sh
+exit=3
+
+RESULT: pass
+
+SCENARIO: End a turn with work in flight; stopped homes allow completion while an unstopped control requests supervision
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal/bin/fm-turnend-guard.sh
+exit=2
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  TURN WOULD END BLIND - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher holds this home lock (last beat: never).
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-turnend-guard.sh
+exit=0
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-turnend-guard.sh --claude
+exit=0
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-guard.sh
+exit=0
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/bin/fm-turnend-guard.sh
+exit=0
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/bin/fm-turnend-guard.sh --claude
+exit=0
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/malformed/bin/fm-guard.sh
+exit=0
+
+OBSERVED unstopped in-flight home blocks turn end; active and malformed stops allow it with no watcher-repair alarm.
+RESULT: pass
+
+SCENARIO: Read startup status for a stopped home; emit suppression guidance and leave monitoring absent
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-session-start.sh
+exit=0
+
+================================================================================
+SESSION START - /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected
+================================================================================
+
+LOCK
+--------------------------------------------------------------------------------
+lock acquired: harness pid 9609
+
+BOOTSTRAP
+--------------------------------------------------------------------------------
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+MISSING: quota-axi (install: npm install -g quota-axi)
+MISSING: tasks-axi (install: npm install -g tasks-axi)
+
+WAKE QUEUE
+--------------------------------------------------------------------------------
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0 --recovery-generation 7177.1790658520.L61jjG
+Automatic watcher startup is suppressed by the home monitoring-stop record.
+
+================================================================================
+READ-ONCE CONTRACT
+================================================================================
+Everything below is printed in full for this session start: every state/*.meta,
+a compact data/backlog.md listing, a bounded tail of every state/*.status,
+data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md,
+and data/learnings.md.
+Do NOT re-read any of them after reading this digest, and do NOT bulk-read
+data/backlog.md or state/*.status: re-reading everything defeats the entire
+point of this command.
+
+Go to a source directly only when:
+  - this digest flagged it ABSENT (then rebuild or create it per AGENTS.md),
+  - its contents looked unparseable or corrupt,
+  - an individual full status log is needed for older wake-event history, or a
+    status line was capped and its tail matters (each task's full log path is
+    printed with its tail),
+  - a full task body is needed (bin/fm-tasks-axi.sh show <id> --full, or data/backlog.md),
+  - the backlog listing disclosed omitted queued items and this turn needs them,
+  - the NETWORK CHECKS section reported its checks still IN PROGRESS and this
+    turn needs their verdict (bin/fm-startup-network.sh report),
+  - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
+    which case that stage's sources were never emitted and must be reconciled.
+
+================================================================================
+FLEET STATE
+================================================================================
+
+data/backlog.md
+--------------------------------------------------------------------------------
+ABSENT
+
+Work under way (state/*.meta)
+--------------------------------------------------------------------------------
+
+--- retained ---
+kind=ship
+harness=codex
+status=running
+endpoint: unknown (no window recorded)
+status tail: (no status file yet: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/state/retained.status)
+
+--- task ---
+kind=ship
+harness=codex
+endpoint: unknown (no window recorded)
+status tail: (no status file yet: /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/state/task.status)
+
+Orphan status logs (state/*.status without matching .meta)
+--------------------------------------------------------------------------------
+(none)
+
+AFK
+--------------------------------------------------------------------------------
+absent
+
+================================================================================
+NETWORK CHECKS
+================================================================================
+IN PROGRESS - the deferred network checks have not finished yet.
+NOT yet confirmed: GitHub authentication, dead-secondmate relaunch, secondmate convergence, pending handoff delivery, project clone refresh with its drift reporting, and inactive terminal-outcome reconciliation.
+Started 1s ago, bounded at 120s.
+Only a FAILED or otherwise actionable result arrives as a `check: startup-network` wake; a clean success stays silent.
+The durable result is readable on demand with /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/selected/bin/fm-startup-network.sh report; until it finishes, treat none of it as confirmed.
+
+================================================================================
+CONTEXT
+================================================================================
+
+data/projects.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/secondmates.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/captain.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)
+--------------------------------------------------------------------------------
+ABSENT
+
+data/learnings.md
+--------------------------------------------------------------------------------
+ABSENT
+
+================================================================================
+NEXT STEP
+================================================================================
+This session retains the fleet lock and may dispatch, steer, or merge when
+otherwise authorized. Automatic watcher startup remains suppressed by the
+home monitoring-stop record; do not start a watcher from this session.
+
+The digest above is complete for this session start. The READ-ONCE CONTRACT
+section near the top of it governs what may still be read from disk.
+
+OBSERVED startup digest suppresses monitoring; startup acquired its own session lock and emitted the stopped-home block without launching monitoring.
+RESULT: pass
+
+SCENARIO: Attempt shutdown with a mismatched watcher identity; return could-not-stop while retaining re-arm suppression
+RUNNING real watcher home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/ambiguous pid=12744 identity=Tue Sep 29 01:08:48 2026     bash /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/ambiguous/bin/fm-watch.sh
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/ambiguous /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/ambiguous/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/ambiguous --reason Live test ambiguous ownership
+exit=4
+could-not-stop home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/ambiguous: watcher: could not stop - watcher owner identity does not match the live pid
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/ambiguous /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/ambiguous/bin/fm-monitoring-stop.sh status --json
+exit=0
+{
+  "status": "active",
+  "time": "2026-09-29T05:08:49Z",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/ambiguous/data/automatic-monitoring-pause/receipt.json",
+  "origin": "external",
+  "caller": "christiandonovan[uid=501,pid=7124]",
+  "caller_identity": "Tue Sep 29 01:08:37 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3NQ64W15QB1PV2N0HRX29EQ/live-monitoring-check.py",
+  "reason": "Live test ambiguous ownership"
+}
+
+OBSERVED ambiguous ownership returned could-not-stop; receipt stayed active, and watcher subsequently exited through its normal stop check.
+RESULT: pass
+
+SCENARIO: Use an absent or explicitly resumed receipt; normal bounded monitoring still runs and cleans up
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal/bin/fm-watch-checkpoint.sh --seconds 2
+exit=124
+checkpoint: no actionable wake within 2s
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal/bin/fm-monitoring-stop.sh stop --home /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal --reason Test receipt before explicit test-only resumption
+exit=0
+stopped home=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal/bin/fm-monitoring-stop.sh status --json
+exit=0
+{
+  "status": "resumed",
+  "time": "2026-09-29T05:08:53Z",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal/data/automatic-monitoring-pause/receipt.json",
+  "origin": "external",
+  "caller": "christiandonovan[uid=501,pid=7124]",
+  "caller_identity": "Tue Sep 29 01:08:37 2026     /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python /Users/christiandonovan/.no-mistakes/evidence/01M3NQ64W15QB1PV2N0HRX29EQ/live-monitoring-check.py",
+  "reason": "Test receipt before explicit test-only resumption"
+}
+
+$ FM_HOME=/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal /Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/normal/bin/fm-watch-checkpoint.sh --seconds 2
+exit=0
+check: rearm-resurface
+
+Traceback (most recent call last):
+  File "/Users/christiandonovan/.no-mistakes/evidence/01M3NQ64W15QB1PV2N0HRX29EQ/live-monitoring-check.py", line 52, in scenario
+    fn(); results.append(dict(name=name,result='pass',live=True,evidence='live-monitoring-transcript.txt',reason=''))
+    ~~^^
+  File "/Users/christiandonovan/.no-mistakes/evidence/01M3NQ64W15QB1PV2N0HRX29EQ/live-monitoring-check.py", line 153, in normal_resume
+    run(normal,'fm-watch-checkpoint.sh',['--seconds','2'],124)
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/christiandonovan/.no-mistakes/evidence/01M3NQ64W15QB1PV2N0HRX29EQ/live-monitoring-check.py", line 21, in run
+    if expected is not None: assert p.returncode == expected, (command,p.returncode,expected,p.stdout,p.stderr)
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('fm-watch-checkpoint.sh', 0, 124, 'check: rearm-resurface\n', '')
+
+CLEANUP: all test-owned watcher and worker processes reaped; production homes never accessed.
+
+FINAL RESOLUTION: The final resume assertion expected a quiet timeout but observed the product's valid rearm-resurface wake. A fresh resumed-home control passed in live-resume-transcript.txt. All eight CLI scenarios passed; see test-step-notes.txt for setup corrections.
+CLEANUP VERIFIED: no test watcher or browser remained; all transient runtime files in the worktree were removed.

@@ -1,0 +1,13 @@
+Target: 44b7951f9c044b9e85c2e61372eaac88c770070b, base 69f5f9c69f01551761bba1679b11d750e0ff54cd.
+Targeted regressions:
+- TMPDIR=$PWD/.test-phase-runtime/tmp bash tests/fm-monitoring-stop.test.sh: exit 0.
+- TMPDIR=$PWD/.test-phase-runtime/tmp bash tests/fm-watch-checkpoint.test.sh: exit 0.
+- TMPDIR=$PWD/.test-phase-runtime/tmp bash tests/fm-secondmate-liveness.test.sh: setup failure (product prohibits a secondmate home nested under its source root).
+- TMPDIR=$PWD/.test-phase-runtime/tmp bash -x tests/fm-secondmate-liveness.test.sh: confirms precise setup refusal in secondmate-diagnostic.log.
+- bash tests/fm-secondmate-liveness.test.sh: exit 0 using the suite's ordinary temporary homes; no source fix needed.
+Live standalone CLI checks use the repository's tests/lib.sh authorization for isolated executable tests, with real copied product scripts and no mocked commands or backends. A marked lab alone cannot authorize the outside-stop owner call because it sets FM_ROOT_OVERRIDE internally. The first attempt exposed that setup constraint; the test helper authorized the disposable lab only.
+The host park probe stood down because this CLI caller did not own a native primary; it is not counted as a live host-handoff pass.
+Session start acquires its own actual harness-ancestry lock; it is not expected to retain the test driver's prior seeded lock. The stop itself preserved the seeded lock, worker records and worker process as required.
+An explicitly resumed home with prior watcher history correctly returned check: rearm-resurface (exit 0), not the originally expected quiet timeout. A fresh explicitly resumed home was re-driven in live-resume-check.py and produced a real watcher beacon, timeout 124, and no surviving watcher lock. This was a driver expectation correction, not a product fix.
+Pi 0.85.1 was run offline through a real 150x36 PTY, with TIOCSWINSZ applied before launch and the master drained. /calm persisted on, then off. No model or fake provider was used. PNGs show browser-rendered replay of the actual ANSI terminal output; pi-calm.cast preserves the timed recording. They prove startup/toggle only, not animation or queued-notification retention during a model turn.
+The production global Pi install, Firstmate switch, restart, and production monitoring were not touched. No other no-mistakes phases, linters, formatters, or full-suite run were invoked. Credentialed attended handoff/animation and scheduled restart remain the previously accepted deferred checks.

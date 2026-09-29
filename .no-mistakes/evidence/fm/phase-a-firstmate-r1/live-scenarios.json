@@ -1,0 +1,65 @@
+[
+  {
+    "name": "Stop one running home from outside; preserve sibling monitoring, worker, and session ownership",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-monitoring-transcript.txt",
+    "reason": ""
+  },
+  {
+    "name": "Repeat an outside stop; report already-stopped and preserve the original stop time",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-monitoring-transcript.txt",
+    "reason": ""
+  },
+  {
+    "name": "Try every monitoring entry point after a stop; each refuses without starting a watcher",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-monitoring-transcript.txt",
+    "reason": ""
+  },
+  {
+    "name": "Present a corrupt stop receipt; preserve it and refuse all automatic monitoring",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-monitoring-transcript.txt",
+    "reason": ""
+  },
+  {
+    "name": "End a turn with work in flight; stopped homes allow completion while an unstopped control requests supervision",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-monitoring-transcript.txt",
+    "reason": ""
+  },
+  {
+    "name": "Read startup status for a stopped home; emit suppression guidance and leave monitoring absent",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-monitoring-transcript.txt",
+    "reason": ""
+  },
+  {
+    "name": "Attempt shutdown with a mismatched watcher identity; return could-not-stop while retaining re-arm suppression",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-monitoring-transcript.txt",
+    "reason": ""
+  },
+  {
+    "name": "Use an absent or explicitly resumed receipt; normal bounded monitoring still runs and cleans up",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-monitoring-transcript.txt; live-resume-transcript.txt",
+    "reason": ""
+  },
+  {
+    "name": "Toggle Calm in a real Pi terminal; persist on and off without starting a model turn",
+    "result": "pass",
+    "live": true,
+    "evidence": "pi-calm-result.json; pi-calm.cast; pi-calm-on.png; pi-calm-off.png",
+    "reason": ""
+  }
+]

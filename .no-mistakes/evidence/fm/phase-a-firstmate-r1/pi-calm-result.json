@@ -1,0 +1,28 @@
+{
+  "result": "pass",
+  "live": true,
+  "pi_version": "0.85.1",
+  "pty": {
+    "rows": 36,
+    "columns": 150
+  },
+  "command": [
+    "/Users/christiandonovan/.npm-global/bin/pi",
+    "--offline",
+    "--approve",
+    "--no-context-files",
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-extensions",
+    "-e",
+    "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.pi/extensions/fm-calm.ts",
+    "--session-dir",
+    "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/pi-calm/sessions",
+    "--no-session"
+  ],
+  "observed": [
+    "/calm persisted on",
+    "/calm persisted off"
+  ],
+  "model_turn": false
+}

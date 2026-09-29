@@ -1,0 +1,31 @@
+$ fm-monitoring-stop.sh status --json
+exit=0
+{
+  "status": "none",
+  "time": "",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/resume-fresh/data/automatic-monitoring-pause/receipt.json",
+  "origin": "",
+  "caller": "",
+  "caller_identity": "",
+  "reason": ""
+}
+
+$ fm-monitoring-stop.sh status --json
+exit=0
+{
+  "status": "resumed",
+  "time": "2026-09-29T10:00:00Z",
+  "detail": "",
+  "receipt": "/Users/christiandonovan/.no-mistakes/worktrees/d9c4fb60435f/01M3NQ64W15QB1PV2N0HRX29EQ/.test-phase-runtime/live/resume-fresh/data/automatic-monitoring-pause/receipt.json",
+  "origin": "",
+  "caller": "",
+  "caller_identity": "",
+  "reason": ""
+}
+
+$ fm-watch-checkpoint.sh --seconds 2
+exit=124
+checkpoint: no actionable wake within 2s
+
+OBSERVED: resumed receipt allowed a real watcher (beacon created); quiet checkpoint expired normally and removed its lock. Prior same-home run correctly surfaced a durable rearm-resurface wake rather than timing out.
