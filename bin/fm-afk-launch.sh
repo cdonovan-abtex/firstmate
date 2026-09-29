@@ -162,6 +162,9 @@ set +e
 # shellcheck source=bin/fm-afk-contract.sh
 . "$FM_AFK_LAUNCH_DIR/fm-afk-contract.sh"
 FM_AFK_CONTRACT_CMD="$FM_AFK_LAUNCH_DIR/fm-afk-contract.sh"
+# The supervision host's opt-in parse and attended readiness check.
+# shellcheck source=bin/fm-supervision-engine-lib.sh
+. "$FM_AFK_LAUNCH_DIR/fm-supervision-engine-lib.sh"
 # shellcheck source=bin/fm-monitoring-stop-lib.sh
 . "$FM_AFK_LAUNCH_DIR/fm-monitoring-stop-lib.sh"
 

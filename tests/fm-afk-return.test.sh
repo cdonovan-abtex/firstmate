@@ -32,6 +32,7 @@ install_runner() {  # <case-dir>
   # The return brief's durable sources: the posture-record owner, the outcome
   # store owner, and the backlog reader with its tasks-axi probe.
   cp "$ROOT/bin/fm-afk-contract.sh" "$dir/bin/"
+  cp "$ROOT/bin/fm-supervision-engine-lib.sh" "$dir/bin/"
   cp "$ROOT/bin/fm-branch-outcome.sh" "$dir/bin/"
   cp "$ROOT/bin/fm-tasks-axi-lib.sh" "$dir/bin/"
   cp "$ROOT/bin/fm-backlog-transition-lib.sh" "$dir/bin/"
@@ -459,7 +460,8 @@ test_return_brief_composes_from_record_store_and_held_set() {
   printf 'resolved [key=dep]: the upstream dependency landed\n' >> "$dir/home/state/other.status"
   printf 'resolved [key=token]: the token was refreshed\n' >> "$dir/home/state/fix-windows.status"
   second=$(run_return "$dir" check) || fail "the remediated return did not clear: $second"
-  assert_contains "$second" '1. merge task fix-windows PR when checks green - recorded, not executed by this release' "check did not re-render the mandate from the archived record"
+  assert_contains "$second" $'  your words at entry:\n    merge the windows fix when green, then cut a prerelease\n    if the install deadlocks abort the competing run\n' "check did not re-render the words from the archived record"
+  assert_contains "$second" 'fix-windows: per your away instructions: merged the windows fix PR once checks went green' "check did not re-render the session account"
   assert_contains "$second" 'no unresolved gap in supervision at return' "check lost the health snapshot taken at begin"
   assert_contains "$second" 'catch-up clear' "check did not clear the gate"
   [ ! -e "$gate" ] || fail "the cleared check left the gate behind"
@@ -891,8 +893,7 @@ test_return_guard_preserves_quiet_and_away_boundaries() {
   local dir out rc flag before
   dir="$TMP_ROOT/guard-quiet"
   install_runner "$dir"
-  contract_in "$dir" propose >/dev/null 2>&1 || fail "could not propose quiet fixture"
-  contract_in "$dir" confirm >/dev/null 2>&1 || fail "could not confirm quiet fixture"
+  contract_in "$dir" enter --words 'stay quiet' >/dev/null 2>&1 || fail "could not enter quiet fixture"
   printf 'quiet\n1234\n' > "$dir/home/state/.afk"
   cp -R "$dir/home/state" "$dir/before"
   out=$(run_return "$dir" guard) || fail "guard refused ordinary work in quiet mode: $out"
