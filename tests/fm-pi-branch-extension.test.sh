@@ -4412,7 +4412,10 @@ const result = {
   isError: false,
 };
 const ui = { requestRender() {} };
-const stockRow = new ToolExecutionComponent("fm_branch_outcomes", "stock", args, { showImages: false }, stockDefinition, ui, process.cwd());
+// The Pi 1.0 generic header includes supplied arguments. Use its default-call
+// header as the title-only baseline this custom tool owns, while still
+// exercising the actual renderer with the parameterized call above.
+const stockRow = new ToolExecutionComponent("fm_branch_outcomes", "stock", {}, { showImages: false }, stockDefinition, ui, process.cwd());
 const actualRow = new ToolExecutionComponent("fm_branch_outcomes", "actual", args, { showImages: false }, actualDefinition, ui, process.cwd());
 for (const row of [stockRow, actualRow]) {
   row.markExecutionStarted();
@@ -4450,12 +4453,19 @@ if (JSON.stringify(actualRow.render(100)) !== JSON.stringify(stockRow.render(100
 }
 
 pi.events.emit("firstmate:calm-presentation", { active: true, stockExportRendering: true });
-const stockHtml = createToolHtmlRenderer({ getToolDefinition: () => stockDefinition, theme, cwd: process.cwd() });
-const actualHtml = createToolHtmlRenderer({ getToolDefinition: () => actualDefinition, theme, cwd: process.cwd() });
+let rendererLookups = 0;
+const stockLookup = () => { rendererLookups++; return stockDefinition; };
+const actualLookup = () => { rendererLookups++; return actualDefinition; };
+// Pi 1.0 uses getToolRenderers; retain getToolDefinition for older SDKs.
+const stockHtml = createToolHtmlRenderer({ getToolRenderers: stockLookup, getToolDefinition: stockLookup, theme, cwd: process.cwd() });
+const actualHtml = createToolHtmlRenderer({ getToolRenderers: actualLookup, getToolDefinition: actualLookup, theme, cwd: process.cwd() });
 const stockCall = stockHtml.renderCall("stock-html", "fm_branch_outcomes", args);
 const actualCall = actualHtml.renderCall("actual-html", "fm_branch_outcomes", args);
 const stockResult = stockHtml.renderResult("stock-html", "fm_branch_outcomes", result.content, result.details, false);
 const actualResult = actualHtml.renderResult("actual-html", "fm_branch_outcomes", result.content, result.details, false);
+if (rendererLookups !== 4) {
+  throw new Error(`HTML export did not resolve the fixture renderers: ${rendererLookups} lookups`);
+}
 if (actualCall !== undefined || actualResult !== undefined || stockCall !== undefined || stockResult !== undefined) {
   throw new Error("stock export rendering did not delegate to Pi's structured fallback");
 }
