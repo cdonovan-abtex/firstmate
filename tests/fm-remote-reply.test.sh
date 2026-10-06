@@ -191,6 +191,56 @@ lock_fixture_cleanup
 kill -0 "$cleanup_fixture_pid" 2>/dev/null && fail "cleanup left its identity-matched fixture alive"
 pass "cleanup preserves mismatched processes and stops identity-matched fixtures"
 
+if LC_ALL=C ps -p "$$" -o lstart= >/dev/null 2>&1; then
+  "$(command -v sleep)" 30 &
+  timezone_owner_pid=$!
+  lock_fixture_track "$timezone_owner_pid" || fail "could not track the timezone lock owner"
+  raw_utc=$(LC_ALL=C TZ=UTC0 ps -p "$timezone_owner_pid" -o lstart=)
+  raw_new_york=$(LC_ALL=C TZ=America/New_York ps -p "$timezone_owner_pid" -o lstart=)
+  if [ "$(uname)" = Darwin ]; then
+    [ "$raw_utc" != "$raw_new_york" ] || fail "macOS fixture did not expose timezone-sensitive process timestamps"
+  fi
+  timezone_lock="$PARENT/state/.test-timezone.lock"
+  timezone_baseline=''
+  for owner_timezone in UTC0 America/New_York; do
+    timezone_identity=$(TZ="$owner_timezone" FM_PROC_ROOT_OVERRIDE="$TMP_ROOT/no-proc" \
+      pid_identity "$timezone_owner_pid") || fail "could not read the owner's portable birth identity"
+    case "$timezone_identity" in
+      ps-lstart=*) ;;
+      *) fail "timezone fixture did not exercise the portable process identity" ;;
+    esac
+    if [ -n "$timezone_baseline" ]; then
+      [ "$timezone_identity" = "$timezone_baseline" ] || fail "portable birth identity varied with the caller's timezone"
+    else
+      timezone_baseline=$timezone_identity
+    fi
+    write_lock_owner "$timezone_lock" "$timezone_owner_pid" "$timezone_identity" \
+      || fail "could not install the timezone-bound lock owner"
+    timezone_owner_dir=$(readlink "$timezone_lock")
+    contender_timezone=UTC0
+    [ "$owner_timezone" != UTC0 ] || contender_timezone=America/New_York
+    TZ="$contender_timezone" FM_PROC_ROOT_OVERRIDE="$TMP_ROOT/no-proc" remote_env bash -c '
+      . "$1/bin/fm-wake-lib.sh"
+      if fm_lock_try_acquire "$2"; then
+        fm_lock_release "$2"
+        exit 2
+      fi
+      fm_lock_owner_state "$2" "$3" || exit 1
+      [ "$FM_LOCK_HELD_PID" = "$3" ] || exit 3
+    ' _ "$ROOT" "$timezone_lock" "$timezone_owner_pid" \
+      || fail "a contender with a different timezone displaced the live lock owner"
+    [ "$(readlink "$timezone_lock")" = "$timezone_owner_dir" ] \
+      || fail "timezone contention replaced the live owner's lock record"
+    kill -0 "$timezone_owner_pid" 2>/dev/null || fail "timezone contention signalled the live owner"
+    rm -f -- "$timezone_lock" "$timezone_owner_dir/pid" "$timezone_owner_dir/owner-identity"
+    rmdir -- "$timezone_owner_dir"
+  done
+  lock_fixture_stop "$timezone_owner_pid"
+  pass "portable birth identity protects live lock owners across timezones"
+else
+  pass "portable timezone identity check skipped where ps lstart is unsupported"
+fi
+
 ADAPTER="$ROOT/bin/fm-procevent-remote-reply.sh"
 SID=$(remote_env "$ADAPTER" source-id ios)
 out=$(remote_env "$ADAPTER" arm ios)

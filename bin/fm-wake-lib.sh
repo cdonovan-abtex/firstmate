@@ -108,7 +108,7 @@ fm_lock_pid_identity() {
     printf 'proc-starttime=%s\n' "$starttime"
     return 0
   fi
-  out=$(LC_ALL=C ps -p "$pid" -o lstart= 2>/dev/null) || return 1
+  out=$(LC_ALL=C TZ=UTC0 ps -p "$pid" -o lstart= 2>/dev/null) || return 1
   out=$(printf '%s\n' "$out" | sed 's/^[[:space:]]*//')
   [ -n "$out" ] || return 1
   printf 'ps-lstart=%s\n' "$out"
