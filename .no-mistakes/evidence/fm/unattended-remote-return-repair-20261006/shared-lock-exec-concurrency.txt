@@ -1,0 +1,9 @@
+Shared lock publication followed by exec into sleep:
+owner_pid=19691
+owner_identity=ps-lstart=Tue Oct  6 19:59:35 2026    
+Contender refused; held PID=19691; identity still matches after exec.
+Dead exec owner recovered; new owner_pid=20363 identity=ps-lstart=Tue Oct  6 19:59:35 2026    
+
+Simultaneous contenders: 16
+Successful acquisitions while the winner stays live:
+winner_pid=20721 identity=ps-lstart=Tue Oct  6 19:59:35 2026    

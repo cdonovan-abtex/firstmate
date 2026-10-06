@@ -1,0 +1,10 @@
+Raw process birth timestamp in UTC: Tue Oct  6 20:00:55 2026    
+Raw process birth timestamp in New York: Tue Oct  6 16:00:55 2026    
+Owner timezone: UTC0
+Contender timezone: America/New_York
+Recorded identity: ps-lstart=Tue Oct  6 20:00:55 2026    
+Contender could not acquire; original lock path and process preserved.
+Owner timezone: America/New_York
+Contender timezone: UTC0
+Recorded identity: ps-lstart=Tue Oct  6 20:00:55 2026    
+Contender could not acquire; original lock path and process preserved.

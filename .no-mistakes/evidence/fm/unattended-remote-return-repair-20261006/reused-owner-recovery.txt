@@ -1,0 +1,20 @@
+
+Reply handle output after stale birth identity recovery
+ingested: ios appended=0 offset=145
+registered: remote-reply-ios (remote-reply)
+armed: remote-reply-ios offset=145
+handled: remote-reply-ios 2
+
+Deduplicated parent status stream
+done [corr=0123456789abcdef]: build verified (data/remote-secondmates/ios/data/reply/report.md)
+done [key=legacy-owner]: captured result waits for an uncertain legacy owner
+
+Recovered reply acknowledgement
+
+Re-armed source
+adapter=remote-reply
+argc=3
+argv:
+/Users/abtex-mini/.no-mistakes/worktrees/58cdee354374/01M497B0682481RKT9T6RVBKYV/bin/fm-procevent-remote-reply.sh
+source
+ios

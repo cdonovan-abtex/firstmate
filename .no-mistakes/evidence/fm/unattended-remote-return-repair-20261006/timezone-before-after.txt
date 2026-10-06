@@ -1,0 +1,16 @@
+
+Version: pre-utc
+Owner timezone: UTC0
+Recorded birth identity: ps-lstart=Tue Oct  6 19:58:58 2026    
+Contender timezone: America/New_York
+Observed birth identity: ps-lstart=Tue Oct  6 15:58:58 2026    
+acquired=true owner_pid=53342
+Original owner process still alive: pid=53297
+
+Version: fixed
+Owner timezone: UTC0
+Recorded birth identity: ps-lstart=Tue Oct  6 19:58:58 2026    
+Contender timezone: America/New_York
+Observed birth identity: ps-lstart=Tue Oct  6 19:58:58 2026    
+acquired=false owner_pid=53297
+Original owner process still alive: pid=53297

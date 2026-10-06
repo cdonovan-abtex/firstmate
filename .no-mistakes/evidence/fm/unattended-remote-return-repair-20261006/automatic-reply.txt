@@ -1,0 +1,26 @@
+
+Remote append-only status stream
+done [corr=0123456789abcdef]: build verified (data/reply/report.md)
+
+Parent status stream after automatic capture (no handle command)
+done [corr=0123456789abcdef]: build verified (data/remote-secondmates/ios/data/reply/report.md)
+
+Locally copied remote report
+# Detailed remote answer
+
+The build is green.
+
+Committed reply cursor
+schema=fm-remote-reply-cursor.v1
+offset=68
+prefix_sha256=035d277bbb571959b098889c7493301c705a7102fc923fb7647c02c2625a0f80
+
+Durable acknowledgement
+
+Next registered source
+adapter=remote-reply
+argc=3
+argv:
+/Users/abtex-mini/.no-mistakes/worktrees/58cdee354374/01M497B0682481RKT9T6RVBKYV/bin/fm-procevent-remote-reply.sh
+source
+ios

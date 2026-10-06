@@ -1,0 +1,26 @@
+
+Runner output with a one-second legacy-owner wait
+not-autohandled: remote-reply-ios (left for the handler; still unacknowledged)
+retired: remote-reply-ios (adapter classified the captured result terminal)
+captured: /private/var/folders/kj/kfv2b3px7j10z600x1tcsscr0000gn/T/fm-remote-reply.RDGMy9/parent/state/procevent-inbox/remote-reply-ios.2.result
+
+Durable retry notification
+1791316860	1	check	procevent:remote-reply-ios:1	check: procevent remote-reply remote-reply-ios 1
+1791316864	2	check	procevent:remote-reply-ios:2	check: procevent remote-reply remote-reply-ios 2
+
+Captured reply retained for retry
+schema=fm-remote-delta.v1
+status=delta
+path=state/parent-replies.status
+from_offset=68
+to_offset=145
+from_prefix_sha256=035d277bbb571959b098889c7493301c705a7102fc923fb7647c02c2625a0f80
+to_prefix_sha256=9ffa8211fe992454120810dcf6d49e5cd469e5f40e74146f4e8e762c9291ab12
+payload_sha256=e9cb3dd92c6d8f115d204e7c4a7b1ab78d2334a5abbdcc1cf9b81d2d6de5a5a5
+payload_bytes=77
+reason=
+
+done [key=legacy-owner]: captured result waits for an uncertain legacy owner
+
+Protected legacy owner PID
+24174

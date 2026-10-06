@@ -1,0 +1,11 @@
+
+Bounded legacy inner-lock refusal
+error: cannot lock remote reply ingest for ios
+
+Reply output after reused PID recovery
+ingested: ios appended=0 offset=145
+registered: remote-reply-ios (remote-reply)
+armed: remote-reply-ios offset=145
+handled: remote-reply-ios 2
+
+Durable recovered acknowledgement
