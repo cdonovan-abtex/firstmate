@@ -78,6 +78,22 @@ wait_for() {
   return 1
 }
 
+write_lifecycle_owner() { # <pid> [identity]
+  local pid=$1 identity=${2:-} lock owner
+  lock="$PARENT/state/.remote-reply-lifecycle-ios.lock"
+  owner=$(mktemp -d "$lock.owner.fixture.XXXXXX") || return 1
+  printf '%s\n' "$pid" > "$owner/pid" || return 1
+  [ -z "$identity" ] || printf '%s\n' "$identity" > "$owner/owner-identity" || return 1
+  ln -s "$owner" "$lock"
+}
+
+pid_identity() { # <pid>
+  FM_STATE_OVERRIDE="$PARENT/state" bash -c '
+    . "$1/bin/fm-wake-lib.sh"
+    fm_lock_pid_identity "$2"
+  ' _ "$ROOT" "$1"
+}
+
 sha256_file() {
   if command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$1" | awk '{print $1}'
@@ -168,18 +184,94 @@ assert_contains "$out" 'already-handled: remote-reply-ios 1' "replayed generatio
   || fail "replayed ingest duplicated the parent status line"
 pass "replayed capture has one deduplicated append and one durable handling identity"
 
+# A captured completion must not leave Main idle behind a legacy lifecycle owner.
+# The live fixture process deliberately has no recorded identity, so the adapter
+# preserves it rather than guessing, returns in the configured bound, and lets
+# the runner publish the durable retry notification.
+"$(command -v sleep)" 30 &
+legacy_owner_pid=$!
+write_lifecycle_owner "$legacy_owner_pid" || fail "could not create a legacy lifecycle owner"
+printf 'done [key=legacy-owner]: captured result waits for an uncertain legacy owner\n' \
+  >> "$REMOTE/state/parent-replies.status"
+FM_REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS=1 \
+  remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" > "$TMP_ROOT/legacy-owner.out" 2>&1 \
+  || fail "legacy lifecycle owner prevented result capture"
+RESULT_LEGACY="$PARENT/state/procevent-inbox/$SID.2.result"
+assert_present "$RESULT_LEGACY" "legacy lifecycle owner did not leave a durable captured result"
+assert_absent "$PARENT/state/procevent-inbox/$SID.2.handled" \
+  "legacy lifecycle owner allowed an unproven result application"
+assert_grep "procevent remote-reply $SID 2" "$PARENT/state/.wake-queue" \
+  "bounded lifecycle-owner contention did not surface the captured result"
+assert_present "$PARENT/state/.remote-reply-lifecycle-ios.lock" \
+  "legacy live lifecycle owner was not protected"
+kill "$legacy_owner_pid" 2>/dev/null || true
+wait "$legacy_owner_pid" 2>/dev/null || true
+FM_REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS=1 remote_env "$ADAPTER" handle ios 2 "$RESULT_LEGACY" >/dev/null \
+  || fail "captured result did not replay after its legacy owner exited"
+assert_present "$PARENT/state/procevent-inbox/$SID.2.handled" \
+  "replayed result was not acknowledged after legacy owner exit"
+assert_present "$PARENT/state/procevent/$SID.source" \
+  "replayed result did not re-arm after legacy owner exit"
+pass "a legacy live lifecycle owner is bounded, surfaced, and replayed without guessing"
+
+# New owner records contain process identity, so a recorded pid now belonging to
+# an unrelated process is reclaimed without signalling that process.
+"$(command -v sleep)" 30 &
+reused_owner_pid=$!
+write_lifecycle_owner "$reused_owner_pid" 'reused-pid-identity' \
+  || fail "could not create a reused-pid lifecycle owner"
+rm -f "$PARENT/state/procevent-inbox/$SID.2.handled"
+out=$(FM_LOCK_STALE_AFTER=0 remote_env "$ADAPTER" handle ios 2 "$RESULT_LEGACY")
+assert_contains "$out" 'ingested: ios appended=0' \
+  "reused-pid lifecycle owner did not permit durable replay"
+assert_contains "$out" 'handled: remote-reply-ios 2' \
+  "reused-pid lifecycle owner did not acknowledge the replay"
+kill -0 "$reused_owner_pid" 2>/dev/null \
+  || fail "reused-pid recovery signalled the unrelated live process"
+assert_absent "$PARENT/state/.remote-reply-lifecycle-ios.lock" \
+  "reused-pid lifecycle owner was not reclaimed"
+assert_present "$PARENT/state/procevent/$SID.source" \
+  "reused-pid replay did not re-arm the remote source"
+kill "$reused_owner_pid" 2>/dev/null || true
+wait "$reused_owner_pid" 2>/dev/null || true
+pass "a reused lifecycle pid is rejected without harming its unrelated process"
+
+# The complementary identity match remains protected even when an application
+# caller is willing to wait only one second.
+"$(command -v sleep)" 30 &
+live_owner_pid=$!
+live_owner_identity=$(pid_identity "$live_owner_pid") \
+  || fail "could not identify the live lifecycle owner"
+write_lifecycle_owner "$live_owner_pid" "$live_owner_identity" \
+  || fail "could not create a live lifecycle owner"
+set +e
+FM_REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS=1 remote_env "$ADAPTER" arm ios > "$TMP_ROOT/live-owner.out" 2>&1
+live_owner_rc=$?
+set -e
+[ "$live_owner_rc" -ne 0 ] || fail "live identity-matched lifecycle owner was displaced"
+assert_grep 'identity-uncertain' "$TMP_ROOT/live-owner.out" \
+  "bounded live lifecycle owner did not explain the retained contention"
+assert_present "$PARENT/state/.remote-reply-lifecycle-ios.lock" \
+  "live identity-matched lifecycle owner was reclaimed"
+kill -0 "$live_owner_pid" 2>/dev/null \
+  || fail "live lifecycle-owner protection signalled its owner"
+kill "$live_owner_pid" 2>/dev/null || true
+wait "$live_owner_pid" 2>/dev/null || true
+remote_env "$ADAPTER" arm ios >/dev/null || fail "source could not re-arm after live owner exit"
+pass "an identity-matched live lifecycle owner remains protected"
+
 printf 'working [corr=1111111111111111]: second generation\n' \
   >> "$REMOTE/state/parent-replies.status"
 remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null \
   || fail "second reply generation was not captured"
-RESULT_TWO="$PARENT/state/procevent-inbox/$SID.2.result"
+RESULT_TWO="$PARENT/state/procevent-inbox/$SID.3.result"
 # The runner already applied and acknowledged this capture. Drop that genuine
 # acknowledgement and put an unsafe one in its place, so the handler's refusal
 # to trust a non-regular marker stays under test.
-rm -f "$PARENT/state/procevent-inbox/$SID.2.handled"
-ln -s "$TMP_ROOT/missing-handled-marker" "$PARENT/state/procevent-inbox/$SID.2.handled"
+rm -f "$PARENT/state/procevent-inbox/$SID.3.handled"
+ln -s "$TMP_ROOT/missing-handled-marker" "$PARENT/state/procevent-inbox/$SID.3.handled"
 set +e
-remote_env "$ADAPTER" handle ios 2 "$RESULT_TWO" > "$TMP_ROOT/handle-two-unacked.out" 2>&1
+remote_env "$ADAPTER" handle ios 3 "$RESULT_TWO" > "$TMP_ROOT/handle-two-unacked.out" 2>&1
 handle_two_rc=$?
 set -e
 [ "$handle_two_rc" -ne 0 ] || fail "second generation acknowledged through an unsafe handled marker"
@@ -188,13 +280,13 @@ printf 'done [corr=2222222222222222]: third generation\n' \
   >> "$REMOTE/state/parent-replies.status"
 remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null \
   || fail "third reply generation was not captured"
-RESULT_THREE="$PARENT/state/procevent-inbox/$SID.3.result"
-remote_env "$ADAPTER" handle ios 3 "$RESULT_THREE" >/dev/null \
+RESULT_THREE="$PARENT/state/procevent-inbox/$SID.4.result"
+remote_env "$ADAPTER" handle ios 4 "$RESULT_THREE" >/dev/null \
   || fail "third reply generation was not handled"
-rm -f "$PARENT/state/procevent-inbox/$SID.2.handled"
-out=$(remote_env "$ADAPTER" handle ios 2 "$RESULT_TWO")
+rm -f "$PARENT/state/procevent-inbox/$SID.3.handled"
+out=$(remote_env "$ADAPTER" handle ios 3 "$RESULT_TWO")
 assert_contains "$out" 'ingested: ios appended=0' "earlier generation did not replay from its durable ingestion receipt"
-assert_contains "$out" 'handled: remote-reply-ios 2' "earlier generation remained unacknowledged after later cursor advancement"
+assert_contains "$out" 'handled: remote-reply-ios 3' "earlier generation remained unacknowledged after later cursor advancement"
 [ "$(grep -cF 'working [corr=1111111111111111]' "$PARENT/state/ios.status")" -eq 1 ] \
   || fail "earlier generation replay duplicated its parent status"
 pass "later generations cannot invalidate an unacknowledged ingested result"
@@ -219,8 +311,8 @@ fm_pending_reply_mark_delivered "$PARENT/state" "$PENDING_CORR" \
 } >> "$REMOTE/state/parent-replies.status"
 remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null \
   || fail "the mirrored status stream was not captured"
-RESULT_FOUR="$PARENT/state/procevent-inbox/$SID.4.result"
-remote_env "$ADAPTER" handle ios 4 "$RESULT_FOUR" > "$TMP_ROOT/handle-mirror.out" 2>&1 \
+RESULT_FOUR="$PARENT/state/procevent-inbox/$SID.5.result"
+remote_env "$ADAPTER" handle ios 5 "$RESULT_FOUR" > "$TMP_ROOT/handle-mirror.out" 2>&1 \
   || fail "an uncorrelated status line stopped the delta: $(cat "$TMP_ROOT/handle-mirror.out")"
 assert_grep 'working [key=version-audit]' "$PARENT/state/ios.status" "an uncorrelated progress line never reached the parent stream"
 assert_grep 'needs-decision [key=rough-cut-version]' "$PARENT/state/ios.status" "a newly raised remote decision never reached the parent stream"
@@ -243,7 +335,7 @@ pass "a remote mate's new decision folds open exactly as a local mate's does"
 
 # Ingesting the same generation again is idempotent: no duplicated lines and no
 # cursor movement, so a replay can never wedge or double-count the stream.
-remote_env "$ADAPTER" handle ios 4 "$RESULT_FOUR" >/dev/null 2>&1 || true
+remote_env "$ADAPTER" handle ios 5 "$RESULT_FOUR" >/dev/null 2>&1 || true
 [ "$(grep -cF 'needs-decision [key=rough-cut-version]' "$PARENT/state/ios.status")" -eq 1 ] \
   || fail "replaying the mirrored delta duplicated the new decision"
 assert_grep "offset=$mirror_offset" "$PARENT/state/remote-replies/ios.cursor" \
@@ -257,8 +349,8 @@ printf 'blocked [key=ctl]: escape \033[31mhere\033[0m bell \007 caf\xc3\xa9 end\
   >> "$REMOTE/state/parent-replies.status"
 remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null \
   || fail "the control-character line was not captured"
-RESULT_FIVE="$PARENT/state/procevent-inbox/$SID.5.result"
-remote_env "$ADAPTER" handle ios 5 "$RESULT_FIVE" >/dev/null 2>&1 \
+RESULT_FIVE="$PARENT/state/procevent-inbox/$SID.6.result"
+remote_env "$ADAPTER" handle ios 6 "$RESULT_FIVE" >/dev/null 2>&1 \
   || fail "a control character stopped the stream"
 assert_grep 'blocked [key=ctl]: escape ?[31mhere' "$PARENT/state/ios.status" \
   "the control-character line was not mirrored in normalized form"
@@ -274,8 +366,8 @@ pass "transported control bytes are normalized in place and never stop the strea
 printf 'status=delta\n' >> "$REMOTE/state/parent-replies.status"
 remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null \
   || fail "the header-collision line was not captured"
-RESULT_SIX="$PARENT/state/procevent-inbox/$SID.6.result"
-remote_env "$ADAPTER" handle ios 6 "$RESULT_SIX" >/dev/null 2>&1 \
+RESULT_SIX="$PARENT/state/procevent-inbox/$SID.7.result"
+remote_env "$ADAPTER" handle ios 7 "$RESULT_SIX" >/dev/null 2>&1 \
   || fail "a payload protocol-field name stopped the stream"
 assert_grep 'status=delta' "$PARENT/state/ios.status" \
   "the payload protocol-field line did not reach the parent stream"
@@ -287,8 +379,8 @@ pass "payload protocol-field names cannot collide with transport metadata"
 printf 'working [key=nul-byte]: before\000after\n' >> "$REMOTE/state/parent-replies.status"
 remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null \
   || fail "the NUL-bearing line was not captured"
-RESULT_SEVEN="$PARENT/state/procevent-inbox/$SID.7.result"
-remote_env "$ADAPTER" handle ios 7 "$RESULT_SEVEN" >/dev/null 2>&1 \
+RESULT_SEVEN="$PARENT/state/procevent-inbox/$SID.8.result"
+remote_env "$ADAPTER" handle ios 8 "$RESULT_SEVEN" >/dev/null 2>&1 \
   || fail "a NUL byte stopped the stream"
 assert_grep 'working [key=nul-byte]: before?after' "$PARENT/state/ios.status" \
   "the NUL byte was not normalized in place"
@@ -310,18 +402,18 @@ printf 'local decoy\n' > "$retry_decoy"
 ln -s "$retry_decoy" "$retry_destination"
 remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null 2>&1 \
   || fail "the retryable document line was not captured"
-RESULT_EIGHT="$PARENT/state/procevent-inbox/$SID.8.result"
-assert_absent "$PARENT/state/procevent-inbox/$SID.8.handled" \
+RESULT_EIGHT="$PARENT/state/procevent-inbox/$SID.9.result"
+assert_absent "$PARENT/state/procevent-inbox/$SID.9.handled" \
   "a capture whose automatic application failed was acknowledged anyway"
 # The self-announcing declaration never silences a capture the adapter could
 # NOT fully apply: this one must still publish its check wake for the handler.
-assert_grep "procevent remote-reply $SID 8" "$PARENT/state/.wake-queue" \
+assert_grep "procevent remote-reply $SID 9" "$PARENT/state/.wake-queue" \
   "a not-fully-applied capture lost its check-wake announcement"
 assert_no_grep 'retry local storage' "$PARENT/state/.wake-queue" \
   "reply payload leaked into the event queue"
 retry_cursor_before=$(cat "$PARENT/state/remote-replies/ios.cursor")
 set +e
-remote_env "$ADAPTER" handle ios 8 "$RESULT_EIGHT" > "$TMP_ROOT/handle-local-document-failure.out" 2>&1
+remote_env "$ADAPTER" handle ios 9 "$RESULT_EIGHT" > "$TMP_ROOT/handle-local-document-failure.out" 2>&1
 local_document_rc=$?
 set -e
 [ "$local_document_rc" -ne 0 ] || fail "local document storage failure committed the delta"
@@ -334,7 +426,7 @@ assert_no_grep 'done [key=retry-document]' "$PARENT/state/ios.status" \
 assert_no_grep 'blocked [key=remote-reply-document-ios]' "$PARENT/state/ios.status" \
   "local document storage failure raised a permanent remote refusal"
 rm -f "$retry_destination"
-remote_env "$ADAPTER" handle ios 8 "$RESULT_EIGHT" >/dev/null \
+remote_env "$ADAPTER" handle ios 9 "$RESULT_EIGHT" >/dev/null \
   || fail "the document delta did not succeed after local storage recovered"
 assert_grep 'data/remote-secondmates/ios/data/reply/retry.md' "$PARENT/state/ios.status" \
   "the retried document pointer was not rewritten locally"
@@ -462,11 +554,11 @@ mv "$PARENT/state/.wake-queue" "$TMP_ROOT/wake-queue-before-replay" 2>/dev/null 
 rm -f "$PARENT/state/remote-replies/ios.cursor"
 remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null 2>&1 \
   || fail "the cursor-loss recapture was not captured"
-assert_present "$PARENT/state/procevent-inbox/$SID.11.handled" \
+assert_present "$PARENT/state/procevent-inbox/$SID.12.handled" \
   "the whole-log recapture was not acknowledged by the adapter"
 cmp -s "$TMP_ROOT/ios-status-before-replay" "$PARENT/state/ios.status" \
   || fail "the whole-log recapture duplicated already-mirrored lines"
-if [ -e "$PARENT/state/.wake-queue" ] && grep -q "procevent remote-reply $SID 11" "$PARENT/state/.wake-queue"; then
+if [ -e "$PARENT/state/.wake-queue" ] && grep -q "procevent remote-reply $SID 12" "$PARENT/state/.wake-queue"; then
   fail "an already-mirrored recapture still published a check wake"
 fi
 FM_STATE_OVERRIDE="$PARENT/state" bash -c '
@@ -485,12 +577,12 @@ printf 'failed [corr=fedcba9876543210]: source was replaced\n' > "$REMOTE/state/
 remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" > "$TMP_ROOT/start-two.out" 2>&1 &
 RUNNER=$!
 wait "$RUNNER" || fail "continuity break was not captured as a structured result"
-RESULT_TWELVE=$(find "$PARENT/state/procevent-inbox" -name "$SID.12.result" -print -quit)
+RESULT_TWELVE=$(find "$PARENT/state/procevent-inbox" -name "$SID.13.result" -print -quit)
 [ -n "$RESULT_TWELVE" ] || fail "continuity break produced no durable result"
 [ "$(remote_env "$ADAPTER" classify "$RESULT_TWELVE")" = continuity-broken ] \
   || fail "truncated source was not classified as a continuity break"
 set +e
-remote_env "$ADAPTER" handle ios 12 "$RESULT_TWELVE" > "$TMP_ROOT/handle-nine.out" 2>&1
+remote_env "$ADAPTER" handle ios 13 "$RESULT_TWELVE" > "$TMP_ROOT/handle-nine.out" 2>&1
 handle_rc=$?
 set -e
 [ "$handle_rc" -eq 3 ] || fail "continuity handling returned an unexpected status: $handle_rc"
@@ -501,7 +593,7 @@ remote_env "$ADAPTER" ingest ios "$RESULT_TWELVE" >/dev/null 2>&1 || true
   || fail "continuity replay duplicated the escalation"
 pass "truncation is detected, escalated once, and not silently rebased"
 
-rm -f "$PARENT/state/procevent-inbox/$SID.12.handled"
+rm -f "$PARENT/state/procevent-inbox/$SID.13.handled"
 if remote_env "$ADAPTER" retire ios > "$TMP_ROOT/retire-pending.out" 2>&1; then
   fail "remote reply retirement accepted an unhandled captured result"
 fi
@@ -509,7 +601,7 @@ assert_grep 'unhandled captured result' "$TMP_ROOT/retire-pending.out" \
   "remote reply retirement did not explain its pending-result refusal"
 assert_absent "$PARENT/state/procevent/$SID.source" \
   "refused retirement left the reply source running past its pending-result check"
-remote_env "$ADAPTER" handle ios 12 "$RESULT_TWELVE" >/dev/null 2>&1 || [ "$?" -eq 3 ] \
+remote_env "$ADAPTER" handle ios 13 "$RESULT_TWELVE" >/dev/null 2>&1 || [ "$?" -eq 3 ] \
   || fail "pending continuity result could not be acknowledged after retirement refusal"
 remote_env "$ADAPTER" retire ios >/dev/null
 assert_absent "$PARENT/state/remote-replies/ios.cursor" "adapter retirement left its cursor"

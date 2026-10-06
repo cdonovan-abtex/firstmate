@@ -90,6 +90,30 @@ fm_pid_identity() {
   printf '%s\n' "$out" | sed 's/^[[:space:]]*//'
 }
 
+# The generic filesystem-lock owner survives a deliberate exec while retaining
+# enough kernel birth evidence to reject a recycled pid.
+# Watchers and other role-specific owners keep fm_pid_identity because their
+# command line is part of their ownership contract.
+fm_lock_pid_identity() {
+  local pid=$1 proc_root stat_line starttime out
+  local -a stat_fields
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}
+  if [ -r "$proc_root/$pid/stat" ]; then
+    stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
+    read -r -a stat_fields <<< "${stat_line##*)}"
+    [ "${#stat_fields[@]}" -ge 20 ] || return 1
+    starttime=${stat_fields[19]}
+    case "$starttime" in ''|*[!0-9]*) return 1 ;; esac
+    printf 'proc-starttime=%s\n' "$starttime"
+    return 0
+  fi
+  out=$(LC_ALL=C ps -p "$pid" -o lstart= 2>/dev/null) || return 1
+  out=$(printf '%s\n' "$out" | sed 's/^[[:space:]]*//')
+  [ -n "$out" ] || return 1
+  printf 'ps-lstart=%s\n' "$out"
+}
+
 fm_path_mtime() {
   if [ "$_FM_UNAME" = Darwin ]; then
     /usr/bin/stat -f %m "$1" 2>/dev/null
@@ -404,6 +428,7 @@ fm_lock_clean_known_files() {
     "$lockdir/pid" \
     "$lockdir/fm-home" \
     "$lockdir/pid-identity" \
+    "$lockdir/owner-identity" \
     "$lockdir/role" \
     "$lockdir/watcher-path" \
     2>/dev/null || true
@@ -568,8 +593,23 @@ fm_lock_mid_acquire_is_fresh() {
   return 1
 }
 
+# fm_lock_owner_state <lockdir> <pid>
+# 0 = live owner, 1 = dead or a bound owner with a recycled pid, 2 = uncertain.
+# A generic legacy lock has only a pid, so a live legacy owner remains protected.
+# Remote-reply lifecycle records add owner-identity and can reject PID reuse.
+fm_lock_owner_state() {
+  local lockdir=$1 pid=$2 recorded current
+  fm_pid_alive "$pid" || return 1
+  recorded=$(cat "$lockdir/owner-identity" 2>/dev/null || true)
+  [ -n "$recorded" ] || return 0
+  current=$(fm_lock_pid_identity "$pid" 2>/dev/null || true)
+  [ -n "$current" ] || return 2
+  [ "$current" = "$recorded" ] && return 0
+  return 1
+}
+
 fm_lock_recheck_stale_owner() {
-  local lockdir=$1 expected_owner=$2 expected_pid=$3 actual_pid
+  local lockdir=$1 expected_owner=$2 expected_pid=$3 actual_pid owner_state
   if [ -n "$expected_owner" ]; then
     fm_lock_points_to_owner "$lockdir" "$expected_owner" || return 1
   elif [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
@@ -577,12 +617,12 @@ fm_lock_recheck_stale_owner() {
   fi
   actual_pid=$(cat "$lockdir/pid" 2>/dev/null || true)
   [ "$actual_pid" = "$expected_pid" ] || return 1
-  if fm_pid_alive "$actual_pid"; then
-    return 1
-  fi
-  if fm_lock_mid_acquire_is_fresh "$lockdir" "$actual_pid"; then
-    return 1
-  fi
+  fm_lock_owner_state "$lockdir" "$actual_pid"
+  owner_state=$?
+  [ "$owner_state" -eq 1 ] || return 1
+  # A handoff changes identity before replacing pid, so no other caller may
+  # mistake that short transition for PID reuse.
+  fm_lock_mid_acquire_is_fresh "$lockdir" "$actual_pid" && return 1
   return 0
 }
 
@@ -896,7 +936,7 @@ fm_recovery_marker_reopen_announced() {
 }
 
 fm_lock_try_acquire() {
-  local lockdir=$1 pid steal cur rc steal_owner primary_owner current
+  local lockdir=$1 pid steal cur rc steal_owner primary_owner current owner_state
   FM_LOCK_HELD_PID=
   FM_LOCK_OWNER_DIR=
   FM_LOCK_RECOVERED_PID=
@@ -923,11 +963,10 @@ fm_lock_try_acquire() {
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     return 1
   fi
-  if fm_pid_alive "$pid"; then
-    FM_LOCK_HELD_PID=$pid
-    return 1
-  fi
-  if fm_lock_mid_acquire_is_fresh "$lockdir" "$pid"; then
+  fm_lock_owner_state "$lockdir" "$pid"
+  owner_state=$?
+  if [ "$owner_state" -eq 0 ] || [ "$owner_state" -eq 2 ] \
+    || fm_lock_mid_acquire_is_fresh "$lockdir" "$pid"; then
     FM_LOCK_HELD_PID=$pid
     return 1
   fi
@@ -941,13 +980,10 @@ fm_lock_try_acquire() {
   steal_owner=${FM_LOCK_OWNER_DIR:-}
 
   cur=$(cat "$lockdir/pid" 2>/dev/null || true)
-  if fm_pid_alive "$cur"; then
-    fm_lock_release "$steal"
-    FM_LOCK_HELD_PID=$cur
-    FM_LOCK_OWNER_DIR=
-    return 1
-  fi
-  if fm_lock_mid_acquire_is_fresh "$lockdir" "$cur"; then
+  fm_lock_owner_state "$lockdir" "$cur"
+  owner_state=$?
+  if [ "$owner_state" -eq 0 ] || [ "$owner_state" -eq 2 ] \
+    || fm_lock_mid_acquire_is_fresh "$lockdir" "$cur"; then
     fm_lock_release "$steal"
     FM_LOCK_HELD_PID=$cur
     FM_LOCK_OWNER_DIR=

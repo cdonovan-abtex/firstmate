@@ -73,6 +73,7 @@ CURSOR_DIR="$STATE/remote-replies"
 REMOTE_LOG='state/parent-replies.status'
 WAIT_SECONDS=${FM_REMOTE_REPLY_WAIT_SECONDS:-55}
 MAX_DOC_BYTES=${FM_REMOTE_REPLY_MAX_DOC_BYTES:-262144}
+REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS=${FM_REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS:-5}
 # fm-on.sh returns ssh's status unchanged, so 255 alone means unavailable
 # transport or unknown remote completion. Any other nonzero status is the remote
 # reader's own refusal and will not change on a retry.
@@ -217,6 +218,45 @@ remote_route_exists() {
   [ "$remote" = 1 ] || die "secondmate $id is not a configured remote route"
 }
 
+# New remote lifecycle owners bind their numeric pid to a process birth identity.
+# The generic lock remains compatible with its legacy pid-only callers, while a
+# remote-reply record can reject a pid that now belongs to an unrelated process.
+remote_reply_lifecycle_lock_bind_owner() { # <lock>
+  local lock=$1 owner pid current identity recorded
+  if [ -L "$lock" ]; then
+    owner=$(fm_lock_link_owner "$lock" 2>/dev/null || true)
+  else
+    owner=$lock
+  fi
+  [ -n "$owner" ] || return 1
+  fm_current_pid current || return 1
+  pid=$(cat "$owner/pid" 2>/dev/null || true)
+  [ "$pid" = "$current" ] || return 1
+  identity=$(fm_lock_pid_identity "$current") || return 1
+  printf '%s\n' "$identity" > "$owner/owner-identity" 2>/dev/null || return 1
+  recorded=$(cat "$owner/owner-identity" 2>/dev/null || true)
+  [ "$recorded" = "$identity" ]
+}
+
+# A captured result must never wait forever behind a lifecycle owner.
+# A live legacy record has no identity evidence and remains protected, but this
+# bounded path leaves the capture durable and lets the runner publish its retry wake.
+remote_reply_lifecycle_lock_acquire() { # <lock>
+  local seconds=$REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS rc=0
+  case "$seconds" in ''|*[!0-9]*|0) die "remote reply lifecycle lock wait must be a positive integer" ;; esac
+  [ "$seconds" -le 300 ] || die "remote reply lifecycle lock wait exceeds 300 seconds"
+  fm_lock_acquire_wait_bounded "$1" "$seconds" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    remote_reply_lifecycle_lock_bind_owner "$1" || {
+      fm_lock_release "$1"
+      return 1
+    }
+  elif [ "$rc" -eq 124 ]; then
+    printf 'error: remote reply lifecycle owner remained live or identity-uncertain for %s seconds; captured result remains pending for retry\n' "$seconds" >&2
+  fi
+  return "$rc"
+}
+
 cmd_arm_locked() {
   local id=${1:-} sid
   validate_id "$id"
@@ -233,7 +273,7 @@ cmd_arm() {
   validate_id "$id"
   lock=$(secondmate_reply_lifecycle_lock_path "$STATE" "$id")
   (
-    fm_lock_acquire_wait "$lock" || die "cannot lock remote reply lifecycle for $id"
+    remote_reply_lifecycle_lock_acquire "$lock" || die "cannot lock remote reply lifecycle for $id"
     trap 'fm_lock_release "$lock"' EXIT
     cmd_arm_locked "$id"
   )
@@ -468,7 +508,7 @@ cmd_handle() {
   validate_id "$id"
   lock=$(secondmate_reply_lifecycle_lock_path "$STATE" "$id")
   (
-    fm_lock_acquire_wait "$lock" || die "cannot lock remote reply lifecycle for $id"
+    remote_reply_lifecycle_lock_acquire "$lock" || die "cannot lock remote reply lifecycle for $id"
     trap 'fm_lock_release "$lock"' EXIT
     cmd_handle_locked "$@"
   )
@@ -538,7 +578,7 @@ cmd_retire() {
   validate_id "$id"
   lock=$(secondmate_reply_lifecycle_lock_path "$STATE" "$id")
   (
-    fm_lock_acquire_wait "$lock" || die "cannot lock remote reply lifecycle for $id"
+    remote_reply_lifecycle_lock_acquire "$lock" || die "cannot lock remote reply lifecycle for $id"
     trap 'fm_lock_release "$lock"' EXIT
     cmd_retire_quiesce_locked "$id" "$force" || return 1
     cmd_retire_finalize_locked "$id" "$force"
@@ -546,7 +586,7 @@ cmd_retire() {
 }
 
 require_parent_lifecycle_lock() {
-  local id=$1 lock owner pid
+  local id=$1 lock owner pid recorded actual
   lock=$(secondmate_reply_lifecycle_lock_path "$STATE" "$id")
   if [ -L "$lock" ]; then
     owner=$(fm_lock_link_owner "$lock" 2>/dev/null || true)
@@ -555,7 +595,16 @@ require_parent_lifecycle_lock() {
     owner=$lock
   fi
   pid=$(cat "$owner/pid" 2>/dev/null || true)
-  [ "$pid" = "$PPID" ] || die "remote reply lifecycle lock is not held by the caller"
+  actual=$(fm_lock_pid_identity "$PPID" 2>/dev/null || true)
+  [ "$pid" = "$PPID" ] && [ -n "$actual" ] \
+    || die "remote reply lifecycle lock is not held by the caller"
+  recorded=$(cat "$owner/owner-identity" 2>/dev/null || true)
+  if [ -z "$recorded" ]; then
+    printf '%s\n' "$actual" > "$owner/owner-identity" 2>/dev/null \
+      || die "remote reply lifecycle lock ownership is invalid"
+    recorded=$(cat "$owner/owner-identity" 2>/dev/null || true)
+  fi
+  [ "$recorded" = "$actual" ] || die "remote reply lifecycle lock is not held by the caller"
 }
 
 case "${1:-}" in
