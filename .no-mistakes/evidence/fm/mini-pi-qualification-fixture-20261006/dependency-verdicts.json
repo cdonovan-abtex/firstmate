@@ -1,0 +1,42 @@
+[
+  {
+    "case": "Imported TS module without its executable companion",
+    "verdict": {
+      "status": "malformed",
+      "detail": "bash: /Users/abtex-mini/.no-mistakes/worktrees/58cdee354374/01M496VHA0F1NRTKZZJ1K1FWV6/.qualification-test-scratch/dependency-verdict/bin/fm-monitoring-stop.sh: No such file or directory"
+    },
+    "automaticMonitoringBlocked": true
+  },
+  {
+    "case": "Executable companion without its sourced parser",
+    "verdict": {
+      "status": "malformed",
+      "detail": "/Users/abtex-mini/.no-mistakes/worktrees/58cdee354374/01M496VHA0F1NRTKZZJ1K1FWV6/.qualification-test-scratch/dependency-verdict/bin/fm-monitoring-stop.sh: line 20: /Users/abtex-mini/.no-mistakes/worktrees/58cdee354374/01M496VHA0F1NRTKZZJ1K1FWV6/.qualification-test-scratch/dependency-verdict/bin/fm-monitoring-stop-lib.sh: No such file or directory\n/Users/abtex-mini/.no-mistakes/worktrees/58cdee354374/01M496VHA0F1NRTKZZJ1K1FWV6/.qualification-test-scratch/dependency-verdict/bin/fm-monitoring-stop.sh: line 32: fm_monitoring_stop_status: command not found\n/Users/abtex-mini/.no-mistakes/worktrees/58cdee354374/01M496VHA0F1NRTKZZJ1K1FWV6/.qualification-test-scratch/dependency-verdict/bin/fm-monitoring-stop.sh: line 34: FM_MONITORING_STOP_STATUS: unbound variable"
+    },
+    "automaticMonitoringBlocked": true
+  },
+  {
+    "case": "All three real dependencies; isolated home has no receipt",
+    "verdict": {
+      "status": "none",
+      "detail": ""
+    },
+    "automaticMonitoringBlocked": false
+  },
+  {
+    "case": "All real dependencies; malformed isolated stop receipt",
+    "verdict": {
+      "status": "malformed",
+      "detail": "receipt must contain valid JSON with exactly one object matching the required stop/resume schema, external-request audit schema when present, and effective home"
+    },
+    "automaticMonitoringBlocked": true
+  },
+  {
+    "case": "All real dependencies; valid completed isolated stop receipt",
+    "verdict": {
+      "status": "active",
+      "detail": ""
+    },
+    "automaticMonitoringBlocked": true
+  }
+]

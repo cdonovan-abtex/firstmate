@@ -1,0 +1,13 @@
+# Mini Pi fixture qualification
+
+The unmodified committed pre-fix test from 69f5f9c69f01551761bba1679b11d750e0ff54cd failed before assertions with ERR_MODULE_NOT_FOUND for fm-monitoring-stop.ts. The unmodified tracked test at 533361492d4e1712750ca3aef80fd0590f9b0bef passed all six probes against installed Pi SDK 1.0.4 and Node v25.9.0.
+
+Both were invoked through `bash bin/fm-test-run.sh tests/fm-pi-branch-live-e2e.test.sh` with `FM_PI_BRANCH_LIVE_E2E=1`, `FM_PI_PACKAGE_DIR=/Users/abtex-mini/.local/lib/node_modules/@earendil-works/pi-coding-agent`, and dedicated TMPDIRs under the worktree. The pre-fix tree was obtained with `git archive 69f5f9c69f01551761bba1679b11d750e0ff54cd bin tests .pi` and its test bytes checked against the committed file. No patched test substituted for either run.
+
+`qualification-capture.py` passively read fixture outputs and persisted sessions before their normal cleanup. The transcripts contain the exact invocations and observed failures/results. `tracked-fix-fixture-runtime.json` retains raw SDK-produced session records, durable wake rows, branch-session pointers, and watcher confirmations. Standalone persisted session artifacts show the settled provider 429, the visible custom outcome, and both streaming and idle wake deliveries.
+
+Disconfirming evidence: importing the TS dependency alone still returns malformed monitoring state because the executable is absent. Supplying the executable alone still returns malformed state because its sourced parser is absent. Supplying the three real dependencies produces none for an empty isolated home; malformed and completed active receipts still block automatic monitoring. These public-interface results are preserved in dependency-verdicts.json.
+
+Additional artifact check: the actual saved delivery session was reopened with the real SessionManager and rendered using the real InteractiveMode and tracked extension. The summary appeared exactly once and remained excluded from model context. A first supplementary capture used 120 columns and its exact contiguous-string assertion failed because the text wrapped; the capture was retried at the tracked test's 240-column width and passed. This was an evidence-capture assertion, not a failure of the existing real-SDK test. The rendered HTML preserves the SDK-rendered transcript text; ANSI terminal controls were removed for browser display.
+
+Only qualification and isolated fixture activity were exercised. Production files, tools, accounts, credentials, live homes, monitoring receipts, OpenCode, and other qualification lanes were not changed. No provider request left the machine in the existing test's intercepted/local-provider probes. Push, PR, CI, and merge decisions remain with the outer executor.
