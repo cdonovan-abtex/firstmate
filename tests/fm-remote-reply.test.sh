@@ -13,21 +13,68 @@ PARENT="$TMP_ROOT/parent"
 REMOTE="$TMP_ROOT/remote"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/fake")
 CLAIMS="$TMP_ROOT/claims"
-LOCK_FIXTURE_PIDS=()
+LOCK_FIXTURE_OWNERS=()
 mkdir -p "$PARENT/data" "$PARENT/state" "$REMOTE/state" "$REMOTE/data/reply" "$CLAIMS"
 # shellcheck source=bin/fm-remote-job-lib.sh
 . "$ROOT/bin/fm-remote-job-lib.sh"
+lock_fixture_forget() {
+  local pid=$1 record retained=()
+  for record in ${LOCK_FIXTURE_OWNERS[@]+"${LOCK_FIXTURE_OWNERS[@]}"}; do
+    [ "${record%%$'\t'*}" = "$pid" ] || retained+=("$record")
+  done
+  LOCK_FIXTURE_OWNERS=(${retained[@]+"${retained[@]}"})
+}
+
+lock_fixture_track() {
+  local pid=$1 identity
+  identity=$(pid_identity "$pid") || return 1
+  [ -n "$identity" ] || return 1
+  lock_fixture_forget "$pid"
+  LOCK_FIXTURE_OWNERS+=("$pid"$'\t'"$identity")
+}
+
+lock_fixture_signal() {
+  local record=$1 pid identity actual
+  pid=${record%%$'\t'*}
+  identity=${record#*$'\t'}
+  [ "$identity" != "$record" ] && [ -n "$identity" ] || return 1
+  actual=$(pid_identity "$pid" 2>/dev/null) || return 1
+  [ "$actual" = "$identity" ] || return 1
+  kill "$pid" 2>/dev/null
+}
+
+lock_fixture_stop() {
+  local pid=$1 record
+  for record in ${LOCK_FIXTURE_OWNERS[@]+"${LOCK_FIXTURE_OWNERS[@]}"}; do
+    [ "${record%%$'\t'*}" = "$pid" ] || continue
+    if lock_fixture_signal "$record" || ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid" 2>/dev/null || true
+    fi
+    lock_fixture_forget "$pid"
+    return 0
+  done
+}
+
+lock_fixture_cleanup() {
+  local record pid pending=()
+  for record in ${LOCK_FIXTURE_OWNERS[@]+"${LOCK_FIXTURE_OWNERS[@]}"}; do
+    pid=${record%%$'\t'*}
+    if lock_fixture_signal "$record" || ! kill -0 "$pid" 2>/dev/null; then
+      pending+=("$pid")
+    fi
+  done
+  for pid in ${pending[@]+"${pending[@]}"}; do
+    wait "$pid" 2>/dev/null || true
+  done
+  LOCK_FIXTURE_OWNERS=()
+}
+
 # The recorded worker pid is the serving child, not its restart supervisor, so
 # stopping that pid alone leaves the supervisor to respawn - the leak
 # tests/fm-remote-job-orphan-reap.test.sh pins. Stop the whole worker tree.
 cleanup() {
-  local worker_pid='' fixture_pid
-  for fixture_pid in "${LOCK_FIXTURE_PIDS[@]}"; do
-    kill "$fixture_pid" 2>/dev/null || true
-  done
-  for fixture_pid in "${LOCK_FIXTURE_PIDS[@]}"; do
-    wait "$fixture_pid" 2>/dev/null || true
-  done
+  local worker_pid=''
+  lock_fixture_cleanup
   FM_HOME="$PARENT" FM_PROCEVENT_CLAIM_ROOT="$CLAIMS" \
     "$ROOT/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
   if [ -f "$TMP_ROOT/remote-jobs/worker.pid" ]; then
@@ -117,6 +164,33 @@ sha256_file() {
   fi
 }
 
+lock_fixture_cleanup
+[ -z "${LOCK_FIXTURE_OWNERS[0]:-}" ] || fail "empty fixture cleanup created an owner record"
+pass "empty fixture tracking survives cleanup under nounset"
+
+"$(command -v sleep)" 30 &
+cleanup_fixture_pid=$!
+lock_fixture_track "$cleanup_fixture_pid" || fail "could not track the cleanup fixture"
+[ -n "${LOCK_FIXTURE_OWNERS[0]:-}" ] || fail "tracking did not record the fixture owner"
+lock_fixture_stop "$cleanup_fixture_pid"
+[ -z "${LOCK_FIXTURE_OWNERS[0]:-}" ] || fail "stopped and reaped fixture remained tracked"
+lock_fixture_cleanup
+kill -0 "$cleanup_fixture_pid" 2>/dev/null && fail "stopping a tracked fixture left it alive"
+pass "stopped and reaped fixtures are removed before later cleanup"
+
+"$(command -v sleep)" 30 &
+cleanup_fixture_pid=$!
+lock_fixture_track "$cleanup_fixture_pid" || fail "could not track the mismatched cleanup fixture"
+LOCK_FIXTURE_OWNERS[0]="$cleanup_fixture_pid"$'\t'reused-cleanup-birth
+lock_fixture_cleanup
+cleanup_remaining_record=${LOCK_FIXTURE_OWNERS[0]:-}
+kill -0 "$cleanup_fixture_pid" 2>/dev/null || fail "cleanup signalled a process with a mismatched birth identity"
+lock_fixture_track "$cleanup_fixture_pid" || fail "could not restore the actual cleanup fixture owner"
+[ -z "$cleanup_remaining_record" ] || fail "cleanup retained an unrelated process record"
+lock_fixture_cleanup
+kill -0 "$cleanup_fixture_pid" 2>/dev/null && fail "cleanup left its identity-matched fixture alive"
+pass "cleanup preserves mismatched processes and stops identity-matched fixtures"
+
 ADAPTER="$ROOT/bin/fm-procevent-remote-reply.sh"
 SID=$(remote_env "$ADAPTER" source-id ios)
 out=$(remote_env "$ADAPTER" arm ios)
@@ -205,7 +279,7 @@ pass "replayed capture has one deduplicated append and one durable handling iden
 # the runner publish the durable retry notification.
 "$(command -v sleep)" 30 &
 legacy_owner_pid=$!
-LOCK_FIXTURE_PIDS+=("$legacy_owner_pid")
+lock_fixture_track "$legacy_owner_pid" || fail "could not track the legacy lifecycle owner"
 write_lifecycle_owner "$legacy_owner_pid" || fail "could not create a legacy lifecycle owner"
 printf 'done [key=legacy-owner]: captured result waits for an uncertain legacy owner\n' \
   >> "$REMOTE/state/parent-replies.status"
@@ -220,8 +294,7 @@ assert_grep "procevent remote-reply $SID 2" "$PARENT/state/.wake-queue" \
   "bounded lifecycle-owner contention did not surface the captured result"
 assert_present "$PARENT/state/.remote-reply-lifecycle-ios.lock" \
   "legacy live lifecycle owner was not protected"
-kill "$legacy_owner_pid" 2>/dev/null || true
-wait "$legacy_owner_pid" 2>/dev/null || true
+lock_fixture_stop "$legacy_owner_pid"
 FM_REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS=1 remote_env "$ADAPTER" handle ios 2 "$RESULT_LEGACY" >/dev/null \
   || fail "captured result did not replay after its legacy owner exited"
 assert_present "$PARENT/state/procevent-inbox/$SID.2.handled" \
@@ -237,7 +310,7 @@ pass "a legacy live lifecycle owner is bounded, surfaced, and replayed without g
 # an unrelated process is reclaimed without signalling that process.
 "$(command -v sleep)" 30 &
 reused_owner_pid=$!
-LOCK_FIXTURE_PIDS+=("$reused_owner_pid")
+lock_fixture_track "$reused_owner_pid" || fail "could not track the reused-pid lifecycle owner"
 write_lifecycle_owner "$reused_owner_pid" 'reused-pid-identity' \
   || fail "could not create a reused-pid lifecycle owner"
 rm -f "$PARENT/state/procevent-inbox/$SID.2.handled"
@@ -252,15 +325,14 @@ assert_absent "$PARENT/state/.remote-reply-lifecycle-ios.lock" \
   "reused-pid lifecycle owner was not reclaimed"
 assert_present "$PARENT/state/procevent/$SID.source" \
   "reused-pid replay did not re-arm the remote source"
-kill "$reused_owner_pid" 2>/dev/null || true
-wait "$reused_owner_pid" 2>/dev/null || true
+lock_fixture_stop "$reused_owner_pid"
 pass "a reused lifecycle pid is rejected without harming its unrelated process"
 
 # The complementary identity match remains protected even when an application
 # caller is willing to wait only one second.
 "$(command -v sleep)" 30 &
 live_owner_pid=$!
-LOCK_FIXTURE_PIDS+=("$live_owner_pid")
+lock_fixture_track "$live_owner_pid" || fail "could not track the live lifecycle owner"
 live_owner_identity=$(pid_identity "$live_owner_pid") \
   || fail "could not identify the live lifecycle owner"
 write_lifecycle_owner "$live_owner_pid" "$live_owner_identity" \
@@ -276,15 +348,14 @@ assert_present "$PARENT/state/.remote-reply-lifecycle-ios.lock" \
   "live identity-matched lifecycle owner was reclaimed"
 kill -0 "$live_owner_pid" 2>/dev/null \
   || fail "live lifecycle-owner protection signalled its owner"
-kill "$live_owner_pid" 2>/dev/null || true
-wait "$live_owner_pid" 2>/dev/null || true
+lock_fixture_stop "$live_owner_pid"
 remote_env "$ADAPTER" arm ios >/dev/null || fail "source could not re-arm after live owner exit"
 pass "an identity-matched live lifecycle owner remains protected"
 
 for inner_lock in "$PARENT/state/.remote-reply-ingest-ios.lock" "$CLAIMS/$SID.lock"; do
   "$(command -v sleep)" 30 &
   inner_owner_pid=$!
-  LOCK_FIXTURE_PIDS+=("$inner_owner_pid")
+  lock_fixture_track "$inner_owner_pid" || fail "could not track the legacy inner-lock owner"
   write_lock_owner "$inner_lock" "$inner_owner_pid" \
     || fail "could not install the legacy inner-lock owner"
   rm -f "$PARENT/state/procevent-inbox/$SID.2.handled" \
@@ -307,8 +378,7 @@ for inner_lock in "$PARENT/state/.remote-reply-ingest-ios.lock" "$CLAIMS/$SID.lo
   [ ! -e "$PARENT/state/.remote-reply-lifecycle-ios.lock" ] \
     && [ ! -L "$PARENT/state/.remote-reply-lifecycle-ios.lock" ] \
     || fail "inner-lock contention leaked the lifecycle lock"
-  kill "$inner_owner_pid" 2>/dev/null || true
-  wait "$inner_owner_pid" 2>/dev/null || true
+  lock_fixture_stop "$inner_owner_pid"
   remote_env "$ADAPTER" handle ios 2 "$RESULT_LEGACY" >/dev/null \
     || fail "reply application did not recover after its inner owner exited"
   assert_present "$PARENT/state/procevent-inbox/$SID.2.handled" \
@@ -318,7 +388,7 @@ for inner_lock in "$PARENT/state/.remote-reply-ingest-ios.lock" "$CLAIMS/$SID.lo
 
   "$(command -v sleep)" 30 &
   inner_owner_pid=$!
-  LOCK_FIXTURE_PIDS+=("$inner_owner_pid")
+  lock_fixture_track "$inner_owner_pid" || fail "could not track the reused-pid inner-lock owner"
   write_lock_owner "$inner_lock" "$inner_owner_pid" reused-pid-identity \
     || fail "could not install the reused-pid inner-lock owner"
   rm -f "$PARENT/state/procevent-inbox/$SID.2.handled" \
@@ -335,25 +405,31 @@ for inner_lock in "$PARENT/state/.remote-reply-ingest-ios.lock" "$CLAIMS/$SID.lo
   [ ! -e "$inner_lock" ] && [ ! -L "$inner_lock" ] \
     || fail "reused-pid inner-lock recovery left its lock behind"
   kill -0 "$inner_owner_pid" 2>/dev/null || fail "reused-pid inner-lock recovery signalled its owner"
-  kill "$inner_owner_pid" 2>/dev/null || true
-  wait "$inner_owner_pid" 2>/dev/null || true
+  lock_fixture_stop "$inner_owner_pid"
 done
 pass "legacy ingest and source locks are bounded and reused inner pids are reclaimed"
 
 handoff_lock="$PARENT/state/.test-handoff.lock"
-remote_env bash -c '
+FM_HOME="$PARENT" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PARENT/state" /bin/bash -c '
   . "$1/bin/fm-wake-lib.sh"
   fm_lock_acquire_wait "$2" || exit 1
   trap '\''fm_lock_release "$2"'\'' EXIT
   fm_current_pid owner_pid
   [ "$(cat "$2/owner-identity")" = "$(fm_lock_pid_identity "$owner_pid")" ] || exit 2
-  printf '%s\n' "$owner_pid" > "$3"
-  while [ ! -e "$4" ]; do sleep 0.05; done
+  printf "%s\n" "$owner_pid" > "$3.tmp" || exit 3
+  mv -f -- "$3.tmp" "$3" || exit 3
+  for _ in $(seq 1 200); do
+    [ -e "$4" ] && break
+    sleep 0.05
+  done
+  [ -e "$4" ] || exit 4
 ' _ "$ROOT" "$handoff_lock" "$TMP_ROOT/handoff-ready" "$TMP_ROOT/handoff-release" &
 handoff_owner_pid=$!
-LOCK_FIXTURE_PIDS+=("$handoff_owner_pid")
+lock_fixture_track "$handoff_owner_pid" || fail "could not track the handoff publisher"
 wait_for "$TMP_ROOT/handoff-ready" || fail "shared lock publication did not bind its owner's identity"
-LOCK_FIXTURE_PIDS+=("$(cat "$TMP_ROOT/handoff-ready")")
+handoff_child_pid=$(cat "$TMP_ROOT/handoff-ready")
+[ "$handoff_child_pid" = "$handoff_owner_pid" ] \
+  || fail "handoff fixture owner differs from its tracked pid: $handoff_child_pid != $handoff_owner_pid"
 remote_env bash -c '
   . "$1/bin/fm-wake-lib.sh"
   _fm_wake_require_timeout
@@ -375,6 +451,7 @@ remote_env bash -c '
 ' _ "$ROOT" "$handoff_lock" "$TMP_ROOT/handoff-release" \
   || fail "bounded shared lock handoff did not bind and protect its caller identity"
 wait "$handoff_owner_pid" || fail "shared lock publisher failed"
+lock_fixture_forget "$handoff_owner_pid"
 [ ! -e "$handoff_lock" ] && [ ! -L "$handoff_lock" ] \
   || fail "shared lock handoff leaked its owner record"
 pass "shared lock publication and bounded handoff bind the actual owner's birth identity"
