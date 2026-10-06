@@ -232,6 +232,23 @@ test_drain_dedupes_obvious_duplicates() {
 # plain drain-and-handle turn that runs no other supervision script. It must warn
 # when work is in flight with no live watcher, and stay silent right after a
 # normal fire from a live watcher with a fresh beacon, so it never false-alarms.
+install_one_cycle_sleep() {
+  local fakebin=$1 real_sleep
+  real_sleep=$(command -v sleep)
+  cat > "$fakebin/sleep" <<SH
+#!/usr/bin/env bash
+# End a quiet watcher after its completed poll, rather than racing startup.
+# Scan checkpoints use handling successors to avoid unrelated downtime wakes.
+if [ "\${1:-}" = 1 ]; then
+  cat "\$FM_FAKE_NOW_FILE" > "$fakebin/poll-completed"
+  kill -TERM "\$PPID"
+  exit 0
+fi
+exec "$real_sleep" "\$@"
+SH
+  chmod +x "$fakebin/sleep"
+}
+
 test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once() {
   local dir state sub fakebin out row_before row_after stall_count real_date
   dir=$(make_case secondmate-foreign-stall)
@@ -243,6 +260,7 @@ test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once() {
   printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
     "$sub" > "$state/mate.meta"
   fakebin="$dir/fakebin"
+  install_one_cycle_sleep "$fakebin"
   real_date=$(command -v date)
   cat > "$fakebin/date" <<SH
 #!/usr/bin/env bash
@@ -261,8 +279,8 @@ SH
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-first.out" 2> "$dir/watch-first.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-first.out" 2> "$dir/watch-first.err" || true
   [ ! -s "$state/.wake-queue" ] \
     || fail "the first observation of an old foreign row produced an age-only alert"
 
@@ -273,8 +291,8 @@ SH
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-progress.out" 2> "$dir/watch-progress.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-progress.out" 2> "$dir/watch-progress.err" || true
   [ ! -s "$state/.wake-queue" ] \
     || fail "an advancing foreign queue produced a stall alert because its oldest row was old"
 
@@ -288,8 +306,8 @@ SH
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$out" 2> "$dir/watch-stalled.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$out" 2> "$dir/watch-stalled.err" || true
   grep -F 'check: secondmate wake-loop stalled: mate=mate row=8 idle=2s' "$out" >/dev/null \
     || fail "a foreign queue with no progress did not alert: $(cat "$out")"
   stall_count=$(grep -c 'secondmate-wake-loop-mate-' "$state/.wake-queue" || true)
@@ -308,8 +326,8 @@ SH
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-next.out" 2> "$dir/watch-next.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-next.out" 2> "$dir/watch-next.err" || true
   [ ! -s "$state/.wake-queue" ] \
     || fail "a newly-oldest row cascaded an immediate second alert after progress"
   cp "$sub/state/.wake-queue" "$row_after"
@@ -321,8 +339,8 @@ SH
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-refrozen.out" 2> "$dir/watch-refrozen.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-refrozen.out" 2> "$dir/watch-refrozen.err" || true
   grep -F 'check: secondmate wake-loop stalled: mate=mate row=9 idle=2s' "$dir/watch-refrozen.out" >/dev/null \
     || fail "a genuine later no-progress episode was hidden after earlier progress"
   stall_count=$(grep -c 'secondmate-wake-loop-mate-' "$state/.wake-queue" || true)
@@ -339,6 +357,7 @@ test_secondmate_declared_pause_rows_do_not_feed_stall_escalation() {
   printf 'mate\n' > "$sub/.fm-secondmate-home"
   printf 'window=firstmate:fm-mate\nkind=secondmate\nhome=%s\n' "$sub" > "$state/mate.meta"
   fakebin="$dir/fakebin"
+  install_one_cycle_sleep "$fakebin"
   real_date=$(command -v date)
   cat > "$fakebin/date" <<SH
 #!/usr/bin/env bash
@@ -357,14 +376,18 @@ EOF
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-first.out" 2> "$dir/watch-first.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-first.out" 2> "$dir/watch-first.err" || true
   printf '5000\n' > "$dir/now"
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-second.out" 2> "$dir/watch-second.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-second.out" 2> "$dir/watch-second.err" || true
+  # The receipt is the test sleep shim's completed-cycle contract, so a silent
+  # startup failure cannot make the negative assertion pass without a scan.
+  cmp -s "$dir/now" "$fakebin/poll-completed" \
+    || fail "the declared-pause watcher did not complete its observation cycle"
   [ ! -s "$state/.wake-queue" ] \
     || fail "declared external-wait rows fed the secondmate wake-loop escalation"
   ! grep -F 'secondmate wake-loop stalled' "$dir/watch-first.out" "$dir/watch-second.out" >/dev/null \
@@ -388,6 +411,7 @@ test_secondmate_reprovisioned_queue_starts_a_fresh_interval() {
   printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
     "$sub" > "$state/mate.meta"
   fakebin="$dir/fakebin"
+  install_one_cycle_sleep "$fakebin"
   real_date=$(command -v date)
   cat > "$fakebin/date" <<SH
 #!/usr/bin/env bash
@@ -405,8 +429,8 @@ SH
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-old.out" 2> "$dir/watch-old.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-old.out" 2> "$dir/watch-old.err" || true
   [ ! -s "$state/.wake-queue" ] || fail "the first observation of the retired generation alerted"
 
   # Reprovisioning under the same task id restarts the sequence on 9 again, long
@@ -417,8 +441,8 @@ SH
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-regen.out" 2> "$dir/watch-regen.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-regen.out" 2> "$dir/watch-regen.err" || true
   [ ! -s "$state/.wake-queue" ] \
     || fail "a reprovisioned queue generation inherited the retired generation's idle interval and alerted"
 
@@ -427,8 +451,8 @@ SH
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 1 > "$dir/watch-regen-frozen.out" 2> "$dir/watch-regen-frozen.err" || true
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 10 > "$dir/watch-regen-frozen.out" 2> "$dir/watch-regen-frozen.err" || true
   grep -F 'check: secondmate wake-loop stalled: mate=mate row=9 idle=2s' "$dir/watch-regen-frozen.out" >/dev/null \
     || fail "a frozen reprovisioned queue generation was hidden: $(cat "$dir/watch-regen-frozen.out")"
   pass "a reprovisioned queue generation starts a fresh no-progress interval"
@@ -725,7 +749,7 @@ test_enrichment_preserves_all_unread_lines_and_status_file_failures() {
   [ "$raw_count" -eq 13 ] || fail "missing, unreadable, malformed, empty, or oversized status input hid a raw row"
 
   expected="wake annotation: latest wake-EVENT observed at drain, not current state: huge.status: $(cat "$state/huge.status")"
-  grep -Fx "$expected" "$out" >/dev/null \
+  awk -v expected="$expected" '$0 == expected { found = 1 } END { exit !found }' "$out" \
     || fail "the oversized unread status line was truncated or omitted"
   i=1
   while [ "$i" -le 8 ]; do
@@ -1913,6 +1937,87 @@ test_historical_annotation_skips_announced_status() {
   pass "historical annotations replay nothing already announced and keep everything new"
 }
 
+test_lock_publication_does_not_follow_competing_owner() {
+  local dir state real_ln
+  dir=$(make_case lock-publication-race)
+  state="$dir/state"
+  mkdir "$dir/winner" "$dir/replacement"
+  real_ln=$(command -v ln)
+  # Insert and then replace a competing owner around the actual ln invocation.
+  # The losing publication must leave both owners' directories untouched.
+  cat > "$dir/fakebin/ln" <<'SH'
+#!/usr/bin/env bash
+lock=${@: -1}
+"$FM_REAL_LN" -s "$FM_RACE_WINNER" "$lock" || exit 10
+"$FM_REAL_LN" "$@"
+rc=$?
+rm "$lock" || exit 11
+"$FM_REAL_LN" -s "$FM_RACE_REPLACEMENT" "$lock" || exit 12
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/ln"
+  # shellcheck disable=SC2016 # Positional parameters expand in the child shell.
+  PATH="$dir/fakebin:$PATH" FM_REAL_LN="$real_ln" FM_RACE_WINNER="$dir/winner" \
+    FM_RACE_REPLACEMENT="$dir/replacement" FM_STATE_OVERRIDE="$state" bash -c '
+      . "$1"
+      fm_lock_try_create "$2" && exit 10
+      [ "$(readlink "$2")" = "$3" ] || exit 11
+    ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.fixture.lock" "$dir/replacement" \
+    || fail "losing publication changed a competing lock"
+  [ -z "$(ls -A "$dir/winner")" ] || fail "publication followed a competing owner symlink"
+  [ -z "$(ls -A "$dir/replacement")" ] || fail "publication modified the replacement owner"
+  [ "$(ls -A "$state")" = .fixture.lock ] || fail "losing publication left an orphaned owner directory"
+  pass "losing lock publication never follows or modifies a competing owner symlink"
+}
+
+test_lock_creation_identity_failure_does_not_recurse() {
+  local dir state rc=0
+  dir=$(make_case lock-identity-unavailable)
+  state="$dir/state"
+  # shellcheck source=/dev/null # Production modules are linted independently.
+  . "$ROOT/bin/fm-timeout-lib.sh"
+  # shellcheck disable=SC2016 # Positional parameters expand in the child shell.
+  fm_run_timed 2 env FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_pid_identity() { return 1; }
+    fm_lock_try_acquire "$2"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.fixture.lock" \
+    > "$dir/out" 2> "$dir/err" || rc=$?
+  [ "$rc" -eq 1 ] || fail "identity-unavailable creation did not return failure (rc=$rc)"
+  [ ! -s "$dir/err" ] || fail "identity-unavailable creation recursed or emitted an error"
+  [ -z "$(ls -A "$state")" ] || fail "identity-unavailable creation left lock artifacts"
+  pass "unavailable lock identity returns failure without recursion or orphaned owners"
+}
+
+test_lock_publication_does_not_repeat_identity_probe() {
+  local dir state rc=0
+  dir=$(make_case lock-prepared-identity)
+  state="$dir/state"
+  # shellcheck disable=SC2016 # Positional parameters expand in the child shell.
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_pid_identity() {
+      [ ! -e "$probe" ] || return 1
+      printf "probed\n" > "$probe"
+      printf "fixture-birth=%s\n" "$1"
+    }
+    probe=$3
+    fm_lock_try_acquire "$2" || exit 10
+    fm_current_pid current || exit 11
+    [ "$(cat "$2/pid")" = "$current" ] || exit 12
+    [ "$(cat "$2/owner-identity")" = "fixture-birth=$current" ] || exit 13
+    fm_lock_release "$2"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.fixture.lock" "$dir/probe" \
+    > "$dir/out" 2> "$dir/err" || rc=$?
+  [ "$rc" -eq 0 ] || fail "prepared ownership was reprobed during publication (rc=$rc)"
+  [ -f "$dir/probe" ] || fail "lock creation never probed its birth identity"
+  [ -z "$(ls -A "$state")" ] || fail "released prepared lock left artifacts"
+  pass "lock publication preserves prepared ownership without a second identity probe"
+}
+
+test_lock_publication_does_not_follow_competing_owner
+test_lock_creation_identity_failure_does_not_recurse
+test_lock_publication_does_not_repeat_identity_probe
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_subshell_lock_ownership_without_bashpid
 test_bounded_lock_handoff_after_contention

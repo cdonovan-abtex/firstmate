@@ -1028,6 +1028,10 @@ H_FLOW="$HOMES/flow"; new_home "$H_FLOW"
 flow_bind=$(bind_package "$H_FLOW" "$P_FLOW" ext-flow)
 flow_binding_digest=$(printf '%s\n' "$flow_bind" | sed -n 's/^binding-digest: //p')
 case "$flow_binding_digest" in sha256:*) ;; *) fail "local bind returned no binding retirement identity" ;; esac
+for lifecycle_artifact in "$H_FLOW/state/procevent/.extension-binding-lifecycle.lock" \
+  "$H_FLOW/state/procevent/.extension-binding-lifecycle.lock.owner."*; do
+  assert_absent "$lifecycle_artifact" "binding left a lifecycle lock or owner directory behind"
+done
 registration=$(FM_HOME="$H_FLOW" "$PROCEVENT" register-extension ext-flow flow-source --config-ref good)
 assert_contains "$registration" "org.example.flow@1.2.3" "extension registration omits its exact owner identity"
 owner_one=$(printf '%s\n' "$registration" | sed -n 's/^owner-token: //p')
@@ -1092,6 +1096,10 @@ assert_present "$H_FLOW/config/extensions.d/org.example.flow.json" "stale identi
 expect_failure "unhandled process-event result" env FM_HOME="$H_FLOW" "$HOST" retire-binding org.example.flow --if-binding-digest "$flow_binding_digest"
 FM_HOME="$H_FLOW" "$PROCEVENT" handled flow-source 1 >/dev/null
 FM_HOME="$H_FLOW" "$HOST" retire-binding org.example.flow --if-binding-digest "$flow_binding_digest" >/dev/null
+for lifecycle_artifact in "$H_FLOW/state/procevent/.extension-binding-lifecycle.lock" \
+  "$H_FLOW/state/procevent/.extension-binding-lifecycle.lock.owner."*; do
+  assert_absent "$lifecycle_artifact" "binding retirement left a lifecycle lock or owner directory behind"
+done
 assert_absent "$H_FLOW/config/extensions.d/org.example.flow.json" "exact local binding retirement left discovery enabled"
 assert_present "$H_FLOW/data/extensions/retired-bindings/org.example.flow/${flow_binding_digest#sha256:}.json" "local binding retirement was not reversible"
 expect_failure "no home-local extension binding" env FM_HOME="$H_FLOW" "$HOST" resolve-process-event ext-flow

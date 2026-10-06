@@ -522,11 +522,8 @@ fm_lock_claim_blocked_by_steal() {
 }
 
 fm_lock_claim() {
-  local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-}
-  if ! fm_lock_prepare_owner "$ownerdir"; then
-    fm_lock_discard_owner "$ownerdir"
-    return 1
-  fi
+  local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-} mypid
+  fm_current_pid mypid || return 1
   if ! fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
     fm_lock_discard_owner "$ownerdir"
     return 1
@@ -535,6 +532,12 @@ fm_lock_claim() {
     if fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
       rm -f "$lockdir" 2>/dev/null || true
     fi
+    fm_lock_discard_owner "$ownerdir"
+    return 1
+  fi
+  # Ownership was prepared before publication. Rewriting it here exposes an
+  # empty pid to contenders and needlessly repeats process identity probes.
+  if [ "$(cat "$ownerdir/pid" 2>/dev/null || true)" != "$mypid" ]; then
     fm_lock_discard_owner "$ownerdir"
     return 1
   fi
@@ -553,7 +556,9 @@ fm_lock_try_create() {
     fm_lock_discard_owner "$ownerdir"
     return 1
   fi
-  if ln -s "$ownerdir" "$lockdir" 2>/dev/null && fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
+  # A contender can publish after the existence check. Do not follow its
+  # symlink and accidentally insert our link inside its owner directory.
+  if ln -sn "$ownerdir" "$lockdir" 2>/dev/null && fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
     if fm_lock_claim "$lockdir" "$ownerdir" "$allowed_steal_owner"; then
       FM_LOCK_OWNER_DIR=$ownerdir
       return 0
@@ -946,6 +951,11 @@ fm_lock_try_acquire() {
   if fm_lock_try_create "$lockdir"; then
     return 0
   fi
+
+  # Failed creation without an existing owner is not stale-owner contention.
+  # In particular, an unavailable identity probe must not recurse into an
+  # unbounded chain of .steal locks that cannot be created either.
+  [ -e "$lockdir" ] || [ -L "$lockdir" ] || return 1
 
   fm_current_pid current || return 1
   pid=$(cat "$lockdir/pid" 2>/dev/null || true)

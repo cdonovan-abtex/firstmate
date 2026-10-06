@@ -708,6 +708,8 @@ test_build_fails_when_reconcile_cannot_establish_a_listener() {
   sid=$(run_lavish_source_id "$home" "$home/.lavish/bearings-board.html")
   cat > "$home/fakebin/ps" <<'SH'
 #!/usr/bin/env bash
+# Keep generic lock birth probes available; fail the runner identity probe.
+[ "$#" -eq 4 ] && [ "$3" = -o ] && [ "$4" = lstart= ] && exec /bin/ps "$@"
 exit 1
 SH
   chmod +x "$home/fakebin/ps"

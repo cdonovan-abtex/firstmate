@@ -1118,11 +1118,13 @@ for _ in $(seq 1 24); do
   pe "$HR" start race-src >/dev/null &
   race_pids+=("$!")
 done
-wait_for "$RACE_LOG" || fail "no contender acquired the stale claim"
-sleep 0.5
+# Twenty-four real starters can take longer than the ordinary ten-second
+# fixture window on macOS, where lock birth identity requires ps probes.
+wait_for "$RACE_LOG" 300 || fail "no contender acquired the stale claim"
 [ "$(wc -l < "$RACE_LOG" | tr -d ' ')" = 1 ] || fail "stale-claim race started more than one runner"
 : > "$RACE_TRIGGER"
 for race_pid in "${race_pids[@]}"; do wait "$race_pid" 2>/dev/null || true; done
+[ "$(wc -l < "$RACE_LOG" | tr -d ' ')" = 1 ] || fail "stale-claim race started a second runner after release"
 pass "concurrent stale-claim replacement starts exactly one runner"
 
 # --- a crashed runner leader must not make its live child group look stale ---
@@ -1846,6 +1848,8 @@ identity_pid=$(sed -n '2p' "$FM_PROCEVENT_CLAIM_ROOT/identity-src.claim")
 IDENTITY_FAKEBIN=$(fm_fakebin "$TMP_ROOT/identity-tools")
 cat > "$IDENTITY_FAKEBIN/ps" <<'SH'
 #!/usr/bin/env bash
+# Keep generic lock birth probes available; fail the runner identity probe.
+[ "$#" -eq 4 ] && [ "$3" = -o ] && [ "$4" = lstart= ] && exec /bin/ps "$@"
 exit 1
 SH
 chmod +x "$IDENTITY_FAKEBIN/ps"
