@@ -1341,7 +1341,9 @@ for (const { name, actual } of rows) {
 async function assertStockHtmlRendering(command, submitData) {
   editorText = command;
   terminalInputHandler(submitData);
+  // Resolve renderers through either the current or pre-1.0 Pi SDK interface.
   const htmlRenderer = createToolHtmlRenderer({
+    getToolRenderers: (name) => tools.find((tool) => tool.name === name),
     getToolDefinition: (name) => tools.find((tool) => tool.name === name),
     theme,
     cwd: process.cwd(),
@@ -1373,6 +1375,7 @@ getKeybindings().setUserBindings({ "tui.input.submit": "alt+s" });
 editorText = "/export remapped.html";
 terminalInputHandler("\r");
 const unmatchedRenderer = createToolHtmlRenderer({
+  getToolRenderers: (name) => tools.find((tool) => tool.name === name),
   getToolDefinition: (name) => tools.find((tool) => tool.name === name),
   theme,
   cwd: process.cwd(),
@@ -3607,7 +3610,10 @@ TS
 {"type":"message","id":"a0000016","parentId":"a0000015","timestamp":"$now","message":{"role":"assistant","content":[{"type":"text","text":"The deterministic tool example is complete."}],"api":"anthropic-messages","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":2,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":3,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":16}}
 JSON
 
-  tmux -L "$TMUX_SOCKET" new-session -d -s "$TMUX_SESSION" -x 180 -y 44 \
+  # Keep the seeded conversation in the viewport: a restore redraw can clear
+  # off-screen rows from terminal scrollback. Resize checks below still use
+  # their original small terminal dimensions.
+  tmux -L "$TMUX_SOCKET" new-session -d -s "$TMUX_SESSION" -x 180 -y 200 \
     "cd '$project' && env FM_HOME='$home' PI_CODING_AGENT_DIR='$config' FM_OPERATIONAL_INPUT_SCRIPT='$OPERATIONAL_INPUT' PI_OFFLINE=1 pi --approve --no-skills --no-prompt-templates --no-context-files --session '$session_file'; rc=\$?; printf '\nPI_EXIT=%s\n' \"\$rc\"; sleep 30"
   wait_for_text "$default_snapshot" "The deterministic tool example is complete." \
     || fail "Pi calm E2E did not reach the restored session transcript"
@@ -3813,21 +3819,51 @@ if (!synthetic || synthetic.display) process.exit(1);
 JS
   chrome=$(find_chrome) \
     || fail "Chrome or Chromium is required for rendered export DOM assertions; set FM_CHROME_BIN to one"
-  chrome_report=$(render_export_dom "$chrome" "$export_file" "$export_dom" "$version") \
+  # Observe visibility in Chrome. Pi 1.0 retains display:false messages in
+  # the DOM behind CSS, so DOM presence alone does not mean a message is shown.
+  node - "$export_file" "$TMP_ROOT/calm-export-probe.html" <<'JS'
+const fs = require("node:fs");
+function observeExport() {
+  const messages = document.getElementById("messages");
+  const tree = document.getElementById("tree-container");
+  const visibleRows = (selector) => Array.from(messages?.querySelectorAll(selector) ?? [])
+    .filter((row) => row.getClientRects().length > 0)
+    .map((row) => row.innerText);
+  const report = {
+    messages: messages ? {
+      text: messages.innerText,
+      users: visibleRows(".user-message"),
+      assistants: visibleRows(".assistant-message"),
+      hooks: visibleRows(".hook-message"),
+    } : null,
+    tree: tree?.innerText,
+  };
+  const output = document.createElement("script");
+  output.id = "fm-calm-export-visibility";
+  output.type = "application/json";
+  output.textContent = JSON.stringify(report).replace(/</g, "\\u003c");
+  document.body.appendChild(output);
+}
+const html = fs.readFileSync(process.argv[2], "utf8");
+fs.writeFileSync(process.argv[3], html.replace("</body>", `<script>(${observeExport.toString()})();</script>\n</body>`));
+JS
+  chrome_report=$(render_export_dom "$chrome" "$TMP_ROOT/calm-export-probe.html" "$export_dom" "$version") \
     || fail "could not render calm-mode HTML export DOM: $chrome_report"
   node - "$export_dom" <<'JS' || fail "rendered export DOM violated the Calm conversation boundary"
 const dom = require("node:fs").readFileSync(process.argv[2], "utf8");
-const messages = dom.match(/<div id="messages">([\s\S]*?)<\/main>/)?.[1];
-const tree = dom.match(/<div[^>]*id="tree-container"[^>]*>([\s\S]*?)<div[^>]*id="tree-status"/)?.[1];
-if (!messages || !tree) process.exit(1);
-if (!/<div class="user-message"[^>]*>[\s\S]*Show a deterministic tool example\./.test(messages)) process.exit(1);
-if (!/<div class="assistant-message"[^>]*>[\s\S]*The deterministic tool example is complete\./.test(messages)) process.exit(1);
-if (messages.includes('<div class="hook-message"')) process.exit(1);
-if (messages.includes("[firstmate-synthetic-input]")) process.exit(1);
+// This JSON is the visibility report emitted by the observer in real Chrome.
+const report = dom.match(/<script id="fm-calm-export-visibility"[^>]*>([^<]+)<\/script>/)?.[1];
+if (!report) throw new Error("Chrome did not emit the export visibility report");
+const { messages, tree } = JSON.parse(report);
+if (!messages || !tree) throw new Error("export DOM is missing messages or tree containers");
+if (!messages.users.some((text) => text.includes("Show a deterministic tool example."))) throw new Error("export DOM lost the captain prompt");
+if (!messages.assistants.some((text) => text.includes("The deterministic tool example is complete."))) throw new Error("export DOM lost the assistant response");
+if (messages.hooks.length) throw new Error("export DOM showed a hook message");
+if (messages.text.includes("[firstmate-synthetic-input]")) throw new Error("export DOM showed hidden synthetic provenance");
 for (const current of ["CURRENT_WATCHER_E2E", "CURRENT_TURN_END_E2E", "CURRENT_AWAY_E2E", "CURRENT_FROM_FIRSTMATE_E2E", "CURRENT_LAUNCH_BRIEF_E2E"]) {
-  if (!messages.includes(current)) process.exit(1);
+  if (!messages.text.includes(current)) throw new Error(`export DOM lost ${current}`);
 }
-if (!tree.includes("firstmate-synthetic-input") || !tree.includes("/tmp/probe.status")) process.exit(1);
+if (!tree.includes("firstmate-synthetic-input") || !tree.includes("/tmp/probe.status")) throw new Error("export tree lost synthetic provenance");
 JS
   # Calm returns the transcript to its own presentation once the export has been
   # rendered. That repaint runs on the macrotask right after Pi prints the export
@@ -4206,7 +4242,8 @@ JS
     || fail "Pi did not exit cleanly before the Calm persistence restart"
   tmux -L "$TMUX_SOCKET" kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 
-  tmux -L "$TMUX_SOCKET" new-session -d -s "$TMUX_SESSION" -x 180 -y 44 \
+  # The restart also restores the complete seeded conversation for row checks.
+  tmux -L "$TMUX_SOCKET" new-session -d -s "$TMUX_SESSION" -x 180 -y 200 \
     "cd '$project' && env FM_HOME='$home' PI_CODING_AGENT_DIR='$config' FM_OPERATIONAL_INPUT_SCRIPT='$OPERATIONAL_INPUT' PI_OFFLINE=1 pi --approve --no-skills --no-prompt-templates --no-context-files --session '$session_file'; rc=\$?; printf '\nPI_EXIT=%s\n' \"\$rc\"; sleep 30"
   wait_for_text "$restarted_snapshot" "CALM_WORKING_E2E_RESPONSE" \
     || fail "Pi did not restore the persisted session after restart"
