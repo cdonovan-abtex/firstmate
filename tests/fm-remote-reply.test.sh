@@ -242,6 +242,7 @@ if LC_ALL=C ps -p "$$" -o lstart= >/dev/null 2>&1; then
     timezone_owner_dir=$(readlink "$timezone_lock")
     contender_timezone=UTC0
     [ "$owner_timezone" != UTC0 ] || contender_timezone=America/New_York
+    # shellcheck disable=SC2016 # Expansion is deliberately deferred to the child shell.
     TZ="$contender_timezone" FM_PROC_ROOT_OVERRIDE="$TMP_ROOT/no-proc" remote_env bash -c '
       . "$1/bin/fm-wake-lib.sh"
       if fm_lock_try_acquire "$2"; then
@@ -457,6 +458,7 @@ for inner_lock in "$PARENT/state/.remote-reply-ingest-ios.lock" "$CLAIMS/$SID.lo
     "$PARENT/state/remote-replies/ios.2.ingested"
   inner_started=$(date +%s)
   inner_rc=0
+  # shellcheck disable=SC2016 # Expansion is deliberately deferred to the child shell.
   FM_REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS=1 remote_env bash -c '
     . "$1/bin/fm-timeout-lib.sh"
     fm_run_timed 10 "$1/bin/fm-procevent-remote-reply.sh" handle ios 2 "$2"
@@ -488,6 +490,7 @@ for inner_lock in "$PARENT/state/.remote-reply-ingest-ios.lock" "$CLAIMS/$SID.lo
     || fail "could not install the reused-pid inner-lock owner"
   rm -f "$PARENT/state/procevent-inbox/$SID.2.handled" \
     "$PARENT/state/remote-replies/ios.2.ingested"
+  # shellcheck disable=SC2016 # Expansion is deliberately deferred to the child shell.
   FM_LOCK_STALE_AFTER=0 remote_env bash -c '
     . "$1/bin/fm-timeout-lib.sh"
     fm_run_timed 10 "$1/bin/fm-procevent-remote-reply.sh" handle ios 2 "$2"
@@ -529,6 +532,7 @@ wait_for "$TMP_ROOT/handoff-ready" || fail "shared lock publication did not bind
 handoff_child_pid=$(cat "$TMP_ROOT/handoff-ready")
 [ "$handoff_child_pid" = "$handoff_owner_pid" ] \
   || fail "handoff fixture owner differs from its tracked pid: $handoff_child_pid != $handoff_owner_pid"
+# shellcheck disable=SC2016 # Expansion is deliberately deferred to the child shells and EXIT trap.
 remote_env bash -c '
   . "$1/bin/fm-wake-lib.sh"
   _fm_wake_require_timeout
