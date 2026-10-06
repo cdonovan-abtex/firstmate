@@ -5,6 +5,25 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# Optional reviewer evidence: export actual CLI output and persisted reply state
+# to FM_REMOTE_REPLY_TEST_EVIDENCE_DIR before fixture cleanup removes them.
+EVIDENCE_DIR=${FM_REMOTE_REPLY_TEST_EVIDENCE_DIR:-}
+[ -z "$EVIDENCE_DIR" ] || mkdir -p "$EVIDENCE_DIR" || fail "could not create evidence directory"
+
+capture_evidence() { # <name> <label> <persisted-file> [...]
+  local name=$1 label path
+  shift
+  [ -n "$EVIDENCE_DIR" ] || return 0
+  {
+    while [ "$#" -gt 0 ]; do
+      label=$1 path=$2
+      shift 2
+      printf '\n%s\n' "$label"
+      cat "$path" || fail "could not read $label evidence"
+    done
+  } > "$EVIDENCE_DIR/$name.txt" || fail "could not export $name evidence"
+}
+
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 TMP_ROOT=$(fm_test_tmproot fm-remote-reply)
 mkdir -p "$TMP_ROOT"
@@ -197,6 +216,10 @@ if LC_ALL=C ps -p "$$" -o lstart= >/dev/null 2>&1; then
   lock_fixture_track "$timezone_owner_pid" || fail "could not track the timezone lock owner"
   raw_utc=$(LC_ALL=C TZ=UTC0 ps -p "$timezone_owner_pid" -o lstart=)
   raw_new_york=$(LC_ALL=C TZ=America/New_York ps -p "$timezone_owner_pid" -o lstart=)
+  if [ -n "$EVIDENCE_DIR" ]; then
+    printf 'Raw process birth timestamp in UTC: %s\nRaw process birth timestamp in New York: %s\n' \
+      "$raw_utc" "$raw_new_york" > "$EVIDENCE_DIR/timezone-ownership.txt"
+  fi
   if [ "$(uname)" = Darwin ]; then
     [ "$raw_utc" != "$raw_new_york" ] || fail "macOS fixture did not expose timezone-sensitive process timestamps"
   fi
@@ -232,6 +255,10 @@ if LC_ALL=C ps -p "$$" -o lstart= >/dev/null 2>&1; then
     [ "$(readlink "$timezone_lock")" = "$timezone_owner_dir" ] \
       || fail "timezone contention replaced the live owner's lock record"
     kill -0 "$timezone_owner_pid" 2>/dev/null || fail "timezone contention signalled the live owner"
+    if [ -n "$EVIDENCE_DIR" ]; then
+      printf 'Owner timezone: %s\nContender timezone: %s\nRecorded identity: %s\nContender could not acquire; original lock path and process preserved.\n' \
+        "$owner_timezone" "$contender_timezone" "$timezone_identity" >> "$EVIDENCE_DIR/timezone-ownership.txt"
+    fi
     rm -f -- "$timezone_lock" "$timezone_owner_dir/pid" "$timezone_owner_dir/owner-identity"
     rmdir -- "$timezone_owner_dir"
   done
@@ -285,6 +312,13 @@ assert_present "$PARENT/state/procevent-inbox/$SID.1.handled" \
   "the applied capture was left unacknowledged"
 assert_present "$PARENT/state/procevent/$SID.source" \
   "applying the capture left the relay unarmed for the next delta"
+capture_evidence automatic-reply \
+  'Remote append-only status stream' "$REMOTE/state/parent-replies.status" \
+  'Parent status stream after automatic capture (no handle command)' "$PARENT/state/ios.status" \
+  'Locally copied remote report' "$PARENT/data/remote-secondmates/ios/data/reply/report.md" \
+  'Committed reply cursor' "$PARENT/state/remote-replies/ios.cursor" \
+  'Durable acknowledgement' "$PARENT/state/procevent-inbox/$SID.1.handled" \
+  'Next registered source' "$PARENT/state/procevent/$SID.source"
 pass "a captured delta is applied, acknowledged, and re-armed without a handler"
 
 # Now the handler's own retry path, from the state a crash between applying and
@@ -344,6 +378,11 @@ assert_grep "procevent remote-reply $SID 2" "$PARENT/state/.wake-queue" \
   "bounded lifecycle-owner contention did not surface the captured result"
 assert_present "$PARENT/state/.remote-reply-lifecycle-ios.lock" \
   "legacy live lifecycle owner was not protected"
+capture_evidence legacy-owner-retry \
+  'Runner output with a one-second legacy-owner wait' "$TMP_ROOT/legacy-owner.out" \
+  'Durable retry notification' "$PARENT/state/.wake-queue" \
+  'Captured reply retained for retry' "$RESULT_LEGACY" \
+  'Protected legacy owner PID' "$PARENT/state/.remote-reply-lifecycle-ios.lock/pid"
 lock_fixture_stop "$legacy_owner_pid"
 FM_REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS=1 remote_env "$ADAPTER" handle ios 2 "$RESULT_LEGACY" >/dev/null \
   || fail "captured result did not replay after its legacy owner exited"
@@ -365,6 +404,7 @@ write_lifecycle_owner "$reused_owner_pid" 'reused-pid-identity' \
   || fail "could not create a reused-pid lifecycle owner"
 rm -f "$PARENT/state/procevent-inbox/$SID.2.handled"
 out=$(FM_LOCK_STALE_AFTER=0 remote_env "$ADAPTER" handle ios 2 "$RESULT_LEGACY")
+printf '%s\n' "$out" > "$TMP_ROOT/reused-owner-recovery.out"
 assert_contains "$out" 'ingested: ios appended=0' \
   "reused-pid lifecycle owner did not permit durable replay"
 assert_contains "$out" 'handled: remote-reply-ios 2' \
@@ -375,6 +415,11 @@ assert_absent "$PARENT/state/.remote-reply-lifecycle-ios.lock" \
   "reused-pid lifecycle owner was not reclaimed"
 assert_present "$PARENT/state/procevent/$SID.source" \
   "reused-pid replay did not re-arm the remote source"
+capture_evidence reused-owner-recovery \
+  'Reply handle output after stale birth identity recovery' "$TMP_ROOT/reused-owner-recovery.out" \
+  'Deduplicated parent status stream' "$PARENT/state/ios.status" \
+  'Recovered reply acknowledgement' "$PARENT/state/procevent-inbox/$SID.2.handled" \
+  'Re-armed source' "$PARENT/state/procevent/$SID.source"
 lock_fixture_stop "$reused_owner_pid"
 pass "a reused lifecycle pid is rejected without harming its unrelated process"
 
@@ -455,6 +500,10 @@ for inner_lock in "$PARENT/state/.remote-reply-ingest-ios.lock" "$CLAIMS/$SID.lo
   [ ! -e "$inner_lock" ] && [ ! -L "$inner_lock" ] \
     || fail "reused-pid inner-lock recovery left its lock behind"
   kill -0 "$inner_owner_pid" 2>/dev/null || fail "reused-pid inner-lock recovery signalled its owner"
+  capture_evidence "inner-lock-$(basename "$inner_lock")" \
+    'Bounded legacy inner-lock refusal' "$TMP_ROOT/inner-lock.out" \
+    'Reply output after reused PID recovery' "$TMP_ROOT/inner-reused-pid.out" \
+    'Durable recovered acknowledgement' "$PARENT/state/procevent-inbox/$SID.2.handled"
   lock_fixture_stop "$inner_owner_pid"
 done
 pass "legacy ingest and source locks are bounded and reused inner pids are reclaimed"

@@ -18,12 +18,15 @@
 # ingests it, acknowledges the captured generation, then registers the next
 # cursor-anchored source. A continuity break is escalated and not re-armed.
 #
+# Lock waits share a deadline from FM_REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS
+# (default 5; positive whole seconds, at most 300). It covers lifecycle, ingest,
+# and source-registration waits, preserving an earlier FM_LOCK_WAIT_DEADLINE.
+# This bounds lock contention, not remote I/O or the complete command.
 # `autohandle` is the runner's own entry into that same `handle`: it takes the
 # canonical source id instead of the secondmate id and is called by the runner
 # right after capture, so applying a reply never depends on a handler
 # remembering to run it. Ingesting a delta carries no judgement, so it belongs
 # in code.
-#
 # `self-announcing` declares this adapter's one-announcement contract to the
 # runner: every byte autohandle applies lands in the parent's state/<id>.status
 # stream, whose ordinary signal-scan announcement is durable, so a fully
@@ -42,11 +45,8 @@
 # that one stream. A remote secondmate must present the same model, so ingest
 # mirrors every content-bearing line at most once, omits blank separators, and
 # leaves every semantic judgement to those same shared consumers. Correlation is
-# a per-line property that fm-pending-reply-lib.sh consumes; it is never a gate
-# on the stream. Gating on it here made a remote mate's own progress lines and
-# newly raised decisions - which carry no corr= by contract - unrepresentable,
-# and rejecting one line failed the whole delta, so the cursor could never
-# advance past it. No single line can stop or wedge the stream.
+# a per-line property consumed by fm-pending-reply-lib.sh, never a stream gate.
+# docs/remote-secondmates.md owns the operator-facing transport contract.
 #
 # What remains here is only what crossing a machine boundary genuinely adds:
 #   - cursor continuity and identity (offset plus prefix digest)

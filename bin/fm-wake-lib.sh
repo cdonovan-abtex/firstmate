@@ -24,8 +24,8 @@ _fm_wake_require_classify() {
   . "$FM_WAKE_LIB_DIR/fm-classify-lib.sh"
 }
 
-# Load the bounded-execution owner only for callers that use the presentation
-# lock deadline. Most wake-library consumers need no timeout machinery.
+# Load the bounded-execution owner only for callers that bound lock waits.
+# Most wake-library consumers need no timeout machinery.
 _fm_wake_require_timeout() {
   command -v fm_run_timed >/dev/null 2>&1 && return 0
   # shellcheck source=bin/fm-timeout-lib.sh
@@ -108,6 +108,8 @@ fm_lock_pid_identity() {
     printf 'proc-starttime=%s\n' "$starttime"
     return 0
   fi
+  # ps renders lstart in local time; pin locale and timezone so callers with
+  # different environments cannot mistake the same live owner for PID reuse.
   out=$(LC_ALL=C TZ=UTC0 ps -p "$pid" -o lstart= 2>/dev/null) || return 1
   out=$(printf '%s\n' "$out" | sed 's/^[[:space:]]*//')
   [ -n "$out" ] || return 1
@@ -1031,6 +1033,9 @@ fm_lock_try_acquire() {
   return "$rc"
 }
 
+# FM_LOCK_WAIT_DEADLINE is an optional absolute Unix-seconds deadline shared
+# with child commands so nested lock waits cannot renew the caller's budget.
+# Without it, mutation-critical callers retain the unbounded wait contract.
 fm_lock_acquire_wait() {
   local lockdir=$1 remaining
   if [ -n "${FM_LOCK_WAIT_DEADLINE:-}" ]; then
@@ -1052,7 +1057,7 @@ fm_lock_acquire_wait() {
 # waiting caller before exiting. The lock's ordinary stale-owner recovery makes
 # every interruption safe: before transfer the helper is the owner; after
 # transfer the still-live caller is the owner.
-_fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
+_fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid> <caller-identity>
   local lockdir=$1 caller_pid=$2 caller_identity=$3 ownerdir current back
   case "$caller_pid" in ''|*[!0-9]*) return 1 ;; esac
   fm_pid_alive "$caller_pid" || return 1
@@ -1081,12 +1086,11 @@ _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
 # fm_lock_acquire_wait_bounded <lockdir> <positive-seconds>
 #
 # Bounded acquire variant. It preserves the ordinary wait/reclaim behavior
-# until fm-timeout-lib.sh's hard deadline, returns 124 when a live holder still
-# owns the lock, and leaves FM_LOCK_HELD_PID naming that holder.
-# Use it where a caller must refuse rather than block: wake presentation, and
-# the guarded remote link clear, whose whole contract is to return a
-# reconciliation refusal instead of wedging an unattended close.
-# Mutation-critical callers that can safely block keep fm_lock_acquire_wait.
+# until fm-timeout-lib.sh's hard deadline, returns 124 when a live or
+# identity-uncertain holder still owns the lock, and leaves FM_LOCK_HELD_PID
+# naming that holder. Wake presentation and guarded remote link clearing use
+# it directly; remote reply application reaches it through fm_lock_acquire_wait
+# with a shared deadline. Callers that can safely block omit that deadline.
 fm_lock_acquire_wait_bounded() {
   local lockdir=$1 seconds=$2 caller_pid caller_identity rc owner_pid
   case "$seconds" in ''|*[!0-9]*|0) return 2 ;; esac
