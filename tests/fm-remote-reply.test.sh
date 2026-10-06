@@ -13,6 +13,7 @@ PARENT="$TMP_ROOT/parent"
 REMOTE="$TMP_ROOT/remote"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/fake")
 CLAIMS="$TMP_ROOT/claims"
+LOCK_FIXTURE_PIDS=()
 mkdir -p "$PARENT/data" "$PARENT/state" "$REMOTE/state" "$REMOTE/data/reply" "$CLAIMS"
 # shellcheck source=bin/fm-remote-job-lib.sh
 . "$ROOT/bin/fm-remote-job-lib.sh"
@@ -20,7 +21,13 @@ mkdir -p "$PARENT/data" "$PARENT/state" "$REMOTE/state" "$REMOTE/data/reply" "$C
 # stopping that pid alone leaves the supervisor to respawn - the leak
 # tests/fm-remote-job-orphan-reap.test.sh pins. Stop the whole worker tree.
 cleanup() {
-  local worker_pid=''
+  local worker_pid='' fixture_pid
+  for fixture_pid in "${LOCK_FIXTURE_PIDS[@]}"; do
+    kill "$fixture_pid" 2>/dev/null || true
+  done
+  for fixture_pid in "${LOCK_FIXTURE_PIDS[@]}"; do
+    wait "$fixture_pid" 2>/dev/null || true
+  done
   FM_HOME="$PARENT" FM_PROCEVENT_CLAIM_ROOT="$CLAIMS" \
     "$ROOT/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
   if [ -f "$TMP_ROOT/remote-jobs/worker.pid" ]; then
@@ -78,13 +85,21 @@ wait_for() {
   return 1
 }
 
-write_lifecycle_owner() { # <pid> [identity]
-  local pid=$1 identity=${2:-} lock owner
-  lock="$PARENT/state/.remote-reply-lifecycle-ios.lock"
+write_lock_owner() {
+  local lock=$1 pid=$2 identity=${3:-} owner recorded
+  [ ! -e "$lock" ] && [ ! -L "$lock" ] || return 1
   owner=$(mktemp -d "$lock.owner.fixture.XXXXXX") || return 1
   printf '%s\n' "$pid" > "$owner/pid" || return 1
   [ -z "$identity" ] || printf '%s\n' "$identity" > "$owner/owner-identity" || return 1
-  ln -s "$owner" "$lock"
+  ln -s "$owner" "$lock" || return 1
+  [ "$(readlink "$lock")" = "$owner" ] || return 1
+  [ "$(cat "$lock/pid")" = "$pid" ] || return 1
+  recorded=$(cat "$lock/owner-identity" 2>/dev/null || true)
+  [ "$recorded" = "$identity" ]
+}
+
+write_lifecycle_owner() { # <pid> [identity]
+  write_lock_owner "$PARENT/state/.remote-reply-lifecycle-ios.lock" "$@"
 }
 
 pid_identity() { # <pid>
@@ -190,6 +205,7 @@ pass "replayed capture has one deduplicated append and one durable handling iden
 # the runner publish the durable retry notification.
 "$(command -v sleep)" 30 &
 legacy_owner_pid=$!
+LOCK_FIXTURE_PIDS+=("$legacy_owner_pid")
 write_lifecycle_owner "$legacy_owner_pid" || fail "could not create a legacy lifecycle owner"
 printf 'done [key=legacy-owner]: captured result waits for an uncertain legacy owner\n' \
   >> "$REMOTE/state/parent-replies.status"
@@ -213,11 +229,15 @@ assert_present "$PARENT/state/procevent-inbox/$SID.2.handled" \
 assert_present "$PARENT/state/procevent/$SID.source" \
   "replayed result did not re-arm after legacy owner exit"
 pass "a legacy live lifecycle owner is bounded, surfaced, and replayed without guessing"
+[ ! -e "$PARENT/state/.remote-reply-lifecycle-ios.lock" ] \
+  && [ ! -L "$PARENT/state/.remote-reply-lifecycle-ios.lock" ] \
+  || fail "ingesting a replay leaked the lifecycle lock"
 
 # New owner records contain process identity, so a recorded pid now belonging to
 # an unrelated process is reclaimed without signalling that process.
 "$(command -v sleep)" 30 &
 reused_owner_pid=$!
+LOCK_FIXTURE_PIDS+=("$reused_owner_pid")
 write_lifecycle_owner "$reused_owner_pid" 'reused-pid-identity' \
   || fail "could not create a reused-pid lifecycle owner"
 rm -f "$PARENT/state/procevent-inbox/$SID.2.handled"
@@ -240,6 +260,7 @@ pass "a reused lifecycle pid is rejected without harming its unrelated process"
 # caller is willing to wait only one second.
 "$(command -v sleep)" 30 &
 live_owner_pid=$!
+LOCK_FIXTURE_PIDS+=("$live_owner_pid")
 live_owner_identity=$(pid_identity "$live_owner_pid") \
   || fail "could not identify the live lifecycle owner"
 write_lifecycle_owner "$live_owner_pid" "$live_owner_identity" \
@@ -259,6 +280,104 @@ kill "$live_owner_pid" 2>/dev/null || true
 wait "$live_owner_pid" 2>/dev/null || true
 remote_env "$ADAPTER" arm ios >/dev/null || fail "source could not re-arm after live owner exit"
 pass "an identity-matched live lifecycle owner remains protected"
+
+for inner_lock in "$PARENT/state/.remote-reply-ingest-ios.lock" "$CLAIMS/$SID.lock"; do
+  "$(command -v sleep)" 30 &
+  inner_owner_pid=$!
+  LOCK_FIXTURE_PIDS+=("$inner_owner_pid")
+  write_lock_owner "$inner_lock" "$inner_owner_pid" \
+    || fail "could not install the legacy inner-lock owner"
+  rm -f "$PARENT/state/procevent-inbox/$SID.2.handled" \
+    "$PARENT/state/remote-replies/ios.2.ingested"
+  inner_started=$(date +%s)
+  inner_rc=0
+  FM_REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS=1 remote_env bash -c '
+    . "$1/bin/fm-timeout-lib.sh"
+    fm_run_timed 10 "$1/bin/fm-procevent-remote-reply.sh" handle ios 2 "$2"
+  ' _ "$ROOT" "$RESULT_LEGACY" > "$TMP_ROOT/inner-lock.out" 2>&1 || inner_rc=$?
+  [ "$inner_rc" -ne 0 ] && [ "$inner_rc" -ne 124 ] \
+    || fail "reply application did not refuse within its inner-lock deadline"
+  [ "$(( $(date +%s) - inner_started ))" -lt 8 ] \
+    || fail "legacy inner-lock contention exhausted the outer test watchdog"
+  assert_absent "$PARENT/state/procevent-inbox/$SID.2.handled" \
+    "legacy inner-lock contention acknowledged an incomplete application"
+  [ "$(cat "$inner_lock/pid")" = "$inner_owner_pid" ] \
+    || fail "legacy inner-lock contention displaced its live owner"
+  kill -0 "$inner_owner_pid" 2>/dev/null || fail "legacy inner-lock recovery signalled its owner"
+  [ ! -e "$PARENT/state/.remote-reply-lifecycle-ios.lock" ] \
+    && [ ! -L "$PARENT/state/.remote-reply-lifecycle-ios.lock" ] \
+    || fail "inner-lock contention leaked the lifecycle lock"
+  kill "$inner_owner_pid" 2>/dev/null || true
+  wait "$inner_owner_pid" 2>/dev/null || true
+  remote_env "$ADAPTER" handle ios 2 "$RESULT_LEGACY" >/dev/null \
+    || fail "reply application did not recover after its inner owner exited"
+  assert_present "$PARENT/state/procevent-inbox/$SID.2.handled" \
+    "recovered inner-lock application did not acknowledge the capture"
+  [ ! -e "$inner_lock" ] && [ ! -L "$inner_lock" ] \
+    || fail "recovered inner-lock application left its lock behind"
+
+  "$(command -v sleep)" 30 &
+  inner_owner_pid=$!
+  LOCK_FIXTURE_PIDS+=("$inner_owner_pid")
+  write_lock_owner "$inner_lock" "$inner_owner_pid" reused-pid-identity \
+    || fail "could not install the reused-pid inner-lock owner"
+  rm -f "$PARENT/state/procevent-inbox/$SID.2.handled" \
+    "$PARENT/state/remote-replies/ios.2.ingested"
+  FM_LOCK_STALE_AFTER=0 remote_env bash -c '
+    . "$1/bin/fm-timeout-lib.sh"
+    fm_run_timed 10 "$1/bin/fm-procevent-remote-reply.sh" handle ios 2 "$2"
+  ' _ "$ROOT" "$RESULT_LEGACY" > "$TMP_ROOT/inner-reused-pid.out" 2>&1 \
+    || fail "reply application did not reclaim its reused-pid inner-lock owner"
+  assert_present "$PARENT/state/procevent-inbox/$SID.2.handled" \
+    "reused-pid inner-lock recovery did not acknowledge the capture"
+  [ "$(grep -cF 'done [key=legacy-owner]' "$PARENT/state/ios.status")" -eq 1 ] \
+    || fail "inner-lock recovery duplicated the mirrored reply"
+  [ ! -e "$inner_lock" ] && [ ! -L "$inner_lock" ] \
+    || fail "reused-pid inner-lock recovery left its lock behind"
+  kill -0 "$inner_owner_pid" 2>/dev/null || fail "reused-pid inner-lock recovery signalled its owner"
+  kill "$inner_owner_pid" 2>/dev/null || true
+  wait "$inner_owner_pid" 2>/dev/null || true
+done
+pass "legacy ingest and source locks are bounded and reused inner pids are reclaimed"
+
+handoff_lock="$PARENT/state/.test-handoff.lock"
+remote_env bash -c '
+  . "$1/bin/fm-wake-lib.sh"
+  fm_lock_acquire_wait "$2" || exit 1
+  trap '\''fm_lock_release "$2"'\'' EXIT
+  fm_current_pid owner_pid
+  [ "$(cat "$2/owner-identity")" = "$(fm_lock_pid_identity "$owner_pid")" ] || exit 2
+  printf '%s\n' "$owner_pid" > "$3"
+  while [ ! -e "$4" ]; do sleep 0.05; done
+' _ "$ROOT" "$handoff_lock" "$TMP_ROOT/handoff-ready" "$TMP_ROOT/handoff-release" &
+handoff_owner_pid=$!
+LOCK_FIXTURE_PIDS+=("$handoff_owner_pid")
+wait_for "$TMP_ROOT/handoff-ready" || fail "shared lock publication did not bind its owner's identity"
+LOCK_FIXTURE_PIDS+=("$(cat "$TMP_ROOT/handoff-ready")")
+remote_env bash -c '
+  . "$1/bin/fm-wake-lib.sh"
+  _fm_wake_require_timeout
+  fm_run_timed() {
+    : > "$release_path"
+    fm_run_bash_timeout "$@"
+  }
+  release_path=$3
+  fm_lock_acquire_wait_bounded "$2" 5 || exit 1
+  trap '\''fm_lock_release "$2"'\'' EXIT
+  fm_current_pid owner_pid
+  [ "$(cat "$2/pid")" = "$owner_pid" ] || exit 2
+  [ "$(cat "$2/owner-identity")" = "$(fm_lock_pid_identity "$owner_pid")" ] || exit 3
+  FM_STATE_OVERRIDE=$STATE bash -c '\''
+    . "$1/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$2" && exit 1
+    exit 0
+  '\'' _ "$1" "$2" || exit 4
+' _ "$ROOT" "$handoff_lock" "$TMP_ROOT/handoff-release" \
+  || fail "bounded shared lock handoff did not bind and protect its caller identity"
+wait "$handoff_owner_pid" || fail "shared lock publisher failed"
+[ ! -e "$handoff_lock" ] && [ ! -L "$handoff_lock" ] \
+  || fail "shared lock handoff leaked its owner record"
+pass "shared lock publication and bounded handoff bind the actual owner's birth identity"
 
 printf 'working [corr=1111111111111111]: second generation\n' \
   >> "$REMOTE/state/parent-replies.status"

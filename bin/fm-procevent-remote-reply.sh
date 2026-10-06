@@ -218,9 +218,6 @@ remote_route_exists() {
   [ "$remote" = 1 ] || die "secondmate $id is not a configured remote route"
 }
 
-# New remote lifecycle owners bind their numeric pid to a process birth identity.
-# The generic lock remains compatible with its legacy pid-only callers, while a
-# remote-reply record can reject a pid that now belongs to an unrelated process.
 remote_reply_lifecycle_lock_bind_owner() { # <lock>
   local lock=$1 owner pid current identity recorded
   if [ -L "$lock" ]; then
@@ -238,14 +235,27 @@ remote_reply_lifecycle_lock_bind_owner() { # <lock>
   [ "$recorded" = "$identity" ]
 }
 
+remote_reply_lock_deadline_set() {
+  local seconds=$REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS deadline
+  case "$seconds" in ''|*[!0-9]*|0) die "remote reply lifecycle lock wait must be a positive integer" ;; esac
+  [ "$seconds" -gt 0 ] || die "remote reply lifecycle lock wait must be a positive integer"
+  [ "$seconds" -le 300 ] || die "remote reply lifecycle lock wait exceeds 300 seconds"
+  seconds=$((10#$seconds))
+  deadline=$(( $(date +%s) + seconds ))
+  if [ -n "${FM_LOCK_WAIT_DEADLINE:-}" ]; then
+    case "$FM_LOCK_WAIT_DEADLINE" in *[!0-9]*) die "remote reply lock deadline is invalid" ;; esac
+    [ "$FM_LOCK_WAIT_DEADLINE" -ge "$deadline" ] || deadline=$FM_LOCK_WAIT_DEADLINE
+  fi
+  export FM_LOCK_WAIT_DEADLINE=$deadline
+}
+
 # A captured result must never wait forever behind a lifecycle owner.
 # A live legacy record has no identity evidence and remains protected, but this
 # bounded path leaves the capture durable and lets the runner publish its retry wake.
 remote_reply_lifecycle_lock_acquire() { # <lock>
   local seconds=$REMOTE_REPLY_LIFECYCLE_LOCK_WAIT_SECONDS rc=0
-  case "$seconds" in ''|*[!0-9]*|0) die "remote reply lifecycle lock wait must be a positive integer" ;; esac
-  [ "$seconds" -le 300 ] || die "remote reply lifecycle lock wait exceeds 300 seconds"
-  fm_lock_acquire_wait_bounded "$1" "$seconds" || rc=$?
+  remote_reply_lock_deadline_set
+  fm_lock_acquire_wait "$1" || rc=$?
   if [ "$rc" -eq 0 ]; then
     remote_reply_lifecycle_lock_bind_owner "$1" || {
       fm_lock_release "$1"
@@ -259,6 +269,7 @@ remote_reply_lifecycle_lock_acquire() { # <lock>
 
 cmd_arm_locked() {
   local id=${1:-} sid
+  remote_reply_lock_deadline_set
   validate_id "$id"
   remote_route_exists "$id"
   read_cursor "$id"
@@ -358,7 +369,7 @@ append_status_once() { # <status-file> <line>
   return 0
 }
 
-cmd_ingest() {
+cmd_ingest() (
   local id=${1:-} result=${2:-} seq=${3:-} class blank payload normalized_payload schema status path from to from_hash to_hash payload_hash payload_bytes reason
   local actual_bytes actual_hash line doc local_doc rewritten appended=0 cursor_already=0 lock status_file tmp
   local fetch_rc append_rc undelivered=''
@@ -398,7 +409,9 @@ cmd_ingest() {
   mkdir -p "$STATE" || die "cannot create parent state directory"
   [ ! -L "$status_file" ] || die "parent status log is a symlink"
   lock="$STATE/.remote-reply-ingest-$id.lock"
+  remote_reply_lock_deadline_set
   fm_lock_acquire_wait "$lock" || die "cannot lock remote reply ingest for $id"
+  trap 'fm_lock_release "$lock"; rm -rf -- "$tmp"' EXIT
   read_cursor "$id"
   if [ "$CURSOR_OFFSET" -eq "$to" ] && [ "$CURSOR_HASH" = "$to_hash" ]; then
     cursor_already=1
@@ -462,7 +475,7 @@ cmd_ingest() {
   trap - EXIT
   rm -rf -- "$tmp"
   printf 'ingested: %s appended=%s offset=%s\n' "$id" "$appended" "$to"
-}
+)
 
 cmd_handle_locked() {
   local id=${1:-} seq=${2:-} result=${3:-} sid class rc=0 to
