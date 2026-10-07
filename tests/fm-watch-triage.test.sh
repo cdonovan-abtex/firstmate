@@ -3602,8 +3602,26 @@ test_busy_pane_default_turn_age_bound_is_3600s() {
   pass "the production default busy-turn-age bound is 3600s (5min under does not wedge, 66min over does)"
 }
 
+stop_timer_poll() {  # <fixture-dir> <watcher-pid>
+  local dir=$1 pid=$2 tick rc=0
+  : > "$dir/stop-poll"
+  for ((tick=0; tick<100; tick++)); do
+    if ! is_live_non_zombie "$pid"; then
+      wait "$pid" || rc=$?
+      [ "$rc" -eq 1 ] || fail "timer watcher did not stop cleanly (rc=$rc)"
+      [ -s "$dir/poll-completed" ] || fail "timer watcher stopped before completing its poll"
+      return 0
+    fi
+    sleep 0.1
+  done
+  # This is our unreaped child, so its pid cannot have been recycled.
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  fail "timer watcher did not reach its completed-poll shutdown boundary"
+}
+
 test_nonterminal_stale_repairs_missing_or_corrupt_timer() {
-  local dir state fakebin out capture_file window key pane_hash sig pid since
+  local dir state fakebin out capture_file window key pane_hash sig pid since real_sleep
   dir=$(make_case nonterminal-stale-timer-repair); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"
   window="test:fm-quiet-timer"
@@ -3617,30 +3635,49 @@ test_nonterminal_stale_repairs_missing_or_corrupt_timer() {
   printf '1\n' > "$state/.count-$key"
   printf '%s' "$pane_hash" > "$state/.stale-$key"
 
+  # Timer publication is inside the poll, not a safe shutdown boundary. Hold
+  # the idle sleep until assertions finish, then stop with no poll frame or
+  # lock critical section interrupted. Bound both the fixture and exit wait.
+  real_sleep=$(command -v sleep)
+  cat > "$fakebin/sleep" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = 1 ]; then
+  printf 'ready\n' > "$dir/poll-completed"
+  while [ ! -e "$dir/stop-poll" ] && [ "\$SECONDS" -lt 30 ]; do
+    "$real_sleep" 0.05
+  done
+  kill -TERM "\$PPID"
+  exit 0
+fi
+exec "$real_sleep" "\$@"
+SH
+  chmod +x "$fakebin/sleep"
+
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_numeric_file "$state/.stale-since-$key" 30 || { reap "$pid"; fail "matching stale suppressor with missing timer did not initialize stale-since"; }
+  wait_numeric_file "$state/.stale-since-$key" 30 || { stop_timer_poll "$dir" "$pid"; fail "matching stale suppressor with missing timer did not initialize stale-since"; }
   if ! kill -0 "$pid" 2>/dev/null; then
     wait "$pid" 2>/dev/null || true
     fail "watcher exited while repairing a missing stale-since timer: $(cat "$out")"
   fi
-  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "missing stale-since repair enqueued a wake"; }
-  reap "$pid"
+  [ ! -s "$state/.wake-queue" ] || { stop_timer_poll "$dir" "$pid"; fail "missing stale-since repair enqueued a wake"; }
+  stop_timer_poll "$dir" "$pid"
   ack_stopped_cycle "$state" || fail "could not acknowledge the intentional missing-timer repair stop"
 
+  rm -f "$dir/stop-poll" "$dir/poll-completed"
   printf 'corrupt\n' > "$state/.stale-since-$key"
   : > "$out"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_numeric_file "$state/.stale-since-$key" 30 || { reap "$pid"; fail "matching stale suppressor with corrupt timer did not repair stale-since"; }
+  wait_numeric_file "$state/.stale-since-$key" 30 || { stop_timer_poll "$dir" "$pid"; fail "matching stale suppressor with corrupt timer did not repair stale-since"; }
   since=$(cat "$state/.stale-since-$key" 2>/dev/null || true)
-  [ "$since" != "corrupt" ] || { reap "$pid"; fail "corrupt stale-since value was left in place"; }
-  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "corrupt stale-since repair enqueued a wake"; }
-  reap "$pid"
+  [ "$since" != "corrupt" ] || { stop_timer_poll "$dir" "$pid"; fail "corrupt stale-since value was left in place"; }
+  [ ! -s "$state/.wake-queue" ] || { stop_timer_poll "$dir" "$pid"; fail "corrupt stale-since repair enqueued a wake"; }
+  stop_timer_poll "$dir" "$pid"
   pass "matching non-terminal stale suppressors repair missing or corrupt stale-since timers"
 }
 
