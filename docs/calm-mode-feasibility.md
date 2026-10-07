@@ -542,6 +542,9 @@ FM_TEST_END 2026-08-29T01:01:30Z tests/fm-pi-branch-extension.test.sh exit=0 dur
 ```
 
 The real renderer comparison exercised twelve outcome lines and reported collapsed and expanded parity with Pi stock, zero visible rows under Calm, restored stock parity after toggling Calm off, and delegated stock HTML export fallback.
+On 2026-10-06 the same outcome-renderer comparison passed against Pi 0.84.4 and 1.0.4 after the capability probe also detected whether the stock call header displays arguments.
+Pi 1.0.4 displays `recent` inline when collapsed and on a separate line when expanded; older Pi retains its title-only header.
+The renderer and lifecycle subcase of `tests/fm-calm-pi-extension.test.sh` also passed against both versions using the installed HTML renderer, with the fixture providing both the older `getToolDefinition` resolver and the newer `getToolRenderers` resolver.
 
 ## 2026-09-07 Pi 0.85.1 renderer and export-DOM verification
 

@@ -197,11 +197,15 @@ Correlation is a per-line property that settles a pending request; it is never a
 Transport normalization rewrites NUL, every other C0 control except tab and newline, and DEL to `?`, while printable ASCII and all high bytes, including UTF-8, pass through unchanged.
 If the confined remote reader permanently refuses a referenced document, the mate's line is mirrored with its original pointer and the adapter appends one keyed escalation naming the gap instead of stalling the stream.
 An SSH exit status of 255 while fetching a referenced document leaves the delta uncommitted for the process-event runner's normal retry because remote completion is unknown.
-The process-event runner applies each captured delta through this adapter as soon as it is captured, so a mirrored reply reaches the primary status channel without depending on the wake handler running the adapter itself.
+The process-event runner attempts to apply each delta through this adapter as soon as it is captured, so a mirrored reply reaches the primary status channel without depending on the wake handler running the adapter itself.
 A mirrored line that carries a correlation token settles its pending-reply record and closes that request's own open escalation decision.
 Because a remote reply reaches the primary only through this asynchronous mirror, the primary treats a missing correlated report as a missed report only once the mirror has been read through the end of the remote log after that turn ended.
 A remote mate that did answer is therefore never asked to repost while its answer is still in flight, and a genuinely missing answer still gets exactly one repost once the mirror is known to be current.
 The [process-to-event operating contract](configuration.md#process-to-event-sources-stateprocevent) owns automatic application, one-announcement replay deduplication, and the unhandled fallback path.
+Reply lifecycle, ingestion, and source-registration lock waits share a bounded deadline, whose setting and limits are owned by the [`reply adapter header`](../bin/fm-procevent-remote-reply.sh).
+The [`shared lock helpers`](../bin/fm-wake-lib.sh) own birth-identity validation and legacy-owner protection, allowing proven stale locks to recover without signalling an unrelated process.
+Live or uncertain ownership makes application refuse within that wait budget; the captured result remains durable and unacknowledged for the runner's fallback wake.
+Retry that wake through the adapter's idempotent `handle` command after contention clears; the [`process-event handling procedure`](../.agents/skills/process-event-sources/SKILL.md#handling-a-wake) owns that path.
 The source log is never truncated or consumed.
 A shortened or changed prefix stops the relay and surfaces a continuity failure instead of silently resetting the cursor.
 

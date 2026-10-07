@@ -1102,6 +1102,8 @@ pass "cross-home stale recovery removes abandoned output from the old state dire
 HR="$TMP_ROOT/hr"; new_home "$HR"
 RACE_TRIGGER="$TMP_ROOT/race-trigger"
 RACE_LOG="$TMP_ROOT/race-executions"
+RACE_STARTERS="$TMP_ROOT/race-starters"
+mkdir -p "$RACE_STARTERS"
 RACE_BLOCKER="$TMP_ROOT/race-blocker.sh"
 cat > "$RACE_BLOCKER" <<'SH'
 #!/usr/bin/env bash
@@ -1114,15 +1116,37 @@ pe_register "$HR" lavish race-src -- "$RACE_BLOCKER" "$RACE_LOG" "$RACE_TRIGGER"
 printf '%s\n%s\nold-token\nold-identity\n' "$TMP_ROOT/gone-home" 999999 > "$FM_PROCEVENT_CLAIM_ROOT/race-src.claim"
 chmod 0600 "$FM_PROCEVENT_CLAIM_ROOT/race-src.claim"
 race_pids=()
-for _ in $(seq 1 24); do
-  pe "$HR" start race-src >/dev/null &
+for race_index in $(seq 1 24); do
+  (
+    pe "$HR" start race-src > "$RACE_STARTERS/$race_index.out" 2>&1
+    printf '%s\n' "$?" > "$RACE_STARTERS/$race_index.done"
+  ) &
   race_pids+=("$!")
 done
-wait_for "$RACE_LOG" || fail "no contender acquired the stale claim"
-sleep 0.5
+# Twenty-four real starters can take longer than the ordinary ten-second
+# fixture window on macOS, where lock birth identity requires ps probes.
+wait_for "$RACE_LOG" 300 || fail "no contender acquired the stale claim"
+# Hold the winning source until every losing starter has observed its claim.
+# Releasing on the first execution lets a slower starter legitimately acquire
+# the now-free source and execute again, making the result scheduler-dependent.
+race_deadline=$((SECONDS + 60))
+while :; do
+  race_returned=0
+  for race_done in "$RACE_STARTERS/"*.done; do
+    [ -s "$race_done" ] || continue
+    [ "$(cat "$race_done")" = 0 ] || fail "a stale-claim contender failed"
+    assert_contains "$(cat "${race_done%.done}.out")" "already owned: race-src" \
+      "a losing contender did not observe the winning claim"
+    race_returned=$((race_returned + 1))
+  done
+  [ "$race_returned" -eq 23 ] && break
+  [ "$SECONDS" -lt "$race_deadline" ] || fail "stale-claim contenders did not finish while the winner was held"
+  sleep 0.1
+done
 [ "$(wc -l < "$RACE_LOG" | tr -d ' ')" = 1 ] || fail "stale-claim race started more than one runner"
 : > "$RACE_TRIGGER"
 for race_pid in "${race_pids[@]}"; do wait "$race_pid" 2>/dev/null || true; done
+[ "$(wc -l < "$RACE_LOG" | tr -d ' ')" = 1 ] || fail "stale-claim race started a second runner after release"
 pass "concurrent stale-claim replacement starts exactly one runner"
 
 # --- a crashed runner leader must not make its live child group look stale ---
@@ -1846,6 +1870,8 @@ identity_pid=$(sed -n '2p' "$FM_PROCEVENT_CLAIM_ROOT/identity-src.claim")
 IDENTITY_FAKEBIN=$(fm_fakebin "$TMP_ROOT/identity-tools")
 cat > "$IDENTITY_FAKEBIN/ps" <<'SH'
 #!/usr/bin/env bash
+# Keep generic lock birth probes available; fail the runner identity probe.
+[ "$#" -eq 4 ] && [ "$3" = -o ] && [ "$4" = lstart= ] && exec /bin/ps "$@"
 exit 1
 SH
 chmod +x "$IDENTITY_FAKEBIN/ps"

@@ -24,8 +24,8 @@ _fm_wake_require_classify() {
   . "$FM_WAKE_LIB_DIR/fm-classify-lib.sh"
 }
 
-# Load the bounded-execution owner only for callers that use the presentation
-# lock deadline. Most wake-library consumers need no timeout machinery.
+# Load the bounded-execution owner only for callers that bound lock waits.
+# Most wake-library consumers need no timeout machinery.
 _fm_wake_require_timeout() {
   command -v fm_run_timed >/dev/null 2>&1 && return 0
   # shellcheck source=bin/fm-timeout-lib.sh
@@ -88,6 +88,32 @@ fm_pid_identity() {
   out=$(LC_ALL=C ps -p "$pid" -o lstart= -o command= 2>/dev/null) || return 1
   [ -n "$out" ] || return 1
   printf '%s\n' "$out" | sed 's/^[[:space:]]*//'
+}
+
+# The generic filesystem-lock owner survives a deliberate exec while retaining
+# enough kernel birth evidence to reject a recycled pid.
+# Watchers and other role-specific owners keep fm_pid_identity because their
+# command line is part of their ownership contract.
+fm_lock_pid_identity() {
+  local pid=$1 proc_root stat_line starttime out
+  local -a stat_fields
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}
+  if [ -r "$proc_root/$pid/stat" ]; then
+    stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
+    read -r -a stat_fields <<< "${stat_line##*)}"
+    [ "${#stat_fields[@]}" -ge 20 ] || return 1
+    starttime=${stat_fields[19]}
+    case "$starttime" in ''|*[!0-9]*) return 1 ;; esac
+    printf 'proc-starttime=%s\n' "$starttime"
+    return 0
+  fi
+  # ps renders lstart in local time; pin locale and timezone so callers with
+  # different environments cannot mistake the same live owner for PID reuse.
+  out=$(LC_ALL=C TZ=UTC0 ps -p "$pid" -o lstart= 2>/dev/null) || return 1
+  out=$(printf '%s\n' "$out" | sed 's/^[[:space:]]*//')
+  [ -n "$out" ] || return 1
+  printf 'ps-lstart=%s\n' "$out"
 }
 
 fm_path_mtime() {
@@ -404,6 +430,7 @@ fm_lock_clean_known_files() {
     "$lockdir/pid" \
     "$lockdir/fm-home" \
     "$lockdir/pid-identity" \
+    "$lockdir/owner-identity" \
     "$lockdir/role" \
     "$lockdir/watcher-path" \
     2>/dev/null || true
@@ -442,11 +469,15 @@ fm_lock_owner_dir() {
 }
 
 fm_lock_prepare_owner() {
-  local ownerdir=$1 mypid back
-  fm_current_pid mypid || return 1
+  local ownerdir=$1 mypid=${2:-} back identity
+  [ -n "$mypid" ] || fm_current_pid mypid || return 1
+  identity=$(fm_lock_pid_identity "$mypid") || return 1
+  : > "$ownerdir/pid" || return 1
+  printf '%s\n' "$identity" > "$ownerdir/owner-identity" 2>/dev/null || return 1
   printf '%s\n' "$mypid" > "$ownerdir/pid" 2>/dev/null || return 1
   back=$(cat "$ownerdir/pid" 2>/dev/null || true)
-  [ "$back" = "$mypid" ]
+  [ "$back" = "$mypid" ] \
+    && [ "$(cat "$ownerdir/owner-identity" 2>/dev/null || true)" = "$identity" ]
 }
 
 fm_lock_link_owner() {
@@ -491,17 +522,8 @@ fm_lock_claim_blocked_by_steal() {
 }
 
 fm_lock_claim() {
-  local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-} mypid back
+  local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-} mypid
   fm_current_pid mypid || return 1
-  if ! { printf '%s\n' "$mypid" > "$ownerdir/pid"; } 2>/dev/null; then
-    fm_lock_discard_owner "$ownerdir"
-    return 1
-  fi
-  back=$(cat "$ownerdir/pid" 2>/dev/null || true)
-  if [ "$back" != "$mypid" ]; then
-    fm_lock_discard_owner "$ownerdir"
-    return 1
-  fi
   if ! fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
     fm_lock_discard_owner "$ownerdir"
     return 1
@@ -510,6 +532,12 @@ fm_lock_claim() {
     if fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
       rm -f "$lockdir" 2>/dev/null || true
     fi
+    fm_lock_discard_owner "$ownerdir"
+    return 1
+  fi
+  # Ownership was prepared before publication. Rewriting it here exposes an
+  # empty pid to contenders and needlessly repeats process identity probes.
+  if [ "$(cat "$ownerdir/pid" 2>/dev/null || true)" != "$mypid" ]; then
     fm_lock_discard_owner "$ownerdir"
     return 1
   fi
@@ -528,7 +556,9 @@ fm_lock_try_create() {
     fm_lock_discard_owner "$ownerdir"
     return 1
   fi
-  if ln -s "$ownerdir" "$lockdir" 2>/dev/null && fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
+  # A contender can publish after the existence check. Do not follow its
+  # symlink and accidentally insert our link inside its owner directory.
+  if ln -sn "$ownerdir" "$lockdir" 2>/dev/null && fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
     if fm_lock_claim "$lockdir" "$ownerdir" "$allowed_steal_owner"; then
       FM_LOCK_OWNER_DIR=$ownerdir
       return 0
@@ -556,20 +586,37 @@ fm_lock_remove_path() {
 }
 
 fm_lock_mid_acquire_is_fresh() {
-  local lockdir=$1 pid=$2 mid_acquire_stale
+  local lockdir=$1 pid=$2 mid_acquire_stale path
   case "$pid" in
     ''|*[!0-9]*)
       mid_acquire_stale=$FM_LOCK_STALE_AFTER
       [ "$mid_acquire_stale" -lt 2 ] && mid_acquire_stale=2
-      [ "$(fm_path_age "$lockdir")" -lt "$mid_acquire_stale" ]
+      path=$lockdir
+      [ ! -f "$lockdir/pid" ] || path="$lockdir/pid"
+      [ "$(fm_path_age "$path")" -lt "$mid_acquire_stale" ]
       return
       ;;
   esac
   return 1
 }
 
+# fm_lock_owner_state <lockdir> <pid>
+# 0 = live owner, 1 = dead or a bound owner with a recycled pid, 2 = uncertain.
+# A generic legacy lock has only a pid, so a live legacy owner remains protected.
+fm_lock_owner_state() {
+  local lockdir=$1 pid=$2 recorded current
+  fm_pid_alive "$pid" || return 1
+  recorded=$(cat "$lockdir/owner-identity" 2>/dev/null || true)
+  [ -n "$recorded" ] || return 0
+  current=$(fm_lock_pid_identity "$pid" 2>/dev/null || true)
+  [ -n "$current" ] || return 2
+  [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$pid" ] || return 2
+  [ "$current" = "$recorded" ] && return 0
+  return 1
+}
+
 fm_lock_recheck_stale_owner() {
-  local lockdir=$1 expected_owner=$2 expected_pid=$3 actual_pid
+  local lockdir=$1 expected_owner=$2 expected_pid=$3 actual_pid owner_state
   if [ -n "$expected_owner" ]; then
     fm_lock_points_to_owner "$lockdir" "$expected_owner" || return 1
   elif [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
@@ -577,12 +624,12 @@ fm_lock_recheck_stale_owner() {
   fi
   actual_pid=$(cat "$lockdir/pid" 2>/dev/null || true)
   [ "$actual_pid" = "$expected_pid" ] || return 1
-  if fm_pid_alive "$actual_pid"; then
-    return 1
-  fi
-  if fm_lock_mid_acquire_is_fresh "$lockdir" "$actual_pid"; then
-    return 1
-  fi
+  fm_lock_owner_state "$lockdir" "$actual_pid"
+  owner_state=$?
+  [ "$owner_state" -eq 1 ] || return 1
+  # A handoff changes identity before replacing pid, so no other caller may
+  # mistake that short transition for PID reuse.
+  fm_lock_mid_acquire_is_fresh "$lockdir" "$actual_pid" && return 1
   return 0
 }
 
@@ -896,7 +943,7 @@ fm_recovery_marker_reopen_announced() {
 }
 
 fm_lock_try_acquire() {
-  local lockdir=$1 pid steal cur rc steal_owner primary_owner current
+  local lockdir=$1 pid steal cur rc steal_owner primary_owner current owner_state
   FM_LOCK_HELD_PID=
   FM_LOCK_OWNER_DIR=
   FM_LOCK_RECOVERED_PID=
@@ -904,6 +951,11 @@ fm_lock_try_acquire() {
   if fm_lock_try_create "$lockdir"; then
     return 0
   fi
+
+  # Failed creation without an existing owner is not stale-owner contention.
+  # In particular, an unavailable identity probe must not recurse into an
+  # unbounded chain of .steal locks that cannot be created either.
+  [ -e "$lockdir" ] || [ -L "$lockdir" ] || return 1
 
   fm_current_pid current || return 1
   pid=$(cat "$lockdir/pid" 2>/dev/null || true)
@@ -923,11 +975,10 @@ fm_lock_try_acquire() {
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     return 1
   fi
-  if fm_pid_alive "$pid"; then
-    FM_LOCK_HELD_PID=$pid
-    return 1
-  fi
-  if fm_lock_mid_acquire_is_fresh "$lockdir" "$pid"; then
+  fm_lock_owner_state "$lockdir" "$pid"
+  owner_state=$?
+  if [ "$owner_state" -eq 0 ] || [ "$owner_state" -eq 2 ] \
+    || fm_lock_mid_acquire_is_fresh "$lockdir" "$pid"; then
     FM_LOCK_HELD_PID=$pid
     return 1
   fi
@@ -941,13 +992,10 @@ fm_lock_try_acquire() {
   steal_owner=${FM_LOCK_OWNER_DIR:-}
 
   cur=$(cat "$lockdir/pid" 2>/dev/null || true)
-  if fm_pid_alive "$cur"; then
-    fm_lock_release "$steal"
-    FM_LOCK_HELD_PID=$cur
-    FM_LOCK_OWNER_DIR=
-    return 1
-  fi
-  if fm_lock_mid_acquire_is_fresh "$lockdir" "$cur"; then
+  fm_lock_owner_state "$lockdir" "$cur"
+  owner_state=$?
+  if [ "$owner_state" -eq 0 ] || [ "$owner_state" -eq 2 ] \
+    || fm_lock_mid_acquire_is_fresh "$lockdir" "$cur"; then
     fm_lock_release "$steal"
     FM_LOCK_HELD_PID=$cur
     FM_LOCK_OWNER_DIR=
@@ -995,8 +1043,21 @@ fm_lock_try_acquire() {
   return "$rc"
 }
 
+# FM_LOCK_WAIT_DEADLINE is an optional absolute Unix-seconds deadline shared
+# with child commands so nested lock waits cannot renew the caller's budget.
+# Without it, mutation-critical callers retain the unbounded wait contract.
 fm_lock_acquire_wait() {
-  local lockdir=$1
+  local lockdir=$1 remaining
+  if [ -n "${FM_LOCK_WAIT_DEADLINE:-}" ]; then
+    case "$FM_LOCK_WAIT_DEADLINE" in *[!0-9]*) return 2 ;; esac
+    remaining=$((FM_LOCK_WAIT_DEADLINE - $(date +%s)))
+    if [ "$remaining" -le 0 ]; then
+      fm_lock_try_acquire "$lockdir" && return 0
+      return 124
+    fi
+    fm_lock_acquire_wait_bounded "$lockdir" "$remaining"
+    return $?
+  fi
   while ! fm_lock_try_acquire "$lockdir"; do
     sleep 0.1
   done
@@ -1006,10 +1067,11 @@ fm_lock_acquire_wait() {
 # waiting caller before exiting. The lock's ordinary stale-owner recovery makes
 # every interruption safe: before transfer the helper is the owner; after
 # transfer the still-live caller is the owner.
-_fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
-  local lockdir=$1 caller_pid=$2 ownerdir current back
+_fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid> <caller-identity>
+  local lockdir=$1 caller_pid=$2 caller_identity=$3 ownerdir current back
   case "$caller_pid" in ''|*[!0-9]*) return 1 ;; esac
   fm_pid_alive "$caller_pid" || return 1
+  unset FM_LOCK_WAIT_DEADLINE
   trap 'fm_lock_release "$lockdir"; exit 143' TERM INT
   fm_lock_acquire_wait "$lockdir" || return 1
   if [ -L "$lockdir" ]; then
@@ -1023,8 +1085,8 @@ _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
   fm_current_pid current || { fm_lock_release "$lockdir"; return 1; }
   back=$(cat "$ownerdir/pid" 2>/dev/null || true)
   if [ "$back" != "$current" ] \
-    || ! printf '%s\n' "$caller_pid" > "$ownerdir/pid" 2>/dev/null \
-    || [ "$(cat "$ownerdir/pid" 2>/dev/null || true)" != "$caller_pid" ]; then
+    || [ "$(fm_lock_pid_identity "$caller_pid" 2>/dev/null || true)" != "$caller_identity" ] \
+    || ! fm_lock_prepare_owner "$ownerdir" "$caller_pid"; then
     fm_lock_release "$lockdir"
     return 1
   fi
@@ -1034,14 +1096,13 @@ _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
 # fm_lock_acquire_wait_bounded <lockdir> <positive-seconds>
 #
 # Bounded acquire variant. It preserves the ordinary wait/reclaim behavior
-# until fm-timeout-lib.sh's hard deadline, returns 124 when a live holder still
-# owns the lock, and leaves FM_LOCK_HELD_PID naming that holder.
-# Use it where a caller must refuse rather than block: wake presentation, and
-# the guarded remote link clear, whose whole contract is to return a
-# reconciliation refusal instead of wedging an unattended close.
-# Mutation-critical callers that can safely block keep fm_lock_acquire_wait.
+# until fm-timeout-lib.sh's hard deadline, returns 124 when a live or
+# identity-uncertain holder still owns the lock, and leaves FM_LOCK_HELD_PID
+# naming that holder. Wake presentation and guarded remote link clearing use
+# it directly; remote reply application reaches it through fm_lock_acquire_wait
+# with a shared deadline. Callers that can safely block omit that deadline.
 fm_lock_acquire_wait_bounded() {
-  local lockdir=$1 seconds=$2 caller_pid rc owner_pid
+  local lockdir=$1 seconds=$2 caller_pid caller_identity rc owner_pid
   case "$seconds" in ''|*[!0-9]*|0) return 2 ;; esac
   _fm_wake_require_timeout || return 1
   if fm_lock_try_acquire "$lockdir"; then
@@ -1049,13 +1110,14 @@ fm_lock_acquire_wait_bounded() {
   fi
 
   fm_current_pid caller_pid || return 1
+  caller_identity=$(fm_lock_pid_identity "$caller_pid") || return 1
   # shellcheck disable=SC2016 # Positional parameters expand in the child shell.
   if fm_run_timed "$seconds" env \
     "FM_STATE_OVERRIDE=$STATE" \
     "FM_ROOT_OVERRIDE=$FM_ROOT" \
     "FM_LOCK_STALE_AFTER=$FM_LOCK_STALE_AFTER" \
-    bash -c '. "$1"; _fm_lock_acquire_wait_handoff "$2" "$3"' \
-      _ "$FM_WAKE_LIB_DIR/fm-wake-lib.sh" "$lockdir" "$caller_pid" \
+    bash -c '. "$1"; _fm_lock_acquire_wait_handoff "$2" "$3" "$4"' \
+      _ "$FM_WAKE_LIB_DIR/fm-wake-lib.sh" "$lockdir" "$caller_pid" "$caller_identity" \
       </dev/null >/dev/null 2>&1; then
     rc=0
   else

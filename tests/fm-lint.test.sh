@@ -1370,6 +1370,26 @@ test_pins_an_explicit_version
 test_installer_retries_transient_download_failure
 test_installer_selects_platform_archive_url_and_checksum
 test_installer_rejects_wrong_checksum
+test_source_aware_mode_invokes_shellcheck_once_per_root() {
+  local tmp fakebin log flag_log out invocation_count
+  tmp=$(fm_test_tmproot fm-lint-source-per-root)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  flag_log="$tmp/flags.log"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+  out=$(PATH="$fakebin:$PATH" FM_LINT_JOBS=1 FM_TEST_FLAG_LOG="$flag_log" \
+    "$LINT" bin/fm-install-shellcheck.sh bin/fm-lint-workflows.sh bin/fm-timeout-lib.sh 2>&1) \
+    || fail "source-aware per-root lint failed"$'\n'"$out"
+  invocation_count=$(grep -c '^external-sources=' "$flag_log" || true)
+  [ "$invocation_count" -eq 3 ] \
+    || fail "source-aware lint used $invocation_count ShellCheck calls for three roots"
+  [ "$(LC_ALL=C sort "$log")" = $'bin/fm-install-shellcheck.sh\nbin/fm-lint-workflows.sh\nbin/fm-timeout-lib.sh' ] \
+    || fail "source-aware per-root lint omitted or duplicated a root"
+  fm_lint_assert_flag_log "$flag_log" yes none
+  pass "source-aware lint runs each root separately without dropping sources or rules"
+}
+
+test_source_aware_mode_invokes_shellcheck_once_per_root
 test_installer_falls_back_to_shasum
 test_installer_prefers_sha256sum_over_shasum
 test_installer_rejects_unsupported_platform

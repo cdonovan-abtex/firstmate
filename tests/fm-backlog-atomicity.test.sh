@@ -2469,6 +2469,12 @@ case "\$*" in
       : > "$case_dir/state-swapped"
       mv "$home/state" "$home/state-original" || exit 1
       "$real_ln" -s "$foreign_state" "$home/state" || exit 1
+      # Keep the prepared lock owner readable so acquisition can complete and
+      # the caller reaches its post-lock record-boundary check.
+      for owner in "$home/state-original/.meta-$id.lock.owner."*; do
+        [ -d "\$owner" ] || continue
+        mv "\$owner" "$foreign_state/" || exit 1
+      done
     fi
     ;;
 esac
@@ -2477,6 +2483,7 @@ SH
   chmod +x "$case_dir/fakebin/ln"
 
   out=$(run_bootstrap "$case_dir") || rc=$?
+  assert_present "$case_dir/state-swapped" "bootstrap state-swap injection did not run"
   [ "$rc" -ne 0 ] || fail "bootstrap trusted a worker record after its state boundary changed"
   assert_contains "$out" "post-lock worker record check refused" \
     "bootstrap did not report the post-lock state-boundary failure"
